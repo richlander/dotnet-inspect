@@ -502,34 +502,74 @@ public sealed partial class CompiledXmlDocumentationHouseTests
             Candidate(library, subject, xmlIndex: 0, precedence: 0);
         CompiledXmlContribution[] contributions =
             Enumerable.Repeat(candidate, contributionCount).ToArray();
-        DateTimeOffset deadline = DateTimeOffset.UtcNow.AddSeconds(1);
-        DocumentationHouseRequest request = Request(
-            subject,
-            contributions,
-            maximumContributions: contributionCount,
-            deadline: deadline);
 
-        while (deadline - DateTimeOffset.UtcNow
-            > TimeSpan.FromMilliseconds(50))
+        // Calibrate selection time rather than assuming a fixed margin:
+        // warmed selection over four million contributions can finish well
+        // inside one.
+        TimeSpan baselineTime = TimeSpan.MaxValue;
+        for (int attempt = 0; attempt < 5; attempt++)
         {
-            Thread.SpinWait(10_000);
+            DocumentationHouseRequest baselineRequest = Request(
+                subject,
+                contributions,
+                maximumContributions: contributionCount);
+            LibraryOperationLease baselineLease = library.IssueOperation();
+            Stopwatch measurement = Stopwatch.StartNew();
+            Assert.IsType<DocumentationHouseOutcome.Completed>(
+                await DocumentationHouse.ExecuteAsync(
+                    baselineRequest,
+                    baselineLease,
+                    TestContext.Current.CancellationToken));
+            measurement.Stop();
+            baselineTime = TimeSpan.FromTicks(
+                Math.Min(baselineTime.Ticks, measurement.Elapsed.Ticks));
         }
 
-        DocumentationHouseOutcome.Incomplete incomplete =
-            Assert.IsType<DocumentationHouseOutcome.Incomplete>(
+        bool crossedDeadline = false;
+        for (double fraction = 0.95; fraction >= 0.5; fraction -= 0.05)
+        {
+            TimeSpan executionBudget =
+                TimeSpan.FromTicks((long)(baselineTime.Ticks * fraction));
+            DateTimeOffset deadline = DateTimeOffset.UtcNow.AddMilliseconds(250);
+            DocumentationHouseRequest request = Request(
+                subject,
+                contributions,
+                maximumContributions: contributionCount,
+                deadline: deadline);
+            LibraryOperationLease lease = library.IssueOperation();
+            while (deadline - DateTimeOffset.UtcNow > executionBudget)
+                Thread.SpinWait(10_000);
+
+            Stopwatch executionTime = Stopwatch.StartNew();
+            DocumentationHouseOutcome outcome =
                 await DocumentationHouse.ExecuteAsync(
                     request,
-                    library.IssueOperation(),
-                    TestContext.Current.CancellationToken));
+                    lease,
+                    TestContext.Current.CancellationToken);
+            executionTime.Stop();
+            if (executionTime.Elapsed
+                < executionBudget + TimeSpan.FromMilliseconds(2))
+            {
+                continue;
+            }
 
-        Assert.Equal(
-            DocumentationIncompleteBoundary.Deadline,
-            incomplete.Boundary);
-        Assert.Equal(
-            contributionCount,
-            incomplete.Work.ContributionsObserved);
-        Assert.Equal(0, incomplete.Work.CompiledXmlBytesObserved);
-        Assert.False(incomplete.Work.ParsedCompiledXml);
+            crossedDeadline = true;
+            DocumentationHouseOutcome.Incomplete incomplete =
+                Assert.IsType<DocumentationHouseOutcome.Incomplete>(outcome);
+            Assert.Equal(
+                DocumentationIncompleteBoundary.Deadline,
+                incomplete.Boundary);
+            Assert.Equal(
+                contributionCount,
+                incomplete.Work.ContributionsObserved);
+            Assert.Equal(0, incomplete.Work.CompiledXmlBytesObserved);
+            Assert.False(incomplete.Work.ParsedCompiledXml);
+            break;
+        }
+
+        Assert.True(
+            crossedDeadline,
+            $"No selection crossed its calibrated deadline; baseline was {baselineTime.TotalMilliseconds:F1} ms.");
     }
 
     [Fact]

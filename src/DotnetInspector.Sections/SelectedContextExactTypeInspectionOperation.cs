@@ -54,10 +54,24 @@ public sealed record SelectedContextExactTypeLiveTarget(
     string? PackageExtractPath)
 {
     /// <summary>
+    /// The listed adjacent Portable PDB retained with the defining package
+    /// implementation, or <see langword="null"/> when none was demanded or
+    /// listed.
+    /// </summary>
+    public ImmutableArray<byte>? ImplementationPortablePdb { get; init; }
+
+    /// <summary>
     /// Opens the selected Package compile asset's XML companion within the
     /// caller-supplied expanded-byte limit, or returns <c>null</c> when absent.
     /// </summary>
     public Func<long, Stream?>? OpenCompiledDocumentation { get; init; }
+
+    /// <summary>
+    /// The retained package content that supplied the defining Library, valid
+    /// only while the paired Workspace context remains admitted, or
+    /// <see langword="null"/> outside a package Root.
+    /// </summary>
+    public DotnetInspector.Packages.IPackageContent? PackageContent { get; init; }
 }
 
 /// <summary>
@@ -479,6 +493,7 @@ public static class SelectedContextExactTypeInspectionOperation
                     {
                         OpenCompiledDocumentation =
                             selected.OpenCompiledDocumentation,
+                        PackageContent = selected.PackageContent,
                     }
                     : throw new InvalidOperationException(
                         "An available selected-context exact Type requires "

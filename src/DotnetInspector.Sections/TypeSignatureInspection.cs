@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 using DotnetInspector.Libraries;
 using ILInspector.Metadata;
@@ -145,6 +146,11 @@ public sealed record TypeSignatureInspectionRequest
     public TypeSignatureInspectionPlan Plan { get; }
 }
 
+[JsonPolymorphic(TypeDiscriminatorPropertyName = "outcome")]
+[JsonDerivedType(typeof(TypeSignatureInspectionOutcome.Available), "available")]
+[JsonDerivedType(typeof(TypeSignatureInspectionOutcome.Rejected), "rejected")]
+[JsonDerivedType(typeof(TypeSignatureInspectionOutcome.Incomplete), "incomplete")]
+[JsonDerivedType(typeof(TypeSignatureInspectionOutcome.Failed), "failed")]
 public abstract record TypeSignatureInspectionOutcome
 {
     private protected TypeSignatureInspectionOutcome()

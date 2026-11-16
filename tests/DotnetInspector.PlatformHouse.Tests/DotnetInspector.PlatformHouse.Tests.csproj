@@ -18,7 +18,7 @@
     <PackageDownload Include="Microsoft.NETCore.App.Ref"
                      Version="[10.0.10]" />
     <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-x64"
-                     Version="[11.0.0-rc.1.26425.128]" />
+                     Version="[11.0.0-rc.3.26522.148]" />
     <PackageReference Include="xunit.v3" />
     <Using Include="Xunit" />
     <ProjectReference Include="../../src/DotnetInspector.Libraries/DotnetInspector.Libraries.csproj" />
@@ -39,22 +39,22 @@
     <None Include="$(NuGetPackageRoot)microsoft.netcore.app.ref/10.0.10/ref/net10.0/netstandard.dll"
           Link="RealAssets/PlatformTypeCatalog/netstandard.dll"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.Xml.dll"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.3.26522.148/runtimes/linux-x64/lib/net11.0/System.Xml.dll"
           Link="RealAssets/PlatformTypeResolution/System.Xml.dll"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.Xml.ReaderWriter.dll"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.3.26522.148/runtimes/linux-x64/lib/net11.0/System.Xml.ReaderWriter.dll"
           Link="RealAssets/PlatformTypeResolution/System.Xml.ReaderWriter.dll"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.Private.Xml.dll"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.3.26522.148/runtimes/linux-x64/lib/net11.0/System.Private.Xml.dll"
           Link="RealAssets/PlatformTypeResolution/System.Private.Xml.dll"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.Private.CoreLib.dll"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.3.26522.148/runtimes/linux-x64/lib/net11.0/System.Private.CoreLib.dll"
           Link="RealAssets/PlatformTypeResolution/System.Private.CoreLib.dll"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.dll"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.3.26522.148/runtimes/linux-x64/lib/net11.0/System.dll"
           Link="RealAssets/PlatformTypeResolution/System.dll"
           CopyToOutputDirectory="PreserveNewest" />
-    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.1.26425.128/runtimes/linux-x64/lib/net11.0/System.ObjectModel.dll"
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64/11.0.0-rc.3.26522.148/runtimes/linux-x64/lib/net11.0/System.ObjectModel.dll"
           Link="RealAssets/PlatformTypeResolution/System.ObjectModel.dll"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

@@ -157,6 +157,62 @@ A failure or degradation that affects the inspection, such as a ranged read
 refused and replaced by a complete transfer, keeps its ordinary diagnostic
 disclosure where one exists.
 
+### Browser Summary delivery
+
+The operator approved Browser Summary delivery on 2026-10-28 as a focused
+prerequisite for #10598, tracked by #10857. Its Debug-only
+`QueryPackageSummaryWithEvidence` export returns the ordinary Summary beside
+a diagnostic evidence envelope enriching the existing version-settlement
+baseline. The attachment lists the House acquisitions used by that execution,
+including an inferred-runtime continuation; a retained realization does not
+replay its historical receipts. Other version-discovery requests are outside
+the payload-transfer receipt contract. A failed House attempt that issues no
+acquisition receipt contributes no entry; an empty attachment is not a claim
+that no HTTP requests occurred.
+
+The motivating asset is `Microsoft.NETCore.App.Runtime.linux-x64@10.0.10`:
+40,096,825 bytes, 172 managed runtime DLLs, and no `ref/` or `lib/` DLLs.
+Its one runtime population motivates distinguishing two acquisitions for
+inventory from one. Readable directory-equivalent fixtures establish ordered
+receipts, actual transferred bytes, and warm non-replay; complete cached
+packages and the Debug export gate ordinary Summary parity. This diagnostic
+prerequisite changes no acquisition policy.
+
+### Browser Library reference supplier delivery
+
+The operator approved this Browser-only diagnostic prerequisite for #10991 on
+2026-11-05, tracked by #10994. The motivating asset is
+`Microsoft.Azure.SignalR@1.33.1`, `net8.0`, Library
+`compile:lib/net8.0/Microsoft.Azure.SignalR.dll`: a preserved cold-load failure
+left Azure.Core without an icon, but its console trace did not retain the
+structured operation failure. Current-main Debug and Release successes do not
+classify that historical failure.
+
+The ordinary supplier inspection has an available or failed baseline. An
+available result contains the unchanged direct-reference supplier coordinates;
+a null supplier means ownership was not established, not proven absence.
+Failure kind and contained detail belong to Content, not supplemental Evidence.
+The existing ordinary export still returns its array or throws its original
+exception. Only Debug advertises `QueryReferencePackageSuppliersWithEvidence`,
+which delivers the same inspection enriched with acquisition evidence.
+
+Capture is selected before execution and observes that execution's Root and
+ordinary-Package supplier House settlements without rerunning the inspection.
+Receipts remain in settlement order, including repeated coordinates and
+settlements preceding a later failure. Retained inventory, decoded members,
+and realizations do not replay old receipts; a newly executed cache acquisition
+does contribute its new, request-free receipt. Failed attempts with no issued
+receipt and dependency-manifest requests are not reconstructed from telemetry:
+an empty attachment does not establish that no HTTP work occurred.
+
+This delivery changes no supplier routing, Workspace admission, acquisition
+policy, timeout, icon rendering, or Release wire shape. Configuration-neutral
+capture and projection tests cover actual Root-continuation timeout and caller
+cancellation, settled progress delivered to shared waiters, and ordinary parity;
+the supplier association gate covers actual ordered acquisitions and retained
+non-replay. The exact SignalR Gallery/Wasm scenario and live Debug capability
+discovery provide the Browser adoption evidence.
+
 ### Retired experiences
 
 Release and Debug builds no longer accept `--info`, `DOTNET_INSPECT_INFO`,

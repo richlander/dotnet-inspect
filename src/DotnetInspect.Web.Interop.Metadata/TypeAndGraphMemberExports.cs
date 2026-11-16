@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using ILInspector.CSharp;
 using ILInspector.Metadata;
@@ -130,12 +131,23 @@ public static partial class MetadataExports
             targetFramework,
             typeDefinitionId,
             ExactTypeSelectionKind.DefinitionIdentity);
+        InspectionEnvelope<TypeSignatureInspectionOutcome>? signature = null;
+        void InspectSignature(SelectedContextExactTypeLiveTarget target)
+        {
+            MetadataTypeDefinitionName definition = target.Type.DefinitionName
+                ?? throw new InvalidOperationException(
+                    "An exact Type target requires its definition identity.");
+            signature = TypeSignatureInspectionOperation.Execute(
+                target.Assembly,
+                new(definition, BrowserApiSurfacePolicy.ExtractionBounds));
+        }
         BrowserTypeHierarchyInspection? hierarchyInspection =
             scope.HasSurfaceDeclarationContext
                 ? BrowserTypeHierarchyInspectionOperation.Execute(
                     scope,
                     participant,
-                    typeDefinitionId)
+                    typeDefinitionId,
+                    liveTargetConsumer: InspectSignature)
                 : null;
         InspectionEnvelope<ExactTypeInspectionResult> exactTypeInspection;
         if (hierarchyInspection is null)
@@ -144,12 +156,18 @@ public static partial class MetadataExports
                 await scope.UsePackageAssemblyRoles(
                     root,
                     (workspace, package, realization) =>
-                        ExactTypeInspectionOperation.ExecuteAsync(
+                        ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync(
                             workspace,
                             package,
                             realization,
                             exactTypeRequest,
-                            BrowserApiSurfacePolicy.Limits));
+                            BrowserApiSurfacePolicy.Limits,
+                            (envelope, target, _) =>
+                            {
+                                if (target is not null)
+                                    InspectSignature(target);
+                                return ValueTask.FromResult(envelope);
+                            }));
         }
         else
         {
@@ -209,7 +227,19 @@ public static partial class MetadataExports
                     .. projection.InspectionFailures.Select(
                         failure => $"{failure.Operation}: {failure.Detail}"),
                     .. TypeDependencyFailures(scope, result.Dependencies),
-                ]);
+                ])
+        {
+            TypeSignatureInspection = signature is null
+                ? null
+                : new(
+                    TypeSignatureInspectionJson.SerializeContent(signature.Content),
+                    signature.Share,
+                    signature.Diagnostics),
+            TypeSignaturePresentation =
+                signature?.Content is TypeSignatureInspectionOutcome.Available available
+                    ? ExactTypeInfoTsvPresentation.Project(available.Signature)
+                    : null,
+        };
     }
 
     static BrowserTypeHierarchyMetadata? ProjectTypeHierarchy(

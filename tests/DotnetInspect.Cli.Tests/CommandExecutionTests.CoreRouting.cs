@@ -372,7 +372,7 @@ public partial class CommandExecutionTests
             error,
             StringComparison.Ordinal);
         Assert.DoesNotContain("Error:", error, StringComparison.Ordinal);
-        Assert.StartsWith("System.Text.Json ", output, StringComparison.Ordinal);
+        Assert.StartsWith("System.Text.Json.dll (Platform)", output, StringComparison.Ordinal);
         Assert.Contains("─ System.Text.Json (", output, StringComparison.Ordinal);
         Assert.DoesNotContain("## Library Info", output, StringComparison.Ordinal);
     }
@@ -4220,7 +4220,7 @@ public partial class CommandExecutionTests
         Assert.Equal(direct, routed);
         Assert.Equal(1, routed.Exit);
         Assert.Contains(
-            "Multiple package output requires --json or a row format",
+            $"Unrecognized command or argument '{version}'",
             routed.Error);
         Assert.DoesNotContain("Type Info", routed.Error);
     }

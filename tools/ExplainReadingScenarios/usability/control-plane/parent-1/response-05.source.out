@@ -1,0 +1,74 @@
+{
+  "schema_version": 1,
+  "result_kind": "workspace-package-update",
+  "content": {
+    "succeeded": true,
+    "component": "packages/system.text.json@10.0.0/net10.0/~",
+    "failure": null,
+    "source": {
+      "package": "system.text.json",
+      "version": "10.0.0",
+      "framework": "net10.0",
+      "runtimeIdentifier": null
+    },
+    "destination": {
+      "package": "system.text.json",
+      "version": "10.0.1",
+      "framework": "net10.0",
+      "runtimeIdentifier": null
+    },
+    "scope": {
+      "kind": "Committed",
+      "operation": "Add",
+      "rejection": null,
+      "failure": null
+    },
+    "retention": {
+      "disposition": "ExactPath",
+      "detail": "The retained source path contains only its Package.",
+      "libraryPairing": null,
+      "typeCorrespondence": null,
+      "memberCorrespondence": null
+    },
+    "navigationOutcome": "Applied",
+    "activeSubject": {
+      "kind": "Package",
+      "label": "system.text.json"
+    },
+    "retainedPath": [
+      {
+        "kind": "Workspace",
+        "label": "Workspace"
+      },
+      {
+        "kind": "Package",
+        "label": "system.text.json"
+      }
+    ],
+    "inspector": {
+      "basis": "ExactRequest",
+      "requestedFacet": "package.libraries",
+      "effectiveFacet": "package.libraries",
+      "outcome": "Applied",
+      "resolution": {
+        "kind": "Available",
+        "descriptor": {
+          "id": "package.libraries",
+          "kind": "Package",
+          "title": "Libraries",
+          "summary": "Libraries of the selected target, or RID packages of a tool pointer package.",
+          "order": 50,
+          "role": "PackageLibraries"
+        },
+        "unavailability": null,
+        "message": null
+      }
+    }
+  },
+  "share": {
+    "kind": "available",
+    "full_url": "https://dotnet-inspect.ca/?w=eyJmIjo1LCJzIjpbWyJodHRwczovL2FwaS5udWdldC5vcmcvdjMvaW5kZXguanNvbiJdXSwidCI6W1siU3lzdGVtLlRleHQuSnNvbiIsIjEwLjAuMSIsIm5ldDEwLjAiLG51bGxdXSwiZyI6W1swXV0sInIiOltdLCJhIjowLCJ4IjowLCJ2IjpbeyJ0IjpudWxsLCJ1Ijp7ImsiOiJ3b3Jrc3BhY2UifX0seyJ0IjowLCJyIjp7ImsiOiJwYWNrYWdlIn0sInUiOnsiayI6InBhY2thZ2UifSwiZiI6InBhY2thZ2UubGlicmFyaWVzIn1dfQ",
+    "packet": "eyJmIjo1LCJzIjpbWyJodHRwczovL2FwaS5udWdldC5vcmcvdjMvaW5kZXguanNvbiJdXSwidCI6W1siU3lzdGVtLlRleHQuSnNvbiIsIjEwLjAuMSIsIm5ldDEwLjAiLG51bGxdXSwiZyI6W1swXV0sInIiOltdLCJhIjowLCJ4IjowLCJ2IjpbeyJ0IjpudWxsLCJ1Ijp7ImsiOiJ3b3Jrc3BhY2UifX0seyJ0IjowLCJyIjp7ImsiOiJwYWNrYWdlIn0sInUiOnsiayI6InBhY2thZ2UifSwiZiI6InBhY2thZ2UubGlicmFyaWVzIn1dfQ"
+  },
+  "diagnostics": []
+}

@@ -1503,7 +1503,13 @@ public class CompilerFeatureOptionsTests
             function.Descendants.OfType<UnsupportedNode>(),
             node => node.Opcode == "classic async"
                 && node.Reason.Contains(
-                    "await operand requires unsafe context",
+                    "general inverse declined",
+                    StringComparison.Ordinal));
+        Assert.Contains(
+            function.Diagnostics,
+            diagnostic => diagnostic.Id == DiagnosticIds.UnsupportedConstruct
+                && diagnostic.Message.Contains(
+                    "requires unsafe context and contains await",
                     StringComparison.Ordinal));
     }
 

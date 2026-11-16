@@ -168,6 +168,30 @@ public class ExactTypeInfoTsvPresentationTests
                 showHeader: false));
     }
 
+    [Fact]
+    public void Project_SharesCompleteGenericSpellingWithUtf8Writer()
+    {
+        TypeSignature signature = Signature(typeof(GenericOuter<>.Inner<,>));
+        TypeSignaturePresentation presentation =
+            ExactTypeInfoTsvPresentation.Project(signature);
+        var output = new ArrayBufferWriter<byte>();
+        ExactTypeInfoTsvPresentation.Write(
+            output,
+            new(signature, presentation.Kind, presentation.Modifiers, "Example.dll", "Library"),
+            showHeader: false);
+        string tsv = Encoding.UTF8.GetString(output.WrittenSpan);
+
+        Assert.Equal(
+            "DotnetInspector.Presentation.Tests.GenericOuter<T>.Inner<U, V>",
+            presentation.Type);
+        Assert.Equal("T, U, V : class?, new()", presentation.TypeParameters);
+        Assert.Contains($"Type\t{presentation.Type}\n", tsv, StringComparison.Ordinal);
+        Assert.Contains(
+            $"Type Parameters\t{presentation.TypeParameters}\n",
+            tsv,
+            StringComparison.Ordinal);
+    }
+
     private static TypeSignature Signature(Type type)
     {
         MetadataTypeDefinitionName name =

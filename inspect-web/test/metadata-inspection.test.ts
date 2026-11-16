@@ -20,6 +20,9 @@ import { metadataInertStringFixture } from "./inert-string-fixture.ts";
 
 function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
   return {
+    typeSignatureInspection: null,
+    typeSignaturePresentation: null,
+    typeProjectionInspection: null,
     exactTypeInspection: {
       content: {
         outcome: 0,
@@ -336,7 +339,7 @@ test("newer type metadata requests suppress stale success and failure", async ()
   await Promise.all([firstLoad, secondLoad]);
 
   assert.equal(
-    state.typeMetadata?.exactTypeInspection.content.type?.fullName,
+    state.typeMetadata?.exactTypeInspection?.content.type?.fullName,
     "Example.Current");
   assert.equal(state.typeMetadataError, "");
   assert.equal(state.typeMetadataLoading, false);

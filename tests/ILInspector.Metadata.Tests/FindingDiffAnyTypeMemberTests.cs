@@ -8,6 +8,22 @@ namespace ILInspector.Metadata.Tests;
 public sealed class FindingDiffAnyTypeMemberTests
 {
     [Fact]
+    public void SteppedMemberComparison_StopsAtMemberBoundaries()
+    {
+        using var before = Open(FixtureCatalog.MetadataFindingDiffAnyPair.OldAssemblyPath());
+        using var after = Open(FixtureCatalog.MetadataFindingDiffAnyPair.NewAssemblyPath());
+        var pairing = new FindingDiffAnyTypePairing(before, after);
+        var comparison = pairing.BeginMembers("FindingDiffAnyFixture.Unchanged");
+        Assert.False(comparison.Step(TimeSpan.Zero, TestContext.Current.CancellationToken));
+        Assert.Equal(1, pairing.BodiesCompared);
+        Assert.Null(comparison.Result);
+        Assert.True(comparison.Step(TimeSpan.Zero, TestContext.Current.CancellationToken));
+        Assert.Equal(2, pairing.BodiesCompared);
+        Assert.Equal(FindingDiffAnyState.Unchanged, comparison.Result!.Body);
+        pairing.Release();
+    }
+
+    [Fact]
     public void EveryPairedFixtureType_PartitionsTheLibraryAxes_AndReadersAgree()
     {
         using var before = Open(FixtureCatalog.MetadataFindingDiffAnyPair.OldAssemblyPath());

@@ -64,6 +64,7 @@
     <ProjectReference Include="..\..\src\DotnetInspector.ResearchSections\DotnetInspector.ResearchSections.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.Fixtures\ILInspector.Analysis.Fixtures.csproj" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.IteratorFixtures\ILInspector.Analysis.IteratorFixtures.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.NewUnsafe\ILInspector.Decompiler.Fixtures.NewUnsafe.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\research\ILInspector.Research.NameFamilyFixtures\ILInspector.Research.NameFamilyFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\research\ILInspector.Research.DependencyStructureFixtures\ILInspector.Research.DependencyStructureFixtures.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\analysis\ILInspector.Analysis.AsyncSiblingRepositoryFixture\ILInspector.Analysis.AsyncSiblingRepositoryFixture.csproj" ReferenceOutputAssembly="false" />
@@ -81,6 +82,8 @@
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V1\LibraryApiDiff.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\presentation\LibraryApiDiff.V2\LibraryApiDiff.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\services\DotnetInspector.Services.RouteLearning.Consumer\DotnetInspector.Services.RouteLearning.Consumer.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.FindingDiffAny.V1\ILInspector.Metadata.FindingDiffAny.V1.csproj" ReferenceOutputAssembly="false" />
+    <ProjectReference Include="..\..\fixtures\metadata\ILInspector.Metadata.FindingDiffAny.V2\ILInspector.Metadata.FindingDiffAny.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\UnsafeMemberDiffFixtures.V1\UnsafeMemberDiffFixtures.V1.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\diff\UnsafeMemberDiffFixtures.V2\UnsafeMemberDiffFixtures.V2.csproj" ReferenceOutputAssembly="false" />
     <ProjectReference Include="..\..\fixtures\decompiler\ILInspector.Decompiler.Fixtures.LegacyUnsafe\ILInspector.Decompiler.Fixtures.LegacyUnsafe.csproj" ReferenceOutputAssembly="false" />

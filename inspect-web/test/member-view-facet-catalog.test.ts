@@ -34,6 +34,7 @@ test("Member exact-match inspectors use product titles in Browser order", () => 
     ["call-graph", "Calls"],
     ["facts", "Facts"],
     ["resource-triage", "Resource Triage"],
+    ["analysis", "Analysis"],
     ["source", "Code"],
     ["compare", "Compare builds"],
   ]);

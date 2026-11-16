@@ -29,7 +29,7 @@ public sealed record UnsafeMemberRoleSummary(
 }
 
 /// <summary>
-/// An unsafe member finding's value without provenance, as the Unsafe Members
+/// An unsafe member finding's value without provenance, as the Unsafe Code
 /// row presents it: exposure, explicit contract, and each role in inventory
 /// order. Physical bodies, generated names, and IL offsets are provenance and
 /// never part of it, so comparison classifies a member as changed only when
@@ -68,6 +68,18 @@ public sealed record UnsafeMemberFindingSummary(
                         ]
                         : [])),
         ];
+
+    /// <summary>The words a safe-boundary state is presented with.</summary>
+    public static string SafeBoundaryText(UnsafeMemberSafeBoundary boundary) =>
+        boundary switch
+        {
+            UnsafeMemberSafeBoundary.Yes => "safe boundary",
+            UnsafeMemberSafeBoundary.No => "not a safe boundary",
+            UnsafeMemberSafeBoundary.NotApplicable => "legacy rules",
+            UnsafeMemberSafeBoundary.Unknown => "rules unknown",
+            _ => throw new InvalidOperationException(
+                $"Unknown safe-boundary state '{boundary}'."),
+        };
 
     /// <summary>The words an exposure is presented with.</summary>
     public static string ExposureText(UnsafeMemberExposure exposure) =>

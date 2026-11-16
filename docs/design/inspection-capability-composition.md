@@ -106,7 +106,7 @@ The first adoption uses the existing Package Query
 `Microsoft.Azure.SignalR@1.33.1` at `net8.0`:
 
 ```console
-dotnet-inspect package query Microsoft.Azure.SignalR \
+dotnet-inspect find --packages Microsoft.Azure.SignalR \
   --where "library-literal=https://" --tfm net8.0
 ```
 
@@ -145,7 +145,7 @@ skill-maintained facet inventory.
 The first required path uses the existing Package Query discovery gesture:
 
 ```console
-dotnet-inspect package query -Q Packages
+dotnet-inspect find --packages -Q Packages
 ```
 
 The effective Package Query registration supplies the `library-literal`
@@ -175,7 +175,7 @@ CLI and Browser bindings. It does not acquire a package or execute the query.
 The agent can then construct the production request:
 
 ```console
-dotnet-inspect package query Microsoft.Azure.SignalR \
+dotnet-inspect find --packages Microsoft.Azure.SignalR \
   --where "library-literal=https://" --tfm net8.0 \
   -S "Literal Strings"
 ```
@@ -209,7 +209,7 @@ The adoption state is explicit:
 
 | Step | Current state |
 | --- | --- |
-| `package query -Q Packages` discovers `library-literal` | Implemented |
+| `find --packages -Q Packages` discovers `library-literal` | Implemented |
 | `-Q` emits the canonical query-resource path | Planned in #8417 |
 | Exact `explain <path>` describes the facet and route | Planned Resource Explanation query adoption |
 | The `Microsoft.Azure.SignalR` literal query emits whole-string rows | Implemented |
@@ -451,7 +451,7 @@ A host binding selects registered resources and names the host's own gesture:
 
 | Binding | Selects | Example |
 | --- | --- | --- |
-| Route binding | A route, and the query facets it exposes | `package query` |
+| Route binding | A route, and the query facets it exposes | `find --packages` |
 | Operation analysis binding | The analyses it exposes on its route, under the selection rule below | `diff --analysis` |
 | Structural view binding | The sections and categories one structural view selects | `library -S`, `library address -S` |
 

@@ -3,16 +3,115 @@ using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Ecosystems;
+using ILInspector.Metadata;
 using NuGetFetch;
 using Catalog = DotnetInspect.Web.Interop.Catalog;
 using Source = DotnetInspect.Web.Interop.Source;
 using PackageAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePackagePresentation>;
 using PlatformAdmission = DotnetInspect.Web.BrowserRetainedWorkspaceAdmissionResult<DotnetInspect.Web.BrowserRetainedWorkspacePlatformPresentation>;
+using PlatformOperationAdmission = DotnetInspect.Web.BrowserRetainedWorkspacePlatformOperationAdmission;
 
 namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserRetainedWorkspaceActivationTests
 {
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task OpenAiPackage_RestoresDependencyHierarchyWithCompleteSurface()
+    {
+        var store = new InMemoryPackageStore();
+        await using (FileStream archive = File.OpenRead(Path.Combine(
+            AppContext.BaseDirectory,
+            "RealAssets",
+            "RetainedWorkspace",
+            "openai.2.15.0.nupkg")))
+        {
+            await store.CommitAsync(
+                "OpenAI",
+                "2.15.0",
+                NuGetCache.GetSourceKey("https://api.nuget.org/v3/index.json"),
+                archive,
+                TestContext.Current.CancellationToken);
+        }
+
+        CompleteRestorationExecutionOptions options =
+            BrowserCompleteRestorationOptions.Create();
+        options = options with
+        {
+            ContextLoad = options.ContextLoad with
+            {
+                HttpClient = new HttpClient(new RejectingHandler()),
+                PackageStore = store,
+            },
+        };
+        string packet = EncodeInventoryPacket(
+            """
+            {
+              "f": 3,
+              "t": [["OpenAI", "2.15.0", "net10.0", null]],
+              "g": [[0]],
+              "r": [
+                ["e", "ecosystem.runtime", ["System"], [], [["t", "DotNetRuntime"], ["p", "System."]]],
+                ["e", "ecosystem.microsoft-extensions", ["Microsoft.Extensions"], [], [["p", "Microsoft.Extensions."]]],
+                ["e", "ecosystem.aspnetcore", ["Microsoft.AspNetCore"], [], [["t", "AspNetCore"], ["p", "Microsoft.AspNetCore."]]]
+              ],
+              "a": 0,
+              "x": 0,
+              "v": [
+                {"t": null, "u": {"k": "workspace"}},
+                {"t": 0, "r": {"k": "package"}, "u": {"k": "package"}, "f": "package.dependency-hierarchy"}
+              ],
+              "b": "net11.0"
+            }
+            """);
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(owner, "openai", packet);
+        BrowserPackageSurfaceInfo surface =
+            Assert.Single(posting.Packages).Surface;
+
+        Assert.Equal(
+            "package.dependency-hierarchy",
+            posting.Navigation.Snapshot.LensOutcome.Request?.Facet);
+        Assert.Equal("OpenAI", surface.Package);
+        Assert.Equal("net10.0", surface.ActiveFramework);
+        Assert.Null(surface.InspectionError);
+        Assert.Single(surface.Assemblies);
+        Assert.Contains(
+            surface.Types,
+            type => type.QueryId == "OpenAI.OpenAIClient");
+        Assert.True(surface.TotalMembers > 0);
+    }
+
+    [Fact]
+    public async Task RetainedPackage_ReportsActualSurfaceLimit()
+    {
+        CompleteRestorationExecutionOptions options =
+            await DetachedInventoryOptionsAsync();
+        options = options with
+        {
+            PackageSurfaceLimits = new(
+                1, int.MaxValue, int.MaxValue, int.MaxValue, int.MaxValue,
+                int.MaxValue, 1),
+        };
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(owner, "limited", Packet());
+        BrowserPackageSurfaceInfo surface =
+            Assert.Single(posting.Packages).Surface;
+
+        Assert.Contains(
+            "RetainedTextCharacters bound (1)",
+            surface.InspectionError,
+            StringComparison.Ordinal);
+        Assert.Empty(surface.Assemblies);
+        Assert.Empty(surface.Types);
+    }
+
     [Theory]
     [InlineData(2)]
     [InlineData(3)]
@@ -310,6 +409,99 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.IsType<PackageAdmission.Superseded>(
             await owner.AdmitPackageAsync(
                 "a", replacement.RealizationId, "t0",
+                TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task PlatformOperationAdmission_HoldsExactRc3ContextThroughReplacement()
+    {
+        const string version = "11.0.0-rc.3.26522.148";
+        CompleteRestorationExecutionOptions options =
+            await DetachedInventoryOptionsAsync(
+                includePlatform: true,
+                platformVersion: version);
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting first =
+            await ActivateAsync(owner, "platform", EncodeInventoryPacket(
+                """
+                {"f":3,"t":[[":Platform","11.0.0-rc.3.26522.148","net11.0","linux-x64"]],"g":[[0]],"r":[],"a":null,"x":0,"v":[{"t":null,"u":{"k":"workspace"}},{"t":0}]}
+                """));
+        var admitted = Assert.IsType<PlatformOperationAdmission.Admitted>(
+            await owner.EnterPlatformOperationAsync(
+                "platform", first.RealizationId, "t0",
+                TestContext.Current.CancellationToken));
+        using WorkspaceRealizationOperationLease operation = admitted.Operation;
+        Assert.Same(Assert.Single(first.Platforms), admitted.Presentation);
+        Assert.Equal(version, admitted.Presentation.Surface.Version);
+        Assert.Equal("linux-x64", admitted.Presentation.RuntimeIdentifier);
+        Assert.Same(first.Realization, admitted.Context.Receipt.Workspace);
+        Assert.Equal(admitted.Presentation.ContextIndex,
+            admitted.Context.Receipt.Order);
+        AssemblyContextGroup group = Assert.IsType<AssemblyContextGroup>(
+            admitted.Context.Group);
+        AssemblyContextParticipant participant = Assert.Single(
+            group.Participants,
+            candidate => candidate.Assembly.Identity.Name == "System.Text.Json");
+
+        _ = await ActivateAsync(owner, "replacement", Packet());
+        Assert.Equal(2, owner.Capacity.Charged);
+        Assert.IsType<PlatformOperationAdmission.Superseded>(
+            await owner.EnterPlatformOperationAsync(
+                "platform", first.RealizationId, "t0",
+                TestContext.Current.CancellationToken));
+        Assert.True(Assert.IsType<AssemblyImageAccessResult<bool>.Available>(
+            group.UseAssemblySession(
+                participant,
+                TestContext.Current.CancellationToken,
+                static (session, _) =>
+                    session.ApiSurface(includeAll: true).Types.Any(
+                        type => type.DefinitionName?.ToMetadataFullName()
+                            == "System.Text.Json.JsonElement"))).Value);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task PlatformOperationAdmission_RejectsStaleAuthorityAndPackageRows()
+    {
+        CompleteRestorationExecutionOptions options =
+            await DetachedInventoryOptionsAsync(includePlatform: true);
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        string packet = MixedInventoryPacket(false);
+        BrowserRetainedWorkspacePosting first =
+            await ActivateAsync(owner, "mixed", packet);
+        Assert.IsType<PlatformOperationAdmission.Unavailable>(
+            await owner.EnterPlatformOperationAsync(
+                "mixed", first.RealizationId, "t1",
+                TestContext.Current.CancellationToken));
+        Assert.IsType<PlatformOperationAdmission.Unavailable>(
+            await owner.EnterPlatformOperationAsync(
+                "mixed", first.RealizationId, "netcore.app",
+                TestContext.Current.CancellationToken));
+        Assert.IsType<PlatformOperationAdmission.Superseded>(
+            await owner.EnterPlatformOperationAsync(
+                "other", first.RealizationId, "t0",
+                TestContext.Current.CancellationToken));
+
+        _ = await ActivateAsync(owner, "replacement", Packet());
+        BrowserRetainedWorkspacePosting replacement =
+            await ActivateAsync(owner, "mixed", packet);
+        Assert.NotEqual(first.RealizationId, replacement.RealizationId);
+        Assert.IsType<PlatformOperationAdmission.Superseded>(
+            await owner.EnterPlatformOperationAsync(
+                "mixed", first.RealizationId, "t0",
+                TestContext.Current.CancellationToken));
+        var admitted = Assert.IsType<PlatformOperationAdmission.Admitted>(
+            await owner.EnterPlatformOperationAsync(
+                "mixed", replacement.RealizationId, "t0",
+                TestContext.Current.CancellationToken));
+        admitted.Operation.Dispose();
+        await owner.DisposeAsync();
+        Assert.IsType<PlatformOperationAdmission.Superseded>(
+            await owner.EnterPlatformOperationAsync(
+                "mixed", replacement.RealizationId, "t0",
                 TestContext.Current.CancellationToken));
     }
 
@@ -1204,7 +1396,8 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
             json, TestContext.Current.CancellationToken));
 
     static async Task<CompleteRestorationExecutionOptions> DetachedInventoryOptionsAsync(
-        bool includePlatform = false)
+        bool includePlatform = false,
+        string platformVersion = "10.0.14")
     {
         var store = new InMemoryPackageStore();
         await StorePackageAsync(
@@ -1216,10 +1409,15 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         {
             string assets = Path.Combine(AppContext.BaseDirectory,
                 "RealAssets", "FrameworkActivation");
-            await StorePackageAsync("Microsoft.NETCore.App.Ref", "10.0.14",
-                Path.Combine(assets, "microsoft.netcore.app.ref.10.0.14.nupkg"));
-            await StorePackageAsync("Microsoft.NETCore.App.Runtime.linux-x64", "10.0.14",
-                Path.Combine(assets, "microsoft.netcore.app.runtime.linux-x64.10.0.14.nupkg"));
+            await StorePackageAsync("Microsoft.NETCore.App.Ref", platformVersion,
+                Path.Combine(assets,
+                    $"microsoft.netcore.app.ref.{platformVersion}.nupkg"));
+            await StorePackageAsync("Microsoft.NETCore.App.Runtime.linux-x64", platformVersion,
+                platformVersion == "10.0.14"
+                    ? Path.Combine(assets,
+                        "microsoft.netcore.app.runtime.linux-x64.10.0.14.nupkg")
+                    : Path.Combine(AppContext.BaseDirectory,
+                        "RealAssets", "PlatformForwarderActivation", "runtime.nupkg"));
         }
         CompleteRestorationExecutionOptions options =
             BrowserCompleteRestorationOptions.Create();

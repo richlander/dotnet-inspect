@@ -41,9 +41,6 @@ const data = availableEnvelope();
 
 function render(overrides: Partial<LibraryReferencesOptions> = {}) {
   return renderLibraryReferencesSurface({
-    assemblyIdentity: "Example.Core, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null",
-    assetPath: "lib/net10.0/Example.Core.dll",
-    coordinate: "net10.0 / Example.Package@1.0.0",
     loading: false,
     error: "",
     data,
@@ -263,11 +260,8 @@ for (const [content, message] of [
   });
 }
 
-test("identity, reference fields, and diagnostics use the existing escape boundary", () => {
+test("reference fields and diagnostics use the existing escape boundary", () => {
   const html = render({
-    assemblyIdentity: 'Example."Core"',
-    assetPath: "lib/Example&Core.dll",
-    coordinate: "net10.0 / Example<Package>@1",
     data: availableEnvelope([
       { name: "Example<Other>", version: "1&2", culture: "a&b", publicKeyToken: "c&d" },
     ]),

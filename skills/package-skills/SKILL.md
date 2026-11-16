@@ -1,27 +1,20 @@
 ---
 name: dotnet-inspect-package-skills
-description: Discover and use version-matched agent skills from NuGet packages, and persist selected skills in a repository only when the user explicitly requests it.
+description: Discover version-matched agent skills in restored NuGet dependencies or an exact package, select relevant guidance and load it without changing the repository; persist skills only when explicitly requested.
 ---
 
-# dotnet-inspect: use package skills
+# dotnet-inspect: Discover and Load NuGet Package Skills
 
 Discover version-matched package skills, inspect their inventory, and load the
 ones relevant to the current task. This default workflow is agent-driven and
 does not change the repository. Persist skills only when the user explicitly
 asks for repository installation.
+Use the recipes below directly; for unfamiliar query or payload rules, use
+`-D`, command help or `explain "<question>"` instead of guessing arguments.
 
-Use this workflow to reach the right package-authored skill efficiently. Start
-by identifying what kind of result the user needs. If the intent or result
-space is unclear, use a bare target and let the router choose. Otherwise, enter
-the matching space directly: `find <pattern>` searches API types/members;
-`package query <exact-id>` or `package query '<prefix>*'` discovers package IDs;
-and `library query <pattern-or-scope>` discovers Libraries. Inspect known
-results with `package <exact-id>` or `library <source>`.
-Unscoped `find` searches installed .NET Runtime, ASP.NET Core, and .NET Standard
-platform populations, including Microsoft.Extensions assemblies shipped in the
-framework populations. Package APIs enter scope through explicit `--package`, a
-restored `--project`, or `--package-prefix` with a type/member pattern; discover
-package IDs with `package query`.
+Use this workflow to reach the right package-authored skill efficiently.
+Prefer the restored project's inventory or an exact package pin. For an
+unknown package ID, use `find --packages`, not API-symbol Find.
 
 ## Default: use skills without changing the repository
 
@@ -95,7 +88,7 @@ dnx dotnet-inspect -y -- package Markout@0.35.2 \
   -S Skills --print --row 1 --raw
 ```
 
-Do not use an unpinned package query when the repository consumes a specific
+Do not use an unpinned find --packages when the repository consumes a specific
 version.
 
 dotnet-inspect validates restored-project skill names and descriptions. In that

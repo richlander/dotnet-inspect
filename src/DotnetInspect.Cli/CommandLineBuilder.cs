@@ -551,7 +551,7 @@ public static class CommandLineBuilder
         if (positionalOptionFailure is not null
             && (parseFailure is null
                 || positionalOptionFailure.Position
-                    < parseFailure.Position))
+                    <= parseFailure.Position))
         {
             parseFailure = positionalOptionFailure;
         }
@@ -821,19 +821,83 @@ public static class CommandLineBuilder
     // input: an unadmitted option such as --explain or -Q would otherwise be
     // read as a type, version range, or population directory. Commands such
     // as package, find, type, and member keep their focused diagnostics.
+    // The package command declares one optional Package coordinate, so a
+    // second positional input is a parser error raised before the action's
+    // focused diagnostics. When that surplus carries a removed subcommand, an
+    // option-like token, or an exact Package reference, the package parser
+    // owns the answer; a plain second coordinate keeps the parser's
+    // surplus-input error.
+    private static ParseFailure? FindPackageInputFailure(
+        ParseResult parseResult,
+        IReadOnlyList<string> arguments,
+        IReadOnlyList<int>? argumentPositions)
+    {
+        if (parseResult.Errors.Count == 0
+            || parseResult.CommandResult.Command.Name != "package"
+            || parseResult.Tokens.Any(token =>
+                token.Type == TokenType.Option
+                && token.Value is "--help" or "-h" or "-?" or "/h" or "/?"))
+        {
+            return null;
+        }
+
+        var optionValueTokens = new HashSet<Token>(
+            CliArgumentOwnership.GetOptionResults(parseResult)
+                .SelectMany(static option => option.Tokens),
+            ReferenceEqualityComparer.Instance);
+        CliArgumentOwnership.ParsedArgument[] mapped =
+            CliArgumentOwnership.MapArguments(
+                parseResult,
+                arguments);
+        List<string> inputs = [];
+        List<int> inputIndexes = [];
+        for (int index = 0; index < arguments.Count; index++)
+        {
+            if (arguments[index] == "--")
+                break;
+            CliArgumentOwnership.ParsedArgument argument = mapped[index];
+            if (argument.Scope != parseResult.CommandResult
+                || argument.AttachedOption is not null
+                || argument.Tokens is not [{ Type: TokenType.Argument } token]
+                || optionValueTokens.Contains(token))
+            {
+                continue;
+            }
+
+            inputs.Add(arguments[index]);
+            inputIndexes.Add(index);
+        }
+
+        if (PackageOptionsParser.GetSurplusInputError(
+                inputs,
+                out int failingInput) is not { } error)
+        {
+            return null;
+        }
+
+        int failingIndex = inputIndexes[failingInput];
+        return new(
+            error,
+            argumentPositions?[failingIndex] ?? failingIndex);
+    }
+
     private static ParseFailure? FindPositionalOptionFailure(
         ParseResult parseResult,
         IReadOnlyList<string> arguments,
         IReadOnlyList<int>? argumentPositions)
     {
+        if (FindPackageInputFailure(
+                parseResult,
+                arguments,
+                argumentPositions) is { } packageFailure)
+        {
+            return packageFailure;
+        }
+
         Command command = parseResult.CommandResult.Command;
         bool guarded = command.Name switch
         {
             "library" or "depends" or "diff" => true,
-            "query" => parseResult.CommandResult.Parent is CommandResult
-            {
-                Command.Name: "library",
-            },
             _ => false,
         };
         if (!guarded
@@ -1444,7 +1508,7 @@ public static class CommandLineBuilder
             static () =>
             [
                 new(PackageCommand.Name, "<package>", "inspect a NuGet package"),
-                new("package query", "<ID-or-prefix*>", "discover NuGet package IDs"),
+                new("find --packages", "<ID-or-prefix*>", "discover NuGet package IDs"),
                 new(TypeCommand.Name, "--package <package>", "discover types in package"),
                 new(MemberCommand.Name, "JsonSerializer --package System.Text.Json", "inspect type members"),
                 new(FindCommand.Name, "<pattern> --package <package>", "search API symbols in a known package"),

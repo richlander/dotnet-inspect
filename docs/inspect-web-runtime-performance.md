@@ -381,9 +381,17 @@ version, dotnet/dotnet VMR source commit, and workload feeds. Workflows load
 those values only after checking out the exact product source commit they will
 build.
 
-This cohort's browser workload describes `wasm-tools` for `net11.0`, so the
-Inspect Web project graph retains that target framework while executing on the
-.NET 12 CoreCLR runtime. The IL variant sets `PublishReadyToRun=false`; the R2R
+The browser workload target is part of the coherent pin. The accepted
+`net11.0` inventory and the newer `net12.0` inventory each contain the same five
+pack roles, with generation-qualified IDs. Discovery admits only those exact
+inventories, never a mixture or a target downgrade, and validates every pack's
+runtime version and the WebAssembly package's VMR provenance. Candidate
+admission carries the resolved target and pack inventory through to the
+receipt and build; it must not compare a new candidate against the old pin's
+pack IDs. The Inspect Web project uses that target only when the runtime-cohort
+environment supplies it. Ordinary builds and the Mono control remain on
+`net11.0`; accepting a candidate still requires the complete cohort admission.
+The IL variant sets `PublishReadyToRun=false`; the R2R
 variant sets `PublishReadyToRun=true` and
 `PublishReadyToRunComposite=false`. Both workload installation and application
 publication restore use

@@ -22,6 +22,8 @@ permissions:
   checks: read
   contents: read
 
+cache-mode: read
+
 concurrency:
   group: deploy-inspect-web-runtime-sites
   cancel-in-progress: false
@@ -132,7 +134,7 @@ jobs:
       - name: Setup .NET
         uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
         with:
-          dotnet-version: '11.0.100-rc.1.26425.128'
+          dotnet-version: '11.0.x'
 
       - name: Publish Inspect Web managed API
         run: >

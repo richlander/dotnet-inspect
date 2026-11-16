@@ -56,7 +56,33 @@ public static partial class PackageExports
                 version,
                 targetFramework,
                 runtimeIdentifier,
-                includeSurface: true);
+                includeSurface: true,
+                exactLibraryId: null);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
+    }
+
+    /// <summary>
+    /// The package type surface for one exact Package Library child.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryLibrarySurface(
+        string packageId,
+        string version,
+        string targetFramework,
+        string assemblyId,
+        string runtimeIdentifier = "")
+    {
+        ArgumentException.ThrowIfNullOrEmpty(assemblyId);
+        BrowserPackageLoadResult result =
+            await PackageLoadAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier,
+                includeSurface: true,
+                exactLibraryId: assemblyId);
         return JsonSerializer.Serialize(
             result,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
@@ -78,10 +104,45 @@ public static partial class PackageExports
                 version,
                 targetFramework,
                 runtimeIdentifier,
-                includeSurface: false);
+                includeSurface: false,
+                exactLibraryId: null);
         return JsonSerializer.Serialize(
             result,
             BrowserPackageJsonContext.Default.BrowserPackageLoadResult);
+    }
+
+#if DEBUG
+    [JSExport]
+    public static async Task<string> QueryPackageSummaryWithEvidence(
+        string packageId,
+        string version,
+        string targetFramework,
+        string runtimeIdentifier = "")
+    {
+        BrowserPackageSummaryEvidenceResult result =
+            await PackageSummaryWithEvidenceAsync(
+                packageId, version, targetFramework, runtimeIdentifier);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageJsonContext.Default.BrowserPackageSummaryEvidenceResult);
+    }
+#endif
+
+    internal static async Task<BrowserPackageSummaryEvidenceResult> PackageSummaryWithEvidenceAsync(
+        string packageId,
+        string version,
+        string targetFramework,
+        string runtimeIdentifier = "")
+    {
+        EvidenceInspectionEnvelope<PackageVersionSettlementOutcome, PackageAcquisitionEvidence>? evidence = null;
+        BrowserPackageLoadResult result = await PackageLoadAsync(
+            packageId, version, targetFramework, runtimeIdentifier, includeSurface: false,
+            exactLibraryId: null,
+            capture: realization => evidence = BrowserPackageSummaryEvidence.Capture(realization));
+        return new(
+            result,
+            BrowserPackageWireProjection.Project(evidence
+                ?? throw new InvalidOperationException("Browser Summary did not issue its acquisition evidence.")));
     }
 
     [JSExport]
@@ -141,10 +202,12 @@ public static partial class PackageExports
         string version,
         string targetFramework,
         string runtimeIdentifier,
-        bool includeSurface)
+        bool includeSurface,
+        string? exactLibraryId,
+        Action<BrowserPackageRealizationResult>? capture = null)
     {
         BrowserPackageRealizationResult result =
-            includeSurface
+            includeSurface && exactLibraryId is null
                 ? await BrowserPackageWorkspace.RealizeWithSettlementAsync(
                     packageId,
                     version,
@@ -155,6 +218,7 @@ public static partial class PackageExports
                     version,
                     targetFramework,
                     runtimeIdentifier);
+        capture?.Invoke(result);
         if (result is BrowserPackageRealizationResult.NotSettled notSettled)
         {
             return new(
@@ -184,17 +248,29 @@ public static partial class PackageExports
         BrowserPackageSurface? surface = null;
         if (includeSurface)
         {
+            Task<BrowserScopeLease<BrowserInspectionScope>> scopeTask =
+                exactLibraryId is null
+                    ? BrowserPackageWorkspace.OpenScopeAsync(
+                        realization,
+                        CancellationToken.None)
+                    : BrowserPackageWorkspace.OpenLibraryScopeAsync(
+                        realization.Coordinate.PackageId,
+                        realization.Coordinate.Version,
+                        targetFramework,
+                        runtimeIdentifier,
+                        exactLibraryId,
+                        PackageAssetDemand.Surface,
+                        CancellationToken.None);
             await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
-                await BrowserPackageWorkspace.OpenScopeAsync(
-                    realization,
-                    CancellationToken.None);
+                await scopeTask;
             BrowserInspectionScope scope = scopeLease.Scope;
             BrowserPackageSurfaceInfo projected =
                 BrowserPackageSurfaceProjection.ProjectSurface(
                     scope,
                     scope.Coordinates[0]) with
                 {
-                    DefaultAssemblyId = defaultLibraryId,
+                    DefaultAssemblyId =
+                        exactLibraryId ?? defaultLibraryId,
                 };
             surface = BrowserPackageWireProjection.Project(
                 projected);
@@ -657,6 +733,55 @@ public static partial class PackageExports
     }
 
     /// <summary>
+    /// Retained Metadata identities for the selected Package's Libraries,
+    /// without inspecting their public API surfaces.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> QueryPackageLibraryIdentities(
+        string packageId,
+        string version,
+        string targetFramework,
+        string? runtimeIdentifier)
+    {
+        BrowserPackageLibraryIdentity[] identities =
+            await PackageLibraryIdentitiesAsync(
+                packageId, version, targetFramework, runtimeIdentifier);
+        return JsonSerializer.Serialize(
+            identities,
+            BrowserPackageJsonContext.Default.BrowserPackageLibraryIdentityArray);
+    }
+
+    private static async Task<BrowserPackageLibraryIdentity[]>
+        PackageLibraryIdentitiesAsync(
+            string packageId,
+            string version,
+            string targetFramework,
+            string? runtimeIdentifier)
+    {
+        BrowserPackageCoordinate coordinate =
+            await BrowserPackageWorkspace.ResolveAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier);
+        await using BrowserScopeLease<BrowserInspectionScope> scopeLease =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                [coordinate],
+                CancellationToken.None);
+        return
+        [
+            .. scopeLease.Scope.ProjectSurfaceLibraryIdentities()
+                .Select(identity =>
+                    new BrowserPackageLibraryIdentity(
+                        identity.Id,
+                        identity.Name,
+                        identity.Version,
+                        identity.Culture,
+                        identity.PublicKeyToken)),
+        ];
+    }
+
+    /// <summary>
     /// Returns the shared direct-reference inspection for one exact admitted
     /// Library in the retained Browser Workspace.
     /// </summary>
@@ -1028,9 +1153,8 @@ public static partial class PackageExports
     }
 
     /// <summary>
-    /// The UTF-8 text of one package-shipped Markdown document, identified by its exact package
-    /// entry path. Only paths the package's own document manifest lists are served. This reads
-    /// package content and inspects no assembly, so it opens no group.
+    /// The UTF-8 text of one browsable package document, identified by its exact entry path.
+    /// Shared file inspection reads its committed content-only Root without opening a Library.
     /// </summary>
     [JSExport]
     public static async Task<string> GetPackageDocument(string packageId, string version, string path)
@@ -1046,6 +1170,26 @@ public static partial class PackageExports
             document,
             BrowserPackageJsonContext.Default.BrowserPackageDocumentContent);
     }
+
+#if DEBUG
+    [JSExport]
+    public static async Task<string> GetPackageDocumentWithEvidence(
+        string packageId,
+        string version,
+        string path)
+    {
+        EvidenceInspectionEnvelope<
+            PackageFileContentDocument,
+            PackageFileContentEvidence> result =
+                await BrowserPackageWorkspace.ReadDocumentWithEvidenceAsync(
+                    packageId,
+                    version,
+                    path);
+        return JsonSerializer.Serialize(
+            result,
+            BrowserPackageDocumentEvidenceJsonContext.Default.PackageDocumentEvidenceEnvelope);
+    }
+#endif
 
     /// <summary>
     /// Contains one bounded generation of identified package-document presentation leaves.

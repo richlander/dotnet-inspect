@@ -647,8 +647,10 @@ consumer-owned bottom legend outside the transformed viewport, so zoom and pan
 cannot move, crop, or shrink its explanation. Call graph names its member and
 assembly roles plus platform lookup; Type relationships names inspected, base,
 interface, derived, and unavailable types; Package Dependencies names inspected,
-same-prefix, and external packages. Legend rows wrap at narrow widths and form
-the final interpretation row. Browser-specific Mermaid source remains internal
+same-prefix, and external packages. Legend rows wrap at narrow widths. Package
+and restored Project hierarchies place the graph-role legend before ecosystem
+composition, both inline and in Explore: graph, legend, then composition.
+Browser-specific Mermaid source remains internal
 to rendering rather than appearing as Call-graph-only inspection evidence. Any
 future source copy or graph export experience requires one deliberate contract
 across Call, Type, and Dependency graphs. Subject and context wrap completely
@@ -777,6 +779,12 @@ placement, available/unavailable nodes, pending completion, projection replaceme
 and type navigation; published Wasm evidence covers the real action row and typed
 destination.
 
+`Microsoft.Extensions.Hosting@10.0.0/net10.0` motivates the hierarchy row order:
+its graph-role legend and ecosystem counts must retain their inline sequence
+when moved into Explore. The Package and restored Project hierarchy cases in
+`browser/package-adoption.spec.ts` gate visible row geometry at desktop and phone
+widths before, during, and after Explore.
+
 Member Source remains a heading-free full-area exception defined below.
 Loading and failure states stay visible and do not become success-shaped empty
 surfaces.
@@ -899,25 +907,47 @@ coordinate switching and its pending, success, failure, and navigation behavior.
 Package layout and navigation unit gates cover the new ordering and selection.
 
 Library navigation owns one single-select inventory containing `All libraries`
-followed by every exact admitted Library. `All libraries` is the default
-package-backed Library subject. Its Overview aggregates namespace and type-kind
-composition across the admitted libraries; an exact Library Overview retains
-asset path, assembly identity, namespaces, and kinds. At wide inspector widths,
-Library Overview makes Namespaces the primary region and Type kinds a compact
+followed by every exact admitted Library. The owner-issued
+[First Library](inspection-subject-navigation.md#initial-aggregate-and-package)
+is the default selection; `All libraries` is an explicit aggregate choice.
+Activating the already-selected row reveals its details, so at narrow widths
+the preselected Library is one tap away. The `All libraries` Overview
+aggregates namespace and type-kind composition across the admitted libraries.
+At wide inspector widths, the aggregate Overview makes Namespaces the primary
+region and Type kinds a compact
 secondary region. This follows the assembly -> namespace -> type hierarchy used
 by conventional .NET assembly browsers without adopting their tree or workbench
 chrome. At constrained widths, the same sections return to one ordered stack:
-Namespaces, then Type kinds. Empty aggregate or exact subjects render explicit
-empty states for both sections rather than an empty bordered region. Selecting
-Type preserves the active aggregate or exact Library subject so the Type
-inventory contains the corresponding contributed Types.
+Namespaces, then Type kinds. Empty aggregate subjects render explicit empty
+states for both sections rather than an empty bordered region. Selecting Type
+preserves the active aggregate or exact Library subject so the Type inventory
+contains the corresponding contributed Types.
+
+An exact package or Platform Library Overview answers "what is this Library?"
+the way Type Overview answers it for a Type, in the same frame. A compact
+summary shows Library metadata badges (compilation, architecture, signed,
+reproducible), the enabled enablements, and a Navigate control that opens the
+Type level, labeled with the number of rows that level lists, including a
+Platform Library's forwarded Types. A
+Library info fact table follows, with the
+[Library Info](library-info-composition.md) vocabulary and spellings: name,
+asset, versions, target framework, public key token, file size, compilation,
+architecture, signing, reproducibility, company, product, and copyright. A
+fact the image does not carry is omitted, and Signed appears only for a signed
+image, as in Library Info. Incomplete inspection is disclosed beside the
+facts. Every value is metadata-cheap, per
+the [overview cost](progressive-disclosure.md#overview-cost) rule; the
+Overview lists no Types or namespaces, which remain at the Type level. Loading,
+failure with retry, and unavailable outcomes replace only the fact table.
+Uploaded Libraries keep the composition Overview until they adopt the shared
+Library request.
 
 `System.Text.Json@10.0.0` is the motivating ordinary package: Package Overview
 keeps its README and framework choices visible without duplicating structural
-navigation, while Library defaults to the package aggregate and can narrow to
-`System.Text.Json.dll`. Its exact Library Overview uses six public namespaces
-as primary navigation while five type-kind counts remain a compact secondary
-summary.
+navigation, while Library opens `System.Text.Json.dll` and can broaden to
+`All libraries`. Its exact Library Overview shows its image badges, `AOT`, a
+Navigate control with its public Type count, and its Library info facts
+instead of its Type list.
 
 Package navigation and inspectors end directly at the data bar, without a
 bottom keyboard-hint or repeated-coordinate row. The persistent subject path
@@ -977,6 +1007,46 @@ Published-site evidence separately exercises actual Package and Library
 Overviews, coordinate changes, and document navigation. The production
 composition fixture also confirms that returning from Library restores Overview.
 
+### Project Dependencies
+
+Project Dependencies consumes the completed
+[Project input inspection](project-input-inspection.md) envelope. Authored
+`.csproj` input remains declarations and limitations, never an evaluated or
+resolved graph.
+
+For an available restored traversal, the surface renders its Project root,
+project references, and exact Package relationships through the existing
+occurrence hierarchy. It reuses the bounded 80-occurrence preview, explicit
+shown/total count, pan/zoom, Graph Explore, and resource-free ecosystem icons
+from Package Hierarchy. Revisit and cycle occurrences retain their paths.
+Project nodes receive no Package affiliation. The source is the supplied
+assets document, not a new NuGet manifest traversal.
+
+The existing ecosystem legend consumes the shared
+[dependency graph composition](ecosystem-packs.md#dependency-graph-composition).
+It presents graph-wide counts and scope even before the diagram finishes
+rendering, and remains available inside Graph Explore.
+
+Selected target, traversal completion, failures, and the complete dependency
+tables remain visible. An unavailable or failed graph has an explicit
+unavailable state alongside independently available declarations; a partial
+graph remains visibly partial. Opening a Package remains a separate explicit
+network action. Local Project evidence remains non-shareable. This adoption
+does not evaluate MSBuild, restore, acquire dependencies, infer supplier or
+pruning evidence, or rank packages.
+
+The real source asset is
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` at
+`f6b6a5027c9a55fd57317aed89a28e83af608e30`: its restored graph mixes project
+references and exact transitive Package coordinates. The existing CLI
+restored-to-graph projection moves unchanged into shared Sections; both hosts
+consume it and the same occurrence builder. This is one Browser presentation
+adoption under #11000 and the broader tracker #8516, not a new traversal or
+CLI behavior. Focused managed wire and frontend tests plus published-Wasm
+uploads cover that source shape, shared dependencies, cycles, unknown
+affiliations, the preview bound, empty/unavailable/partial outcomes, Explore,
+and zero implicit dependency acquisition.
+
 ### Package Dependencies
 
 Package Dependencies uses the complete package inspector area. It does not
@@ -999,6 +1069,29 @@ action. Each hierarchy occurrence is a separate graph node, including revisits
 and cycles. Its preview is bounded with an explicit shown/total count; traversal
 incompleteness and acquisition failures remain visible below the graph. Shared
 hierarchy URLs open the Hierarchy tab within References.
+Each visible hierarchy occurrence may carry the existing product ecosystem
+icon, with an accessible ecosystem label and a compact affiliation legend.
+The managed adapter classifies owner-issued Package identities through the
+existing resource-free catalog, once per backing node; it does not parse
+display labels, acquire platform inventory, or request package content.
+An icon means product-relative Package association, not a resolved supplier,
+pruning decision, or trust assessment. Unknown associations retain the
+existing unannotated node. Revisit and cycle occurrences retain their own
+nodes, labels, edges, and qualification styling. Root styling and background
+colors remain unchanged. The compact legend also consumes shared
+[dependency graph composition](ecosystem-packs.md#dependency-graph-composition),
+rather than counting visible occurrences. It retains full-graph scope and
+qualification even if diagram rendering fails; traversal completeness and
+failures remain independent evidence. Unresolved visible nodes can retain
+their affiliation icon without becoming counted exact Package versions.
+This is the one-step Browser presentation adoption in #10923, following the
+Library References icon pattern in #10912. The motivating
+`Microsoft.Extensions.Hosting@10.0.0/net10.0` hierarchy and neighboring
+`Microsoft.Azure.SignalR@1.33.1/net8.0` exercise known ecosystem affiliations
+and unknown neighbors. Managed classifier, graph, and Browser/Wasm hierarchy
+gates preserve the existing paths and cover in-node icons, full labels,
+unknowns, qualified occurrences, partial traversal, themes, and Graph Explore.
+
 For References, the header reports the selected dependency group's package
 count together with the selected assembly's direct reference count.
 Version navigation remains available in the Package master pane; the framework
@@ -1147,8 +1240,8 @@ reachable Package route evidence owned by
 [Package-origin AssemblyRef supply routing](package-origin-assemblyref-supply-routing.md).
 Only a terminal Package selection yields an exact package ID and version for
 the existing range-only icon request. A Platform supplier, incomplete or
-ambiguous association, and any unavailable or failed result leave the reference
-plain. This pass does not delay the direct reference rows or diagram, change
+ambiguous association, and any unavailable or failed result yield no Package
+icon. This pass does not delay the direct reference rows or diagram, change
 their navigation, or admit a supplier to the Workspace. A result may update the
 same reference row and diagram node only while the package, selected Library,
 and direct reference result remain current. The graph icon sits in space added
@@ -1161,6 +1254,18 @@ dependencies, while the shared References URL admits only the root package.
 The browser renderer gate uses a deterministic package-backed fixture to check
 that an external supplier icon arrives after the direct rows and diagram.
 
+`Microsoft.Azure.SignalR@1.33.1/net8.0` is the real acquisition regression
+witness. Its `Microsoft.Azure.SignalR.dll` declares 40 direct references,
+including external `Azure.Core` and `Microsoft.Azure.SignalR.Protocols`, while
+`Microsoft.Azure.SignalR.Common` is already in the root package. A compatibility
+payload plan caused the semantic supplier query to fail, leaving only the
+same-package icon. The published-Wasm `package-adoption.spec.ts` scenario
+`shows real external Package icons in Library References` opens that exact
+Library through the production page and checks external icons in both rows and
+graph nodes, separately from ecosystem annotations. It uses normal Gallery
+acquisition rather than a stubbed supplier response; the existing fixture gate
+continues to cover deferred presentation separately.
+
 For a uniquely matched Workspace Library, References may show the owning
 ordinary package's icon beside the AssemblyRef row. It uses the admitted
 Library-to-package provenance established by that exact identity match, then
@@ -1168,10 +1273,43 @@ the package's retained icon or the default icon for a known package source.
 For nuget.org coordinates, the existing exact-coordinate icon query may
 replace the default. Framework/runtime Libraries and absent or ambiguous
 Workspace matches receive no icon from this path. A local artifact
-without retained package-icon evidence also remains plain. Icon loading is
-bounded and cannot change the direct AssemblyRef answer or a newer Library
-view. The graph remains an AssemblyRef diagram; icons annotate rows and nodes
-where package ownership is known.
+without retained package-icon evidence also receives no Package icon. Icon
+loading is bounded and cannot change the direct AssemblyRef answer or a newer
+Library view. The graph remains an AssemblyRef diagram; Package icons annotate
+rows and nodes where package ownership is known.
+
+The same SignalR witness also contains `Microsoft.Azure.SignalR.Common.dll`
+beside the selected Library. Its Package child remains admitted even when its
+public API surface has never been requested. Same-Package matching consumes
+the retained Metadata identities of admitted Library children independently of
+API surface loading and external supplier discovery. It preserves the complete
+identity and uniqueness rules above; a matching filename or Package prefix is
+not proof. In particular, `Microsoft.Azure.SignalR.Protocols` is an external
+Package dependency, not a sibling Library. Deterministic Browser gates cover
+an unloaded sibling, mismatched identities, deferred external discovery, and
+stale completion; the published-Wasm SignalR gate checks the real Common icon
+in both rows and diagram.
+
+Independently of supplier acquisition, References may annotate a direct
+AssemblyRef with the existing product ecosystem icon when the resource-free
+[direct assembly-name claim](ecosystem-dependency-recognition.md#direct-assembly-name-claims)
+returns a first claimant eligible for Platform search. The catalog owns
+matching, precedence, and eligibility; the Browser does not reconstruct them.
+The icon's accessible label and tooltip identify ecosystem affiliation, not a
+resolved Platform supplier, Package ownership, or dependency recognition.
+Proven ordinary Package icons take precedence. Unknown names, ineligible
+claims, unavailable icons, and failed lookups remain unannotated by this path.
+Annotations apply to both rows and graph nodes, remain bound to the current
+Library reference result, and neither change navigation nor acquire or admit
+any artifact.
+
+The same SignalR asset motivates this extension: its `System.Runtime`,
+`Microsoft.AspNetCore.*`, and `Microsoft.Extensions.*` references currently lack
+icons despite existing product-authored ecosystem associations. Focused Browser
+gates cover the three platform ecosystem icons, unknown and ineligible
+neighbors, Package-icon precedence, and stale lookup completion. The
+published-Wasm gate exercises the normal assembly-name lookup on the exact
+SignalR Library rather than substituting classification results.
 
 The graph and list use the available width. The quiet header remains in place
 while the content scrolls; References has no bottom context row. This follows
@@ -1207,9 +1345,33 @@ separate work.
 
 The Library inspector order is **Overview**, **References**, **Compare**,
 **Analysis**, and **Metadata**. Analysis contains direct **Relationships**,
-**Complexity**, **Performance**, and **Integrations** tabs, following
-Compare's single-inspector mode composition. These modes are not separate
-persistent inspectors.
+**Dependencies**, **Complexity**, **Integrations**, **Performance Triage**,
+**Resource Triage**, and **Unsafe** tabs, following Compare's single-inspector
+mode composition. These modes are not separate persistent inspectors.
+
+Analysis is also an inspector at Type and Member scope, so an analysis that
+discloses progressively stays in one inspector all the way down. Type
+Analysis is the product-issued `type.analysis` view facet, whose Relationships
+mode [Annotated Type Relations Browser adoption](annotated-type-relations-browser.md)
+owns. Member Analysis is Browser-owned, after the product-issued sections.
+Each scope lists only the modes it can render, in this order:
+
+| Scope | Analysis modes | Default |
+| --- | --- | --- |
+| Library | the seven above | Relationships |
+| Type | Relationships (package-backed Types), Unsafe | Relationships, or Unsafe where Relationships isn't offered |
+| Member | Unsafe | Unsafe |
+
+A Type or Member gains a mode only when that mode defines its scope there. A
+scope with one mode shows no tab strip. Type Analysis is offered for package
+and Platform Types, but not `file` sources or forwarded Types; a Platform Type
+offers only Unsafe. Member Analysis is offered for methods and constructors,
+including bodiless ones whose contract is a finding, and for properties and
+events, whose accessor findings anchor to them. Fields and constants have no
+Member Analysis. A drill from one scope's mode opens the next scope's
+Analysis inspector on the same mode. The
+[`analysis` refinement](inspect-web-navigation-consumer.md#canonical-location-and-refresh)
+deep-links the selected mode at every scope.
 
 Relationships is the default. The selected tab is session-local Browser
 presentation state and preserves the selected Library. Only the selected tab
@@ -1265,7 +1427,7 @@ one fixed-height header row. At narrow widths the existing Types control
 occupies the title's place; status elides and tabs scroll locally.
 
 ```text
-Analysis  count/state   [Relationships]  Complexity  Performance  Integrations
+Analysis  count/state   [Relationships]  Dependencies  Complexity  …  Unsafe
 optional platform Library selector
 mode-owned content
 ```
@@ -1283,14 +1445,136 @@ in these modes; its Browser presentation belongs to the ordinary Type inventory
 defined by
 [Library structural report](library-structural-report.md#browserwasm).
 
+#### Unsafe
+
+Unsafe presents the [unsafe member census](unsafe-member-findings.md) for the
+selected package or Platform Library, as step 4 of its
+[adoption](unsafe-member-findings.md#adoption-and-gates). At Library scope it
+lists Types through
+[Finding Unsafe Any](unsafe-code-section.md#finding-unsafe-any), as the CLI
+`Unsafe Code` section does. The census and Finding Unsafe Any own admission,
+attribution, identity, exposure, the
+[safe-boundary state](unsafe-member-findings.md#safe-boundary), settlement,
+Type groups, counts, and completeness. This view owns only how it discloses
+them.
+
+Unsafe uses progressive disclosure, as Compare does. Each scope is a useful
+answer on its own and leads to the next:
+
+```text
+Library:  Types with unsafe code
+Type:     counts | the Type's members with findings, each with its dimensions
+Member:   the member's dimensions | its contributing evidence
+```
+
+- **Dimensions.** The Type and Member scopes present three separate dimensions
+  and never merge them into one safe/unsafe value:
+  - presence: the member uses or propagates unsafe code;
+  - exposure: public, non-public, or unknown;
+  - safe boundary: the member uses an unsafe context without propagating it.
+    It's decided only under the updated rules. A legacy module shows it as not
+    applicable, never as a negative.
+
+  Propagation is the explicit caller-unsafe contract. A propagator is never a
+  safe boundary.
+Every scope is the **Unsafe** tab of that scope's
+[Analysis inspector](#library-analysis).
+
+- **Library scope.** The Library Analysis **Unsafe** tab shows one row per
+  Type that has unsafe code, ordered by Type name, as
+  [the Library row](unsafe-code-section.md#library) defines. A row shows the
+  Type, and its state (`unsafe` or `unknown`) only when some Type is
+  `unknown`. It shows no counts, because each Type settles at its first
+  finding. Activating a row opens that Type's Analysis inspector on
+  **Unsafe**.
+- **Type scope.** The Type Analysis **Unsafe** tab shows the Type's counts and
+  one row per member with a finding, in the
+  [Unsafe Code section](unsafe-code-section.md#type) order. A row shows
+  the member, its exposure, its propagation, its safe-boundary state, its
+  evidence summary, and a partial badge. Activating a row opens that member's
+  Analysis inspector on **Unsafe**. A Type without findings states that,
+  unless the census is incomplete, when it states that absence can't be
+  established.
+- **Member scope.** The Member Analysis **Unsafe** tab shows the member's
+  dimensions and its contributing evidence items as a table of role, physical
+  body, IL offset, and detail. A lambda, local-function, or state-machine body
+  appears only as evidence of its declared member. When several declared
+  bodies anchor to one member, such as property accessors, each keeps its own
+  finding.
+- **Ungraded.** No scope shows severity, risk, or recommendation.
+- **Navigation.** Each scope links through the Library's all-accessibility API
+  surface.
+  - The Type and member rows name their Type the way the Library's ordinary
+    Type list does. That is the asset's assembly name for a package, and the
+    bare identity name for a Platform Library.
+  - When the ordinary list doesn't carry the Type, the row opens it as a
+    transient Type from the projection it carries, as Performance rows do.
+  - Every drill widens to the Type's whole member population, so a
+    non-public member is listed.
+  - A Type or member the surface can't resolve renders without a link and
+    keeps its finding.
+  - The Type and Member Analysis inspectors are available for package and
+    Platform Libraries alike, because Unsafe presents the census, not Member
+    Facts.
+- **Scope of work.** A view runs the narrowest operation that answers it, and
+  reuses a wider census that's already loaded:
+  - Library Unsafe runs Finding Unsafe Any, which settles each Type at its
+    first finding and so covers no Type's members.
+  - Type Unsafe runs the Type-scope census for that Type alone.
+  - Member Unsafe selects its member from a fresh Type census of its
+    declaring Type when one is loaded. Otherwise it runs the Member-scope
+    census for that member alone.
+
+  So a drill from the Library to a Type runs that Type's census, a drill from
+  a Type to a member starts no new census, and a deep link or refresh at Type
+  or Member scope never waits for a Library operation. Widening from a narrow
+  scope to the Library runs Finding Unsafe Any then.
+- **State.** Each scope has the closed request state Resource Triage uses,
+  keyed by exact Library and coordinate, plus the Type identity at Type scope
+  and the member's Type and stable selector at Member scope. Only the current
+  request may publish; replacement and package invalidation retire it.
+  Workspace snapshots normalize an interrupted load to idle. A view selects
+  from a covering result by the product-issued Type identity and member
+  stable selector, and doesn't regroup, filter, or recount rows.
+- **Member-scope absence.** A Member-scope census can't see a generated body
+  that the relation can't authenticate to the member, as
+  [the census execution](unsafe-member-findings.md#execution) states. So a
+  member without findings from that census reads "No unsafe evidence was
+  attributed to this member", never that it has none. The same member
+  selected from a Type census keeps that census's limitations.
+- **Outcomes.** Each outcome renders distinctly at every scope:
+  - loading;
+  - failed or rejected, with its diagnostic;
+  - unavailable, such as a reference-only Library;
+  - incomplete, as a warning that lists every limitation above the observed
+    rows. An incomplete result with no rows says absence can't be
+    established, never "no unsafe members".
+  - complete with no findings, which is the empty state "No unsafe members
+    under the updated memory-safety rules";
+  - the rows.
+- **Bounds.** There's no row bound. Each scope's operation is one bounded
+  Library operation.
+
+The Library export runs `AssemblyContextFindingUnsafeAnyQuery` over the
+Library's admitted implementation participant. That query runs Finding Unsafe
+Any through its shared session entry and resolves each Type's definition
+token to its navigation identity on the complete API surface. The Type and
+Member exports run `AssemblyContextUnsafeMemberCensusQuery` at the requested
+scope. That query runs the census through its shared session entry. It
+resolves a Type scope's TypeDef and a Member scope's MethodDefs through the
+existing API surface selection, and adds navigation identities from the
+complete API surface. The export groups findings with
+`UnsafeMemberTypeGroup` and counts them with `UnsafeMemberCounts`.
+
 The platform selector stays above scrolling results and keeps its existing
 acquisition behavior. Analysis has no bottom context row. Browser HTML lowering
-consumes the
-existing typed mode results; no producer, query, acquisition, CLI section, or
-result contract changes.
+consumes the existing typed mode results. Apart from the Unsafe tab's queries
+and exports, and the TypeDef token each Finding Unsafe Any Type carries for
+navigation, no producer, query, acquisition, CLI section, or result contract
+changes.
 
-Focused renderer and production-composition browser gates cover all four
-direct tabs, lazy loading, focus retention across asynchronous completion,
+Focused renderer and production-composition browser gates cover the direct
+tabs, lazy loading, focus retention across asynchronous completion,
 wide/narrow layout, Library switching, row actions, and platform controls.
 
 ### Package Metadata

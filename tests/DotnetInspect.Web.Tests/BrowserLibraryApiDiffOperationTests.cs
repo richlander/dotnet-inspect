@@ -399,7 +399,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         BrowserLibraryApiDiffRequest request = fixture.Request() with
         {
             Surface = BrowserDiffAnalysisSurface.Library,
-            Analyses = ["api", "unsafe-member"],
+            Analyses = ["api", "unsafe-code"],
             Views = BrowserDiffAnalysisViews.Summary,
         };
 
@@ -413,7 +413,7 @@ public sealed class BrowserLibraryApiDiffOperationTests
         JsonElement unsafeMember = Assert.Single(
             content.GetProperty("outcomes").EnumerateArray(),
             static outcome => outcome.GetProperty("analysis").GetString()
-                == "unsafe-member");
+                == "unsafe-code");
         Assert.Equal("Unavailable", unsafeMember.GetProperty("kind").GetString());
         Assert.Contains(
             "Browser/Wasm",

@@ -406,7 +406,7 @@ public static partial class AttributeReader
     }
 
     /// <summary>Attributes the C# compiler re-synthesizes from syntax — emitting them in source is redundant or a duplicate-attribute error.</summary>
-    static bool IsReEmittedAttribute(string name) => name switch
+    internal static bool IsReEmittedAttribute(string name) => name switch
     {
         KnownAttributeNames.ExtensionAttribute => true,
         KnownAttributeNames.CompilerFeatureRequiredAttribute => true,

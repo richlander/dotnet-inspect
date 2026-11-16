@@ -5,8 +5,8 @@ using System.Reflection.Metadata.Ecma335;
 namespace ILInspector.Metadata;
 
 /// <summary>
-/// Narrows an API surface projection to the Types whose full names a host
-/// selection admits.
+/// Narrows an API surface projection by structured Type identity or full-name
+/// selection.
 /// </summary>
 /// <remarks>
 /// Extension/instance member pairing can relate a selected Type to a Type
@@ -22,6 +22,7 @@ public sealed class ApiTypeSelection
 {
     readonly Func<string, bool> _matchesFullName;
     readonly IReadOnlySet<string> _extensionTypes;
+    readonly MetadataTypeDefinitionName? _definition;
 
     public bool MatchesFullName(string fullName) => _matchesFullName(fullName);
 
@@ -30,11 +31,28 @@ public sealed class ApiTypeSelection
     {
     }
 
-    ApiTypeSelection(Func<string, bool> matchesFullName, IReadOnlySet<string> extensionTypes)
+    ApiTypeSelection(
+        Func<string, bool> matchesFullName,
+        IReadOnlySet<string> extensionTypes,
+        MetadataTypeDefinitionName? definition = null)
     {
         ArgumentNullException.ThrowIfNull(matchesFullName);
         _matchesFullName = matchesFullName;
         _extensionTypes = extensionTypes;
+        _definition = definition;
+    }
+
+    /// <summary>
+    /// Selects one exact Type definition without conflating namespace and
+    /// nesting separators in its display name.
+    /// </summary>
+    public static ApiTypeSelection ForDefinition(MetadataTypeDefinitionName definition)
+    {
+        ArgumentNullException.ThrowIfNull(definition);
+        return new(
+            name => StringComparer.Ordinal.Equals(name, definition.ToMetadataFullName()),
+            new HashSet<string>(StringComparer.Ordinal),
+            definition);
     }
 
     /// <summary>
@@ -57,7 +75,7 @@ public sealed class ApiTypeSelection
         extensionTypes.UnionWith(after);
         return extensionTypes.Any(_matchesFullName)
             ? null
-            : new ApiTypeSelection(_matchesFullName, extensionTypes);
+            : new ApiTypeSelection(_matchesFullName, extensionTypes, _definition);
     }
 
     /// <summary>
@@ -104,10 +122,21 @@ public sealed class ApiTypeSelection
         var include = new bool[reader.TypeDefinitions.Count + 1];
         foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
         {
+            if (_definition is { } definition)
+            {
+                if (MetadataTypeDefinitionName.Matches(reader, handle, definition, out _)
+                    != MetadataTypeDefinitionNameMatchResult.NoMatch)
+                {
+                    include[MetadataTokens.GetRowNumber(handle)] = true;
+                    continue;
+                }
+                if (_extensionTypes.Count == 0)
+                    continue;
+            }
             include[MetadataTokens.GetRowNumber(handle)] =
                 reader.ResolveFullTypeName(handle)
                     is not RelationshipTraversalResult<string>.Completed { Value: var name }
-                || _matchesFullName(name)
+                || _definition is null && _matchesFullName(name)
                 || IsExtensionTypeOrNested(name);
         }
         return handle => include[MetadataTokens.GetRowNumber(handle)];

@@ -372,6 +372,19 @@ The accepted classes are part of the producer's meaning. A wrong set silently
 drops units, so it is reviewed like any other result-shaping code, and the
 receipt's attempted counts show its effect.
 
+A producer can also declare that each settling fact closes its unit's
+**source Type**. The source Type is the declaring Type or, for a unit in a
+nested compiler-generated Type, the nearest enclosing Type that isn't one.
+After that fact, the rest of the Type's units are outside that producer's
+scope, and so are the units of the compiler-generated Types nested in it.
+Like any other scope exclusion, they're neither attempted nor failed. Exists
+settles a whole request at its first settling fact, while source-Type
+settlement settles each Type at its own. The declaration is part of the
+producer's meaning, so its fold must give the same result whichever of a
+settled Type's units it saw.
+[Finding Unsafe Any](unsafe-code-section.md#finding-unsafe-any) is the first
+such producer.
+
 *Lets the lower levels:* skip whole types and units before any visit, share
 one classification among every producer that needs it, and give a fused pass
 the cost of a hand-written loop for that combination without anyone writing

@@ -553,7 +553,7 @@ test("selector-only accessors use body-aware implementation queries", () => {
     /member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name/);
   assert.deepEqual(
     memberSectionIdsFor({ kind: "event" }, false, true),
-    ["overview", "call-graph", "facts", "resource-triage", "compare"]);
+    ["overview", "call-graph", "facts", "resource-triage", "analysis", "compare"]);
 });
 
 test("platform graph borders reflect actual resident lookup", () => {
@@ -1062,7 +1062,10 @@ test("fallback ordinary families load the shared document", () => {
     ?? "";
   assert.match(
     groupDocument,
-    /member\.kind !== "method"[\s\S]*state\.memberSpelling !== "csharp"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+    /member\.kind !== "method"[\s\S]*member\.overloads\.some\(overload => overload\.graphOnly\)[\s\S]*renderPreservingMemberFocus\(\);[\s\S]*return;/);
+  assert.match(
+    groupDocument,
+    /if \(state\.memberSpelling !== "csharp"\) \{\s*state\.memberGroupDocumentKey = key;\s*state\.memberGroupDocument = null;\s*state\.memberGroupDocumentError = "Switch to C# spelling to inspect exact declarations\.";\s*renderPreservingMemberFocus\(\);\s*return;/);
   assert.match(
     groupDocument,
     /member\.name,[\s\S]*state\.memberAccessibilityFilter,[\s\S]*"all",[\s\S]*false/);
@@ -1938,6 +1941,9 @@ test("Type Overview adopts the full-area metadata surface", () => {
   assert.match(
     renderLens,
     /case "metadata":\s*case "overview":\s*return renderTypeMetadataHtml\(item\);/);
+  assert.match(
+    appSource,
+    /function inspectSelectedTypeRelations\(\)[\s\S]*?const isCurrent = \(\) =>[\s\S]*?currentTypeMetadataSignature[\s\S]*?isCurrent,\s*isVisible: \(\) =>\s*scope\(\) === "type"\s*&& \(state\.lens === "analysis"\s*\|\| state\.lens === "overview"\s*\|\| state\.lens === "metadata"\)\s*&& isCurrent\(\)/);
   assert.doesNotMatch(
     renderLens,
     /case "metadata":[\s\S]*?typeHeadingHtml\(item\)/);
@@ -1993,13 +1999,21 @@ test("Package and Library Overview share the named identity frame", () => {
   assert.match(renderLibraryOverview,
     /aggregateLibrarySubjectIsActive\(\)[\s\S]*renderLibraryCompositionOverview\(currentPackage\(\), null\)/);
   assert.match(renderLibraryOverview,
-    /pkg\.isRuntimePack[\s\S]*renderLibraryCompositionOverview\(pkg, library\)/);
+    /state\.rootKind === "library"[\s\S]*renderLibraryCompositionOverview\(pkg, library\)/);
   assert.doesNotMatch(renderLibraryOverview, /coordinateFieldsHtml:/);
-  assert.match(renderLibraryOverview, /currentLibraryApiInspection\(\)/);
   assert.match(renderLibraryOverview,
-    /totalTypes: inventory\.publicTypeCount,[\s\S]*totalMembers: inventory\.publicMemberCount/);
-  assert.match(renderLibraryOverview,
-    /\[\.\.\.inventory\.typeKinds\][\s\S]*\[\.\.\.inventory\.namespaces\]/);
+    /renderExactLibraryOverview\(\{[\s\S]*inspection: currentLibraryApiInspection\(\),[\s\S]*enablements: enabledLibraryEnablements\(pkg, library\),/);
+  assert.doesNotMatch(renderLibraryOverview, /typeNames|renderLibraryTypeNames/);
+  // Navigate never reports a forwarding-only Platform Library as empty while
+  // its forwarded-Type inventory is unknown: it retries a failed inventory,
+  // settles a pending one, and reports a failure as a failure.
+  const libraryTypesOpen =
+    appSource.match(/onLibraryTypesOpen: \(\) => \{[\s\S]*?\n  \},\n/)?.[0] ?? "";
+  assert.match(libraryTypesOpen,
+    /!forwarders\.ready && !forwarders\.loading\s*&& forwarders\.error\) \{\s*reconcilePlatformForwarderView\(true\);/);
+  assert.match(libraryTypesOpen, /if \(forwarders\?\.loading\) await forwarders\.loading;/);
+  assert.match(libraryTypesOpen,
+    /inventoryError\s*\? `Forwarded-Type inventory unavailable: \$\{inventoryError\}`\s*: "This Library has no Types to browse\."/);
   assert.match(stylesSource,
     /\.detail-scroll\.overview-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
 });
@@ -2063,7 +2077,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     appSource.match(/function renderPackageView\([\s\S]*?\n}\n\nfunction renderWorkspaceView/)?.[0]
     ?? "";
   const renderDependencies =
-    appSource.match(/function renderPackageDependencies\([\s\S]*?\n}\n\nfunction renderLibraryReferences/)?.[0]
+    appSource.match(/function renderPackageDependencies\([\s\S]*?\n}/)?.[0]
     ?? "";
   assert.match(
     appSource,
@@ -2085,7 +2099,7 @@ test("package dependencies use compact coordinates in a full-area working surfac
     6);
   assert.match(
     appSource,
-    /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, selectedGroupIndex\)/);
+    /function patchDependenciesGroup\([\s\S]*?data-package-dependencies-status[\s\S]*?status\.textContent = packageDependenciesStatus\(data, explicitGroupIndex\)/);
   assert.match(
     stylesSource,
     /\.detail-scroll\.package-dependencies-working-surface,[\s\S]*?overflow: hidden;[^}]*padding: 0;/s);
@@ -2103,7 +2117,7 @@ test("Dependencies adopts the shared graph viewer without moving the package lis
     /id="dependency-graph-explore" data-graph-explore\$\{dependencyGraphAvailable\(\)/);
   assert.match(
     appSource,
-    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{declarationFailureNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{platformReferenceSection\}\$\{depList\}/);
+    /<div data-dependency-graph-surface>\$\{dependencyGroupNotice\}\$\{selector\}\$\{graphSection\}<\/div>\$\{selectedPlatformReferenceSection\}\$\{depList\}/);
   assert.match(
     appSource,
     /graphExplorer\.beforeRender\(graphExplorerKey\(\)\)/);

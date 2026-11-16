@@ -121,7 +121,7 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("Member Index")]
     [InlineData("Called Types")]
-    [InlineData("Unsafe Members")]
+    [InlineData("Unsafe Code")]
     [InlineData("Safety Facts")]
     [InlineData("Allocation Facts")]
     [InlineData("Cost Facts")]

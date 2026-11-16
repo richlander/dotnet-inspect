@@ -1894,8 +1894,7 @@ Neither audit section is the scalar-by-scalar refusal
 survey mode described below, and neither changes acceptance policy. Document payloads are
 encoded on stdout; exact bytes require `--out` with a single-file selection.
 `PackageSignals_ReportsEveryArtifactTextConcernKindWithoutContent`
-and `Package_MultiplePackages_SignalsIncludePackageFileConcerns` gate the
-summary across single-package and survey modes;
+gates the unary package summary across every concern kind;
 `PackageArtifactTextAudit_ListsLocationsAndKindsInMarkdownAndJsonl` gates the
 model-detail boundary; `PackageContentAuditTests` and
 `PackageAudit_RendersContentAndSourceLinkFindings` gate the file and
@@ -1980,12 +1979,11 @@ same identity and retry contract for both catalog forms; and
 malformed catalog reference.
 `PackageCommand_IdentifierMetadataFailureIsNonzero` gates nonzero completion
 and content-free diagnostics for that failure.
-`MultiPackageCount_CountsSelectedAuditRows` gates scalar counts against the
-selected audit rows rather than unrelated package-info fields;
-`MultiPackageCount_PreservesSelectedSectionMap` plus
-`MultiPackageCount_PreservesFixedOverviewMap` gate multi-section count maps;
-`Package_MultiplePackages_FixedOverviewCountPopulatesSections` gates the
-command path that supplies those fixed-overview sections;
+`Package_Signals_CountMatchesRenderedRows` gates the unary Signals count
+against its rendered audit rows;
+`Package_MultiSectionCountUsesTheReducedTableShape` and
+`Package_ExplicitFixedOverviewCount_IncludesEmptySections` gate unary
+multi-section and fixed-overview count maps;
 `LibraryPackageSignals_FullEffectiveDiscoveryWarnsOnce` gates one diagnostic
 per package effective-discovery failure;
 `LibraryCommand_SelectedReferences_TreeDedupUsesShallowestPath` gates

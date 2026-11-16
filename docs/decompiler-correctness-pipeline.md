@@ -245,18 +245,14 @@ detached-clone case proves that production structuring candidates retain their
 function evidence owner.
 `ProtectedContinueRecoveryTests` gates the production `ForLoopPass` adoption
 outcome.
-`ClassicInverseCoreExceptionTests` gates the classic-async consumer: production
-raw membership comes from `LocationAt`, structured catch/finally projections
-retain exact clause and region associations, raw and planning views share one
-fact observation, missing correlation declines visibly, and same-range foreign
-identity cannot license reconstruction. The same gate requires the
-relationship-selected `MoveNext` MethodDef to equal the available Instructions
-exception-flow body's MethodDef, rejects a foreign method observation, and
-retains the neighboring user-`finally` reconstruction. Decompiler consumers
-resolve owner-issued clause and region identities through Instructions lookup
-rather than collection scans or object-reference correspondence. The full
-`ClassicInverseCoreTests` population gates unchanged recipe and accounting
-behavior. These gates do not verify the later return-timing consumer migration.
+`ClassicAsyncFixtureTests` gates the classic-async consumer: the request
+requires the relationship-selected `MoveNext` MethodDef to equal the available
+Instructions exception-flow body's MethodDef and rejects a foreign method
+observation, and its fixture population retains the user-`finally`
+reconstruction. Decompiler consumers resolve owner-issued clause and region
+identities through Instructions lookup rather than collection scans or
+object-reference correspondence. These gates do not verify the later
+return-timing consumer migration.
 
 ### EH normal-continuation return timing
 

@@ -30,6 +30,42 @@ public class KeywordIdentifierTests
     }
 
     [Fact]
+    public void KeywordByAddressArgumentReceiver_IsEscaped()
+    {
+        var charType = TypeRef.CoreLib("System", "Char");
+        var intType = TypeRef.CoreLib("System", "Int32");
+        var spanType = TypeRef.GenericInstance(
+            TypeRef.CoreLib("System", "ReadOnlySpan`1"),
+            [charType]);
+        var getter = new MethodRef(spanType, "get_Length", intType, [], HasThis: true)
+        {
+            IsSpecialName = true,
+        };
+        var body = new BlockContainer();
+        var block = new Block();
+        body.Add(block);
+        block.Add(new Return(new LoadProperty(
+            getter,
+            new LoadArgumentAddress(0, "namespace", spanType),
+            [])));
+        var function = new IrFunction(
+            "M",
+            TypeRef.Definition("Synthetic", "", "T"),
+            new MethodSignature(
+                intType,
+                [new Parameter("namespace", spanType)],
+                HasThis: false,
+                GenericParameterCount: 0),
+            [],
+            body);
+
+        var output = CSharpPrinter.Print(function).Output!;
+
+        Assert.Contains("return @namespace.Length", output);
+        Assert.DoesNotContain("return namespace.Length", output);
+    }
+
+    [Fact]
     public void ContextualKeywordParameter_IsEscaped()
     {
         var output = Render(nameof(CfgSampleClass.ContextualKeywordParam));

@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.IO.Compression;
 using System.Net;
 using DotnetInspector.Packages;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using ILInspector.Metadata;
 using ILInspector.SourceLink;
@@ -2823,9 +2824,15 @@ public sealed partial class PackageRangedRealizationTests
                     () => ReadAllBytes(bounded));
             }
 
+            await using var workspace = new InspectionWorkspace();
+            WorkspacePackageOccurrenceDescriptor occurrence =
+                await PackageFileContentInspectionTests.AdmitAsync(
+                    workspace, acquired.Settlement);
             InspectionEnvelope<PackageFileContentDocument> inspection =
                 await PackageFileContentInspection.ExecuteAsync(
                     new(
+                        workspace,
+                        occurrence,
                         acquired,
                         PackageDocumentContentLimits.MaxDecodedBytes),
                     TestContext.Current.CancellationToken);

@@ -26,7 +26,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// short-circuit chain.
 ///
 /// Conservative by construction:
-///   • only short tails (the terminator-inlining budget) are duplicated;
+///   • only short tails (the terminator-inlining budget) are duplicated, and
+///     never one holding an <c>await</c>, whose copies would each suspend;
 ///   • outside the mixed shape, a merge needs two or more
 ///     <em>unconditional</em> predecessors — a two-way <c>if/else</c> join (one
 ///     goto + one fallthrough) is left to the structuring pass's diamond form,
@@ -154,6 +155,9 @@ public sealed class ReturnMergePass : IIrPass
         if (count == 0 || count > MaxTailStatements)
             return false;
         if (block.Children[^1] is not Return)
+            return false;
+        // An await is one suspension point; a copy per arm would be several.
+        if (block.Descendants.OfType<AwaitExpression>().Any())
             return false;
         for (int s = 0; s < count - 1; s++)
             if (block.Children[s] is Branch or ConditionalBranch or SwitchBranch or Leave or EndFinally or EndFilter)

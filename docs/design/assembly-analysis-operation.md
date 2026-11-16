@@ -124,7 +124,7 @@ The stack answers each question in stages, and each stage has one owner:
 
 For example, "Does type `T` have unsafe members?" runs as follows:
 
-1. The type Unsafe Members check
+1. The type Unsafe Code check
    (`UnsafeEvidencePresenceQuery.ExecuteExactTypes`) requests the unsafe
    member presence producer, closed with `Exists`, over `T`'s TypeDef.
 2. Producer Planning closes that producer's description: it reads
@@ -559,6 +559,15 @@ breadths retain interpreted serial execution. The Browser/Wasm operation uses
 the default overload; its project closure does not reference
 `DotnetInspector.Sections.Local` or the local worker adapter.
 
+[#10854](https://github.com/richlander/dotnet-inspect/issues/10854) adopts the
+same focused producer for CLI Library Top Leverage. Its host-neutral operation
+borrows the command's already-open prefetched image, preserves the typed query
+result and focused Analysis receipts, and remains serial by default. The local
+CLI adapter supplies the existing bounded desktop realization. Selecting Top
+Leverage alone no longer requests Method Evidence from
+`LibraryBodyAnalysisService`; another selected legacy consumer retains only
+its own required donor features.
+
 [#10288](https://github.com/richlander/dotnet-inspect/issues/10288) adopts the
 exact method-analysis producer for safety-only IL-coordinate preparation.
 Direct CLI and host-neutral Library Address execution borrow the already-open
@@ -575,6 +584,13 @@ executes that request set; Research-owned `ILOffsetSemanticAnalysis` maps its
 detached results into coordinate projection inputs without acquiring a
 QuerySpace dependency. No semantic coordinate request opens
 `LibraryBodyAnalysisService`.
+
+The same Analysis operation now has separate encoded-body-size and
+sibling-invocation Rows associations for later Member Metrics orchestration.
+Their receipts map each selected lane to its focused producer participation.
+Body size reads only encoded IL length. Sibling invocation retains invocation
+operands, peeled MethodDef tokens, and typed targets without selecting safety,
+locals, Method Analysis, allocation, optimization, or the complete profile.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first

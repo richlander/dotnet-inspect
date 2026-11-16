@@ -3,8 +3,10 @@ using System.Text.Json;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Planning;
+using DotnetInspect.Cli.Sections;
 using DotnetInspect.Cli.Views;
 using DotnetInspector.Queries.Definitions;
+using DotnetInspector.Diff;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
 using Markout;
@@ -161,6 +163,8 @@ public static partial class ResourceExplanationCommand
                 "package-query" => CreatePackageQueryExplanation(),
                 "package-files" => CreatePackageFilesExplanation(),
                 "diff-analysis" => CreateDiffAnalysisExplanation(),
+                "finding-diff-any" or "finding-diff-any-members" =>
+                    CreateFindingDiffAnyExplanation(),
                 ResourceExplanationCatalog.AnalysesCollectionSegment =>
                     CreateDiffAnalysisExplanation(),
                 ResourceExplanationCatalog.VocabulariesCollectionSegment =>
@@ -344,6 +348,12 @@ public static partial class ResourceExplanationCommand
             DiffAnalysisCapabilityResourcePaths.Create(
                 DiffAnalysisCommandCapability.Catalog));
 
+    private static ResourceExplanationCatalog CreateFindingDiffAnyExplanation() =>
+        ResourceExplanationCatalog.CreateCapabilities(
+            FindingDiffAnyCommandCapability.Catalog,
+            FindingDiffAnyLibraryCapabilityResourcePaths.Create(
+                FindingDiffAnyCommandCapability.Catalog));
+
     private static (
         InspectionCapabilityCatalog Catalog,
         ResourceExplanationCatalog Explanation)
@@ -362,8 +372,11 @@ public static partial class ResourceExplanationCommand
                     PackageFileInventoryCommandCapability.Module,
                     DiffAnalysisCatalog.ProductModule,
                     DiffAnalysisCommandCapability.Module,
+                    FindingDiffAnyLibraryCapability.ProductModule,
+                    FindingDiffAnyCommandCapability.Module,
                     .. CreateStructuralCapabilityModules(),
                     StructuralRoutingDeclarations.Module,
+                    DiffCatalogRouting.Module,
                     VocabularyRoutingDeclarations.Module,
                     ResourceExplanationCatalog.ComponentContractsRoutingModule,
                 ]);
@@ -377,6 +390,8 @@ public static partial class ResourceExplanationCommand
                         packageFiles),
                     .. DiffAnalysisCapabilityResourcePaths.Create(
                         DiffAnalysisCommandCapability.Catalog),
+                    .. FindingDiffAnyLibraryCapabilityResourcePaths.Create(
+                        FindingDiffAnyCommandCapability.Catalog),
                 ],
                 includeStructuralCatalogs: includeStructuralExplanation);
         return (catalog, explanation);
@@ -805,7 +820,7 @@ public static partial class ResourceExplanationCommand
     /// <summary>
     /// The structural catalogs <c>explain</c> publishes, each with the views
     /// that select its sections: library (direct and by address), package,
-    /// the type listing, and the three member catalogs under the names
+    /// the type listing, the three member catalogs, and diff under the names
     /// <see cref="StructuralCatalogPaths.Name"/> issues. A
     /// catalog's first view supplies its projection's route.
     /// </summary>
@@ -821,5 +836,6 @@ public static partial class ResourceExplanationCommand
         (InspectionCatalogIdentity.ApiMember, [StructuralViewIdentity.MemberType]),
         (InspectionCatalogIdentity.ApiMemberOverload, [StructuralViewIdentity.MemberTarget]),
         (InspectionCatalogIdentity.ApiMemberDetail, [StructuralViewIdentity.MemberTarget]),
+        (InspectionCatalogIdentity.Diff, [StructuralViewIdentity.Diff]),
     ];
 }

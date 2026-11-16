@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.IO.Compression;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -184,6 +185,70 @@ public sealed partial class ExactTypeInspectionOperationTests
         Assert.Equal(
             $"lib/{Framework}/{selectedAssembly}",
             assetPath);
+    }
+
+    [Fact]
+    public async Task
+        DefiningImplementationTargetRetainsListedPortablePdb()
+    {
+        const string selectedAssembly = "DotnetInspector.Sections.dll";
+        byte[] selected = await File.ReadAllBytesAsync(
+            typeof(ExactTypeInspectionOperation).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] portablePdb = await File.ReadAllBytesAsync(
+            Path.ChangeExtension(
+                typeof(ExactTypeInspectionOperation).Assembly.Location,
+                ".pdb"),
+            TestContext.Current.CancellationToken);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{selectedAssembly}", selected),
+            ($"lib/{Framework}/{selectedAssembly}", selected),
+            ($"lib/{Framework}/DotnetInspector.Sections.pdb",
+                portablePdb));
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new NotFoundHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            typeof(ExactTypeInspectionOperation).FullName!);
+
+        ImmutableArray<byte>? retained =
+            await ExactTypeInspectionOperation
+                .ExecuteFirstAvailableWithDefiningImplementationTargetAsync(
+                    [request],
+                    house,
+                    cancellationToken =>
+                        root.IssueOperationLease(cancellationToken),
+                    ApiSurfaceScope.Public,
+                    PackageHouseLibraryCompanionDemand
+                        .ImplementationPortablePdb,
+                    (envelope, target, _) =>
+                    {
+                        Assert.True(envelope.Content.IsAvailable);
+                        Assert.NotNull(target);
+                        return ValueTask.FromResult(
+                            target.ImplementationPortablePdb);
+                    },
+                    TestContext.Current.CancellationToken);
+
+        Assert.True(retained.HasValue);
+        Assert.Equal(
+            portablePdb,
+            retained.Value.ToArray());
     }
 
     [Fact]
@@ -1877,7 +1942,8 @@ public sealed partial class ExactTypeInspectionOperationTests
         bool definesType,
         string typeNamespace,
         string typeName,
-        AssemblyReferenceIdentity? forwardTarget = null)
+        AssemblyReferenceIdentity? forwardTarget = null,
+        string? definedTypeName = null)
     {
         var metadata = new MetadataBuilder();
         metadata.AddModule(
@@ -1906,7 +1972,7 @@ public sealed partial class ExactTypeInspectionOperationTests
             metadata.AddTypeDefinition(
                 TypeAttributes.Public,
                 metadata.GetOrAddString(typeNamespace),
-                metadata.GetOrAddString(typeName),
+                metadata.GetOrAddString(definedTypeName ?? typeName),
                 baseType: default,
                 fieldList: MetadataTokens.FieldDefinitionHandle(1),
                 methodList: MetadataTokens.MethodDefinitionHandle(1));

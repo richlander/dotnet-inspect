@@ -32,6 +32,22 @@ It does not authorize or acquire sources, define Ecosystem membership, schedule
 several populations, select final presentation rows, render output, or activate
 a selected declaration.
 
+The same owner also defines an ordered result session for an execution whose
+natural report grain is the semantic finding itself. A
+`FindSemanticResultSession` accepts typed Type or Member matches, suppresses
+only repeated exact structured finding identity, publishes each admitted
+finding immediately to an optional synchronous sink, and retains the identical
+sequence for its terminal result. The session knows nothing about indexes,
+Workspace residency, package prefixes, Ecosystem memberships, or host
+presentation.
+
+An adopter whose natural report grain requires additional owner-issued
+association must establish its complete detached report before publication
+rather than completing a bare semantic finding through ambient host state.
+[Ecosystem Find Search](ecosystem-find-search.md#publication-ready-findings)
+therefore owns its source-and-membership-bearing finding and ordered reporting
+session while embedding the semantic finding defined here.
+
 ## Demo
 
 The first CLI Type scenario is:
@@ -337,6 +353,44 @@ Rows order by:
 Match classification is row evidence, not a sort key. Arrival time, task
 completion, display label, and Ecosystem name are never ranking inputs.
 
+## Ordered result session
+
+One `FindSemanticResultSession` spans every producer admitted to one semantic-
+finding-grained execution. A richer adopter may instead embed
+`FindSemanticFinding` in its own complete report value and reporting session.
+A consumer of this session receives semantic findings only; producer kind,
+index use, Ecosystem membership, and host projection are not part of the sink
+contract.
+
+The optional sink receives each admitted finding synchronously before the
+producer continues. This lets a CLI write and flush one TSV or JSONL row, and
+lets a Browser bridge emit one durable item event, without waiting for later
+sources. Sink failure propagates to the producer before the finding is retained;
+it is not converted into successful terminal content.
+
+The session retains the same admitted finding objects in publication order.
+Completion returns that sequence together with an explicit exhausted,
+row-limited, candidate-limited, partial, failed, or canceled outcome, plus
+attributed failures and named unsearched sources. Omitting the sink changes
+neither producer execution nor terminal content.
+
+Exact first-wins duplicate identity includes:
+
+- for Type findings, exact Library source coordinate,
+  `MetadataTypeDefinitionName`, module MVID, and pattern ordinal; and
+- for Member findings, exact Library source coordinate, `MemberAnchor`, and
+  pattern ordinal.
+
+Pattern ordinal remains part of identity because repeated or overlapping
+patterns are independently truthful associations. Equal rendered names from
+different exact sources remain distinct. A finite finding capacity stops later
+publication without erasing findings already admitted.
+
+The session is single-producer and not thread-safe. A scheduler may perform
+source work concurrently, but it must settle publication into its owned order
+before calling the session. The result session is not another scheduler,
+continuation, cache, host operation authority, or late-attribution store.
+
 ## Completion and failure
 
 One valid block may be complete empty, contain matches plus attributed source
@@ -372,7 +426,8 @@ The production path is a stack of focused adoptions:
    the shared operation.
 4. Implement
    [Ecosystem Find Search](ecosystem-find-search.md) over shared source
-   evaluations and semantic blocks.
+   evaluations and semantic blocks, using its complete source-and-membership
+   finding as the publication grain.
 5. Let Inspect Web execute the same question inside .NET and transport only the
    portable completed content and explicit activation association.
 
@@ -452,6 +507,8 @@ This design does not:
 
 - define source acquisition, Workspace realization, or cache freshness;
 - define Ecosystem lineage, phase order, membership, or package-prefix paging;
+- define an Ecosystem report item or attach Ecosystem membership through
+  mutable publication context;
 - define package search or package-query predicates;
 - define exact single-Type or exact Member selection;
 - define final Head, Tail, Window, Count, projection, or output formatting;

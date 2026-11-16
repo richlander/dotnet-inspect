@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
+using QuerySpace;
 
 namespace DotnetInspector.Queries.Tests;
 
@@ -21,11 +22,23 @@ public class EcosystemFindSearchSessionTests
 
     private static EcosystemFindSearchRequest Request(
         EcosystemFindLayer[] layers, int? maximumRows = null,
-        int maximumCandidates = 500) =>
-        new(TypeFindQuestion.Create(["Thing"], FindVisibility.Public),
+        int maximumCandidates = 500,
+        FindResultRowPlan? resultRows = null,
+        FindQuestion? question = null)
+    {
+        question ??=
+            TypeFindQuestion.Create(["Thing"], FindVisibility.Public);
+        return new(question,
             layers,
+            resultRows
+            ?? EcosystemFindResultSessionTests.ResultRows(
+                question,
+                maximumRows is int maximum
+                    ? [PortableQueryStage.Head(maximum)]
+                    : []),
             layers.Select(layer => layer.Registration.Id),
-            maximumCandidates, maximumRows);
+            maximumCandidates);
+    }
 
     private static async IAsyncEnumerable<EcosystemFindPrefixPage> Pages(
         EcosystemFindPrefixPage page,
@@ -504,6 +517,227 @@ public class EcosystemFindSearchSessionTests
     }
 
     [Fact]
+    public async Task CompleteFindingsAreAdmittedBeforeBlockPublication()
+    {
+        var layer = Layer("first", "First.Core");
+        EcosystemFindFinding first =
+            EcosystemFindResultSessionTests.Finding("First", 1);
+        EcosystemFindFinding second =
+            EcosystemFindResultSessionTests.Finding("Second", 2);
+        EcosystemFindBlock<string>? published = null;
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(["Thing"], FindVisibility.Public);
+        var results = new EcosystemFindResultSession(
+            EcosystemFindResultSessionTests.ResultRows(
+                question,
+                PortableQueryStage.Window(2, 2)));
+        using var session = new EcosystemFindSearchSession<string>(
+            Request(
+                [layer],
+                resultRows: results.ResultRows,
+                question: question),
+            (_, _) => Task.FromResult(
+                new EcosystemFindBlock<string>("bounded", 2)
+                {
+                    Findings = [first, second],
+                }),
+            (_, _, token) => Pages(new([]), token),
+            (_, _, _) => Task.FromResult(
+                new EcosystemFindBlock<string>("prefix", 0)),
+            publish: block => published = block,
+            results: results);
+
+        EcosystemFindSearchSummary<string> summary =
+            await session.ExecuteAsync(
+                TestContext.Current.CancellationToken);
+
+        Assert.NotNull(published);
+        Assert.Equal(1, published.RowCount);
+        Assert.Same(second, Assert.Single(published.Findings));
+        Assert.Same(
+            second,
+            Assert.Single(summary.BoundedBlocks).Findings.Single());
+        Assert.Same(
+            second,
+            Assert.Single(summary.Result!.Findings));
+        Assert.Same(
+            results.ResultRows,
+            summary.ResultRows);
+        Assert.Same(
+            results.ResultRows,
+            summary.Result.ResultRows);
+        Assert.Equal(2, results.UniqueCandidateCount);
+    }
+
+    [Fact]
+    public async Task WorkspaceFindingCanFillWindowAndFinalizeContinuation()
+    {
+        var layer = Layer("first", "First.Core", "First.");
+        EcosystemFindFinding bounded =
+            EcosystemFindResultSessionTests.Finding("First", 1);
+        EcosystemFindFinding workspace =
+            EcosystemFindResultSessionTests.WorkspaceFinding("Second", 2);
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(["Thing"], FindVisibility.Public);
+        var results = new EcosystemFindResultSession(
+            EcosystemFindResultSessionTests.ResultRows(
+                question,
+                PortableQueryStage.Window(2, 2)));
+        int prefixEnumerations = 0;
+        using var session = new EcosystemFindSearchSession<string>(
+            Request(
+                [layer],
+                resultRows: results.ResultRows,
+                question: question),
+            (_, _) => Task.FromResult(
+                new EcosystemFindBlock<string>("bounded", 1)
+                {
+                    Findings = [bounded],
+                }),
+            (_, _, token) =>
+            {
+                prefixEnumerations++;
+                return Pages(new([]), token);
+            },
+            (_, _, _) => Task.FromResult(
+                new EcosystemFindBlock<string>("prefix", 0)),
+            results: results);
+
+        EcosystemFindBoundedOutcome<string> staged =
+            await session.RunBoundedAsync(
+                TestContext.Current.CancellationToken);
+
+        Assert.Null(staged.Completed);
+        Assert.NotNull(staged.Continuation);
+        Assert.Equal(1, staged.Continuation.MaximumRemainingRows);
+        Assert.Equal(1, results.RemainingCandidateCapacity);
+        Assert.Equal(
+            EcosystemFindFindingPublication.Published,
+            results.Publish(workspace));
+        Assert.Equal(0, results.RemainingCandidateCapacity);
+
+        EcosystemFindSearchSummary<string> summary =
+            await staged.Continuation.ResumeAsync(
+                results.RemainingCandidateCapacity,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, prefixEnumerations);
+        Assert.Empty(summary.PrefixBlocks);
+        Assert.Equal(
+            EcosystemFindCompletion.RowLimitReached,
+            summary.Completion);
+        Assert.Same(
+            workspace,
+            Assert.Single(summary.Result!.Findings));
+        Assert.Equal(
+            EcosystemFindFindingScope.Workspace,
+            summary.Result.Findings[0].Scope);
+        Assert.Equal("First.", Assert.Single(summary.Unsearched));
+    }
+
+    [Fact]
+    public async Task DuplicateFindingsDoNotConsumeDemandAcrossBlocks()
+    {
+        EcosystemFindLayer[] layers =
+        [
+            Layer("first", "First.Core"),
+            Layer("second", "Second.Core"),
+        ];
+        EcosystemFindFinding first =
+            EcosystemFindResultSessionTests.Finding("First", 1);
+        EcosystemFindFinding second =
+            EcosystemFindResultSessionTests.Finding("Second", 2);
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(["Thing"], FindVisibility.Public);
+        var results = new EcosystemFindResultSession(
+            EcosystemFindResultSessionTests.ResultRows(
+                question,
+                PortableQueryStage.Head(2)));
+        using var session = new EcosystemFindSearchSession<string>(
+            Request(
+                layers,
+                resultRows: results.ResultRows,
+                question: question),
+            (layer, _) => Task.FromResult(
+                new EcosystemFindBlock<string>(
+                    layer.Registration.Id.Value,
+                    layer.Registration.Id.Value == "ecosystem.first"
+                        ? 1
+                        : 2)
+                {
+                    Findings =
+                        layer.Registration.Id.Value == "ecosystem.first"
+                            ? [first]
+                            : [first, second],
+                }),
+            (_, _, token) => Pages(new([]), token),
+            (_, _, _) => Task.FromResult(
+                new EcosystemFindBlock<string>("prefix", 0)),
+            results: results);
+
+        EcosystemFindSearchSummary<string> summary =
+            await session.ExecuteAsync(
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, results.UniqueCandidateCount);
+        Assert.Equal(
+            [first, second],
+            summary.Result!.Findings);
+        Assert.Same(
+            first,
+            Assert.Single(summary.BoundedBlocks[0].Findings));
+        Assert.Same(
+            second,
+            Assert.Single(summary.BoundedBlocks[1].Findings));
+        Assert.Equal(1, summary.BoundedBlocks[1].RowCount);
+    }
+
+    [Fact]
+    public async Task SinkFailureStopsLaterBoundedWork()
+    {
+        EcosystemFindLayer[] layers =
+        [
+            Layer("first", "First.Core"),
+            Layer("second", "Second.Core"),
+        ];
+        EcosystemFindSearchRequest request = Request(layers);
+        var results = new EcosystemFindResultSession(
+            request.ResultRows,
+            new ThrowingSink());
+        int evaluations = 0;
+        using var session = new EcosystemFindSearchSession<string>(
+            request,
+            (layer, _) =>
+            {
+                evaluations++;
+                return Task.FromResult(
+                    new EcosystemFindBlock<string>(
+                        layer.Registration.Id.Value,
+                        RowCount: 1)
+                    {
+                        Findings =
+                        [
+                            EcosystemFindResultSessionTests.Finding(
+                                layer.Registration.Id.Value,
+                                evaluations),
+                        ],
+                    });
+            },
+            (_, _, token) => Pages(new([]), token),
+            (_, _, _) => Task.FromResult(
+                new EcosystemFindBlock<string>("prefix", 0)),
+            results: results);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            session.ExecuteAsync(
+                TestContext.Current.CancellationToken));
+
+        Assert.Equal(1, evaluations);
+        Assert.Equal(0, results.UniqueCandidateCount);
+        Assert.Equal(0, results.Count);
+    }
+
+    [Fact]
     public async Task CancellationAfterEvaluationBeforeAcceptanceDoesNotPublish()
     {
         var layer = Layer("first", "First.Core", "Contoso.");
@@ -594,6 +828,7 @@ public class EcosystemFindSearchSessionTests
         Assert.Throws<ArgumentException>(() => new EcosystemFindSearchRequest(
             TypeFindQuestion.Create(["Thing"], FindVisibility.Public),
             [layer],
+            Request([layer]).ResultRows,
             [WorkspaceEcosystemRegistrationId.Create("ecosystem.other")],
             500));
         Assert.Throws<ArgumentOutOfRangeException>(() =>
@@ -654,7 +889,7 @@ public class EcosystemFindSearchSessionTests
             Request([layer]),
             (_, _) => Task.FromResult(new EcosystemFindBlock<string>(
                 "partial", 1, HasFailures: true, Incomplete: true)
-                { Failure = "Could not settle core." }),
+            { Failure = "Could not settle core." }),
             (prefix, _, token) => Pages(
                 prefix.Prefix == "Contoso."
                     ? new([], EcosystemFindPrefixPageCompletion.SourcePageLimit)
@@ -686,12 +921,11 @@ public class EcosystemFindSearchSessionTests
             []);
         var layer = new EcosystemFindLayer(registration, Platform: false);
         using var session = new EcosystemFindSearchSession<string>(
-            new(TypeFindQuestion.Create(["Thing"], FindVisibility.Public),
-                [layer], [], 500),
+            Request([layer]),
             (source, _) => Task.FromResult(new EcosystemFindBlock<string>(
                 source.CorePackageId!, 0,
                 HasFailures: true, Incomplete: true)
-                { Failure = $"{source.CorePackageId} failed." }),
+            { Failure = $"{source.CorePackageId} failed." }),
             (_, _, token) => Pages(new([]), token),
             (_, _, _) => Task.FromResult(new EcosystemFindBlock<string>("", 0)),
             reuseCore: (_, source, _) => source,
@@ -720,8 +954,7 @@ public class EcosystemFindSearchSessionTests
         ];
         int evaluations = 0;
         using var session = new EcosystemFindSearchSession<string>(
-            new(TypeFindQuestion.Create(["Thing"], FindVisibility.Public),
-                layers, [], 500),
+            Request(layers),
             (layer, _) =>
             {
                 evaluations++;
@@ -754,11 +987,10 @@ public class EcosystemFindSearchSessionTests
     {
         var layer = Layer("first", "First.Core");
         using var session = new EcosystemFindSearchSession<int>(
-            new(TypeFindQuestion.Create(["Thing"], FindVisibility.Public),
-                [layer], [], 500),
+            Request([layer]),
             (_, _) => Task.FromResult(new EcosystemFindBlock<int>(
                 0, 0, HasFailures: true, Incomplete: true)
-                { Failure = "Source unavailable." }),
+            { Failure = "Source unavailable." }),
             (_, _, token) => Pages(new([]), token),
             (_, _, _) => Task.FromResult(new EcosystemFindBlock<int>(0, 0)));
         var result = await session.ExecuteAsync(TestContext.Current.CancellationToken);
@@ -771,11 +1003,10 @@ public class EcosystemFindSearchSessionTests
     {
         var layer = Layer("first", "First.Core");
         using var session = new EcosystemFindSearchSession<int>(
-            new(TypeFindQuestion.Create(["Thing"], FindVisibility.Public),
-                [layer], [], 500),
+            Request([layer]),
             (_, _) => Task.FromResult(new EcosystemFindBlock<int>(
                 1, 1, HasFailures: true, Incomplete: true)
-                { Failure = "One assembly failed." }),
+            { Failure = "One assembly failed." }),
             (_, _, token) => Pages(new([]), token),
             (_, _, _) => Task.FromResult(new EcosystemFindBlock<int>(0, 0)));
 
@@ -861,7 +1092,7 @@ public class EcosystemFindSearchSessionTests
                 [new("Contoso.Empty", "1.0.0")]), token),
             (_, _, _) => Task.FromResult(new EcosystemFindBlock<string>(
                 "empty", 0, HasFailures: true, Incomplete: true)
-                { Failure = "Package settlement failed." }));
+            { Failure = "Package settlement failed." }));
 
         EcosystemFindSearchSummary<string> result =
             await session.ExecuteAsync(TestContext.Current.CancellationToken);
@@ -871,5 +1102,11 @@ public class EcosystemFindSearchSessionTests
         Assert.Equal(
             "Contoso.Empty",
             Assert.Single(result.Failures).Source);
+    }
+
+    private sealed class ThrowingSink : IEcosystemFindFindingSink
+    {
+        public void Publish(EcosystemFindFinding finding) =>
+            throw new InvalidOperationException("Publication failed.");
     }
 }

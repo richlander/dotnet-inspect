@@ -93,7 +93,8 @@ public sealed class SwitchRaisingPass : IIrPass
                 if (blocks[s].Children is [.., SwitchBranch sw]
                     && (RaiseSwitchExpressionReturn(function, container, s, sw, leaveTargets, stepper)
                         || Raise(function, container, s, sw, leaveTargets, stepper)
-                        || RaiseCaseTargetJoin(function, container, s, sw, leaveTargets, stepper)))
+                        || RaiseCaseTargetJoin(function, container, s, sw, leaveTargets, stepper)
+                        || RaiseWithTerminalReturns(function, container, s, sw, leaveTargets, stepper)))
                     return true;
                 if (blocks[s].Children is [.., ConditionalBranch]
                     && (RaiseComparisonChainSwitchExpression(container, s, leaveTargets, stepper)
@@ -119,6 +120,74 @@ public sealed class SwitchRaisingPass : IIrPass
         return function;
     }
 
+    static bool RaiseWithTerminalReturns(
+        IrFunction function, BlockContainer container, int s, SwitchBranch sw,
+        HashSet<int> leaveTargets, Stepper stepper)
+    {
+        var blocks = container.Blocks;
+        var indices = new Dictionary<int, int>();
+        for (int index = 0; index < blocks.Count; index++)
+            if (!indices.TryAdd(blocks[index].StartOffset, index))
+                return false;
+        if (sw.TargetOffsets.Length == 0
+            || sw.TargetOffsets.Any(offset => !indices.TryGetValue(offset, out int index) || index <= s))
+            return false;
+        int lastCase = sw.TargetOffsets.Max(offset => indices[offset]);
+        var returns = new Dictionary<int, Return>();
+        for (int index = s + 1; index <= lastCase; index++)
+        {
+            int? target = blocks[index].Children.LastOrDefault() switch
+            {
+                Branch branch => branch.TargetOffset,
+                ConditionalBranch conditional => conditional.TargetOffset,
+                _ => null,
+            };
+            if (target is { } offset
+                && indices.TryGetValue(offset, out int exitIndex)
+                && exitIndex > lastCase
+                && blocks[exitIndex].Children is [Return { Value: null or Constant or LoadLocal or LoadArgument } exit])
+                returns.Add(index, exit);
+        }
+        if (returns.Count == 0)
+            return false;
+
+        var trial = (BlockContainer)container.Clone();
+        foreach (var (index, exit) in returns)
+        {
+            var branch = trial.Blocks[index].Children[^1];
+            if (branch is ConditionalBranch conditional)
+            {
+                var arm = new Block();
+                arm.Add(exit.Clone());
+                branch.ReplaceWith(new IfStatement((IrExpression)conditional.Condition.Clone(), arm, elseArm: null));
+            }
+            else
+                branch.ReplaceWith(exit.Clone());
+        }
+
+        // Keep the trial in its original lexical scope and restore that scope on decline.
+        var parent = container.Parent!;
+        int slot = 0;
+        while (!ReferenceEquals(parent.Children[slot], container))
+            slot++;
+        container.ReplaceWith(trial);
+        bool raised = false;
+        try
+        {
+            var trialSwitch = (SwitchBranch)trial.Blocks[s].Children[^1];
+            raised = Raise(function, trial, s, trialSwitch, leaveTargets,
+                new Stepper(enabled: false), allowSeparatedJoin: true);
+            if (raised)
+                stepper.StepOver("raise switch with terminal return exits", parent.Children[slot]);
+            return raised;
+        }
+        finally
+        {
+            if (!raised)
+                parent.Children[slot].ReplaceWith(container);
+        }
+    }
+
     static bool Raise(
         IrFunction function,
         BlockContainer container,
@@ -126,7 +195,8 @@ public sealed class SwitchRaisingPass : IIrPass
         SwitchBranch sw,
         HashSet<int> leaveTargets,
         Stepper stepper,
-        bool recognizeTrailingReturn = true)
+        bool recognizeTrailingReturn = true,
+        bool allowSeparatedJoin = false)
     {
         var blocks = container.Blocks;
         var offsetToIndex = new Dictionary<int, int>();
@@ -169,7 +239,8 @@ public sealed class SwitchRaisingPass : IIrPass
         // to the join, the direct-return case cannot be rendered as `break;`;
         // retry the established path that owns every target as a case region.
         if (terminalReturnJoin is not null && join != terminalReturnJoin)
-            return Raise(function, container, s, sw, leaveTargets, stepper, recognizeTrailingReturn: false);
+            return Raise(function, container, s, sw, leaveTargets, stepper,
+                recognizeTrailingReturn: false, allowSeparatedJoin: allowSeparatedJoin);
 
         // The default: a bare dispatch to a separate body laid out after the
         // cases, a bare jump to the join (omitted), an inline section, or — when
@@ -224,11 +295,12 @@ public sealed class SwitchRaisingPass : IIrPass
             defaultBodyHead = defaultIndex;
         }
         if (terminalReturnJoin is not null && join != terminalReturnJoin)
-            return Raise(function, container, s, sw, leaveTargets, stepper, recognizeTrailingReturn: false);
+            return Raise(function, container, s, sw, leaveTargets, stepper,
+                recognizeTrailingReturn: false, allowSeparatedJoin: allowSeparatedJoin);
 
-        // The owned blocks must tile the contiguous span [s+1, regionEnd): the
-        // join (if any) lies just past them, and no foreign block is interleaved.
-        int regionEnd = join ?? owned.Max() + 1;
+        // Sections tile one contiguous span. A separated join needs a post-switch
+        // branch so intervening blocks retain their independent entry paths.
+        int regionEnd = allowSeparatedJoin ? owned.Max() + 1 : join ?? owned.Max() + 1;
         if (!OwnsTiledRegion(owned, defaultIndex, join, regionEnd))
             return false;
 
@@ -2480,6 +2552,8 @@ public sealed class SwitchRaisingPass : IIrPass
         var switchBlock = all[s];
         sw.Detach();
         switchBlock.Add(new Switch(input.Value, sections));
+        if (join is { } continuation && continuation > regionEnd)
+            switchBlock.Add(new Branch(all[continuation].StartOffset));
 
         var rebuilt = new BlockContainer();
         for (int idx = 0; idx <= s; idx++)

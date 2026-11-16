@@ -30,8 +30,8 @@ public sealed class LibraryMetricsQueryTests
         LibraryBodyAnalysisExecution analysis =
             LibraryBodyAnalysisService.ExecutePath(
                 FixtureCatalog.AnalysisCallerLoop.AssemblyPath(),
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.ImplementationProfiles));
+                LibraryBodyAnalysisRequest
+                    .CreateCompleteImplementationProfile());
 
         LibraryMetricsResult result =
             LibraryMetricsQuery.Execute(
@@ -89,8 +89,8 @@ public sealed class LibraryMetricsQueryTests
             LibraryBodyAnalysisService.ExecutePath(
                 FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath(),
                 LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+                        LibraryBodyAnalysisFeatures.MethodEvidence)
+                    .WithCompleteImplementationProfile());
 
         LibraryMetricsResult result =
             LibraryMetricsQuery.Execute(analysis);
@@ -104,6 +104,59 @@ public sealed class LibraryMetricsQueryTests
     }
 
     [Fact]
+    public void Execute_SharedMethodEvidencePreservesStructuralPopulation()
+    {
+        string path =
+            FixtureCatalog.AnalysisCallerLoop.AssemblyPath();
+        LibraryBodyAnalysisExecution focusedAnalysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest
+                    .CreateLibraryStructuralReport());
+        LibraryBodyAnalysisExecution sharedAnalysis =
+            LibraryBodyAnalysisService.ExecutePath(
+                path,
+                LibraryBodyAnalysisRequest.Create(
+                        LibraryBodyAnalysisFeatures
+                            .MethodEvidence)
+                    .WithLibraryStructuralReport());
+        LibraryMetricsResult.Available focused =
+            Assert.IsType<LibraryMetricsResult.Available>(
+                LibraryMetricsQuery.Execute(
+                    focusedAnalysis));
+        LibraryMetricsResult.Available shared =
+            Assert.IsType<LibraryMetricsResult.Available>(
+                LibraryMetricsQuery.Execute(
+                    sharedAnalysis));
+
+        Assert.True(
+            focused.Document.Population.CompleteProfileCount > 0);
+        Assert.Equal(
+            focused.Document.Population.CompleteProfileCount,
+            shared.Document.Population.CompleteProfileCount);
+        Assert.Equal(
+            focused.Document.Population.IncompleteProfileCount,
+            shared.Document.Population.IncompleteProfileCount);
+        LibraryStructuralMetricDistribution focusedComplexity =
+            Assert.Single(
+                focused.Document.Distributions,
+                static distribution =>
+                    distribution.Metric
+                        == LibraryStructuralMetric
+                            .NormalFlowCyclomaticComplexity);
+        LibraryStructuralMetricDistribution sharedComplexity =
+            Assert.Single(
+                shared.Document.Distributions,
+                static distribution =>
+                    distribution.Metric
+                        == LibraryStructuralMetric
+                            .NormalFlowCyclomaticComplexity);
+        Assert.Equal(
+            focusedComplexity.CompleteBodyCount,
+            sharedComplexity.CompleteBodyCount);
+    }
+
+    [Fact]
     public void Execute_EvidenceCompleteInputsPublishStructuralSalience()
     {
         string path =
@@ -112,8 +165,8 @@ public sealed class LibraryMetricsQueryTests
             LibraryBodyAnalysisService.ExecutePath(
                 path,
                 LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures.ImplementationProfiles));
+                        LibraryBodyAnalysisFeatures.MethodEvidence)
+                    .WithCompleteImplementationProfile());
         using AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(path);
         var signatureAvailable =

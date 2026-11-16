@@ -50,6 +50,8 @@ public sealed class LibraryMethodLeverageProducer :
 
     internal override bool SupportsPendingRelationKernel => true;
 
+    internal override bool RetainsResultOnGeneratedExpansionFailure => true;
+
     internal override LibraryCallGraphBodyEvidence Visit(
         scoped MethodDefinitionView view)
     {

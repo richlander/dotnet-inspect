@@ -28,6 +28,7 @@ type AsyncFacade<
 type PackageOperations =
   | "activatePlatformForwarder"
   | "activateWorkspacePackageOccurrence"
+  | "classifyEcosystemAssemblyNames"
   | "classifyEcosystemPackages"
   | "classifyPackageGraphIdentities"
   | "containPackageDocumentLeaves"
@@ -45,10 +46,12 @@ type PackageOperations =
   | "prefetchPlatformPacks"
   | "queryLibraries"
   | "queryLibraryApi"
+  | "queryLibrarySurface"
   | "queryMemberDocumentation"
   | "queryPlatformMemberDocumentation"
   | "queryPackage"
   | "queryPackageIcon"
+  | "queryPackageLibraryIdentities"
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "inspectPackageDependencies"
@@ -71,7 +74,10 @@ type LibraryOperations = "inspectLibrary" | "openUploadedLibrary";
 type MetadataOperations =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
+  | "cancelTypeFindingDiffAny"
+  | "queryTypeFindingDiffAny"
   | "findTypes"
+  | "queryAnnotatedTypeRelations"
   | "queryLibraryApiDiff"
   | "queryLibraryFindingDiffAny"
   | "queryMemberDeclaration"
@@ -79,6 +85,8 @@ type MetadataOperations =
   | "queryMemberGroupDocument"
   | "queryPerformanceTypeMemberPopulation"
   | "queryTypeOverviewDocument"
+  | "queryRetainedPlatformTypeOverviewDocument"
+  | "queryRetainedPlatformMemberGroupDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
@@ -93,7 +101,8 @@ type MetadataOperations =
   | "queryPlatformHeapEntries"
   | "queryPlatformMetadata"
   | "queryPlatformMetadataTable"
-  | "queryTypeProjection";
+  | "queryTypeProjection"
+  | "queryRetainedPlatformTypeProjection";
 
 type AnalysisOperations =
   | "queryCloneCandidates"
@@ -105,6 +114,8 @@ type AnalysisOperations =
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
   | "queryPackageResourceTriage"
+  | "queryPackageUnsafeCodeTypes"
+  | "queryPackageUnsafeMembers"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
   | "queryPackageLibraryStructuralSalience"
@@ -116,7 +127,9 @@ type AnalysisOperations =
   | "queryPlatformIntegrations"
   | "queryPlatformOpportunities"
   | "queryPlatformPerformance"
-  | "queryPlatformResourceTriage";
+  | "queryPlatformResourceTriage"
+  | "queryPlatformUnsafeCodeTypes"
+  | "queryPlatformUnsafeMembers";
 
 type SourceOperations =
   | "queryMemberBodyDiff"
@@ -143,6 +156,8 @@ type CallGraphOperations =
   | "queryMemberCallGraph";
 
 type CatalogOperations =
+  | "canUpgradeLegacyPlatformWorkspace"
+  | "prepareLegacyPlatformWorkspaceDefinition"
   | "admitEcosystemPackageToWorkspace"
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"
@@ -171,6 +186,7 @@ type CatalogOperations =
   | "listHomeDemos"
   | "listLibraryViewFacets"
   | "listMemberViewFacets"
+  | "listPackageViewFacets"
   | "listTypeViewFacets"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
@@ -247,7 +263,14 @@ export interface EngineClient {
       MetadataFacade["queryUploadedLibraryPerformanceTypeMemberPopulation"]
     >>>;
   };
-  readonly analysis: AsyncFacade<AnalysisFacade, AnalysisOperations>;
+  readonly analysis: AsyncFacade<AnalysisFacade, AnalysisOperations> & {
+    queryPackagePerformanceStreaming(
+      ...args: Parameters<AnalysisFacade["queryPackagePerformanceStreaming"]>
+    ): ReturnType<AnalysisFacade["queryPackagePerformanceStreaming"]>;
+    cancelLibraryPerformanceAnalysis(
+      ...args: Parameters<AnalysisFacade["cancelLibraryPerformanceAnalysis"]>
+    ): void;
+  };
   readonly source: AsyncFacade<SourceFacade, SourceOperations> & {
     queryMemberSourceComparison(
       ...args: Parameters<SourceFacade["queryMemberSourceComparison"]>

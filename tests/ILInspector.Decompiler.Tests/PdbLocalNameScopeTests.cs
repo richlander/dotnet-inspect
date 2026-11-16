@@ -5,6 +5,9 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Text;
 using ILInspector.Decompiler.Pipeline;
+using ILInspector.Metadata;
+using DotnetInspector.Services;
+using Inspector.Findings;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
@@ -136,6 +139,142 @@ public sealed class PdbLocalNameScopeTests
         Assert.Equal("V_0", decision.Subject);
         Assert.Equal("first", decision.NewValue);
         Assert.Contains("fidelity is unchanged", decision.Detail);
+    }
+
+    [Fact]
+    public void
+        MemberFidelityInspection_SuppliedPortablePdbChangesCauseCensus()
+    {
+        using var fixture = new Fixture(rows:
+        [
+            new("first", 3, 17),
+            new("second", 14, 13),
+        ]);
+        ResolvedAssemblyReference selected =
+            ResolvedAssemblyReference.CreateFromPath(
+                fixture.AssemblyPath,
+                AssemblyResolutionProvenance.Local(
+                    "member fidelity service fixture"));
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.Create(
+                selected.Identity,
+                path: null,
+                () => File.OpenRead(fixture.AssemblyPath),
+                selected.Provenance);
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(
+                fixture.AssemblyPath));
+        var subject = new FindingSubject(
+            "ScopeQualifiedLocal#0x06000001",
+            "Probe.SlotReuse.M");
+
+        FindingInspection<DecompilerFidelityCause> withoutPdb =
+            MemberFidelityInspectionService.Inspect(
+                0x06000001,
+                methodHasBody: true,
+                subject,
+                assembly,
+                resolver,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        FindingInspection<DecompilerFidelityCause> withPdb =
+            MemberFidelityInspectionService.Inspect(
+                0x06000001,
+                methodHasBody: true,
+                subject,
+                assembly,
+                resolver,
+                ImmutableArray.CreateRange(
+                    File.ReadAllBytes(fixture.PdbPath)),
+                TestContext.Current.CancellationToken);
+
+        Assert.Empty(
+            Assert.IsType<
+                FindingInspection<DecompilerFidelityCause>.Complete>(
+                    withoutPdb.Value)
+                .Findings);
+        Assert.Contains(
+            Assert.IsType<
+                FindingInspection<DecompilerFidelityCause>.Complete>(
+                    withPdb.Value)
+                .Findings,
+            finding =>
+                finding.Payload.Discriminator
+                    == DecompilerFidelityDiscriminators
+                        .ScopedLocalNameUnavailable);
+    }
+
+    [Fact]
+    public void
+        MemberAppliedTasteInspection_SuppliedPortablePdbChangesDecisionRows()
+    {
+        using var fixture = new Fixture(rows:
+        [
+            new("first", 3, 17),
+            new("second", 14, 13),
+        ]);
+        using var pe = new PEReader(File.OpenRead(fixture.AssemblyPath));
+        ApiType type = Assert.Single(
+            ApiSurfaceExtractor.Extract(pe).Types,
+            candidate =>
+                candidate.FullName == "Probe.SlotReuse");
+        ApiMember member = Assert.Single(
+            type.Members,
+            candidate => candidate.Name == "M");
+        ResolvedAssemblyReference selected =
+            ResolvedAssemblyReference.CreateFromPath(
+                fixture.AssemblyPath,
+                AssemblyResolutionProvenance.Local(
+                    "member Applied Taste service fixture"));
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.Create(
+                selected.Identity,
+                path: null,
+                () => File.OpenRead(fixture.AssemblyPath),
+                selected.Provenance);
+        var resolver = new AssemblyDependencyResolver(
+            new AssemblyDependencyResolutionOptions(
+                fixture.AssemblyPath));
+        var options = PrinterOptions.Default with
+        {
+            ApproximatePdbLocalNames = true,
+        };
+
+        CSharpDecompilationAttempt withoutPdb =
+            CSharpDecompilerService.ProduceMember(
+                type,
+                member,
+                assembly,
+                resolver,
+                printerOptions: options,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+        CSharpDecompilationAttempt withPdb =
+            CSharpDecompilerService.ProduceMember(
+                type,
+                member,
+                assembly,
+                resolver,
+                ImmutableArray.CreateRange(
+                    File.ReadAllBytes(fixture.PdbPath)),
+                options,
+                cancellationToken:
+                    TestContext.Current.CancellationToken);
+
+        Assert.DoesNotContain(
+            withoutPdb.BodyProjections.SelectMany(
+                static body => body.Projection.Decisions),
+            decision =>
+                decision.RuleId
+                    == "approximate-pdb-local-name");
+        DecompilerDecision decision = Assert.Single(
+            withPdb.BodyProjections.SelectMany(
+                static body => body.Projection.Decisions),
+            decision =>
+                decision.RuleId
+                    == "approximate-pdb-local-name");
+        Assert.Equal(DecompilerDecisionCategories.Taste, decision.Category);
+        Assert.Equal("first", decision.NewValue);
     }
 
     [Fact]

@@ -1001,7 +1001,7 @@ rows through its existing Sections and Markout path. Inspect Web lowers the
 same typed evidence through its host-specific Package Query renderer. Neither
 host parses a formatted evidence string to recover identity or semantics.
 
-For `package query --where "library-literal=TEXT" --tfm TFM`, unprojected CLI
+For `find --packages --where "library-literal=TEXT" --tfm TFM`, unprojected CLI
 `--json` serializes the complete `PackageQueryDocument`. `--envelope` emits the
 same Content inside the authoritative service value with result kind
 `package-query`. Candidate and semantic-query controls remain service inputs;

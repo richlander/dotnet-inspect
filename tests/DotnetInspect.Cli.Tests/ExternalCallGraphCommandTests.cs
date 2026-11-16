@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 using DotnetInspect.Cli.Commands;
@@ -12,6 +13,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
+using DotnetInspector.ResearchQueries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
@@ -35,6 +37,31 @@ public sealed class ExternalCallGraphCommandTests
 
     public ExternalCallGraphCommandTests() =>
         PersistentCache.Initialize("dotnet-inspect-test");
+
+    [Fact]
+    public async Task RootTypeGlobIsRejectedBeforeAcquisition()
+    {
+        var handler = new FailingHandler();
+        using var client = new HttpClient(handler);
+        var options = new ExternalCallGraphOptions
+        {
+            TypeName = "Shared.*",
+            Member = "RunOuter",
+            RootPackage = $"{RootPackageId}@{Version}",
+            RootTfm = Framework,
+        };
+        var captured = await ConsoleCapture.RunAsync(() => ExternalCallGraphCommand.ExecuteAsync(
+            options, new WorkspaceContextLoadOptions
+            {
+                HttpClient = client,
+                SourceAuthorization = new UniformPackageSourceAuthorization([Source]),
+                PackageStore = new InMemoryPackageStore(),
+            },
+            TestContext.Current.CancellationToken));
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains("requires an exact Type name", captured.Error);
+        Assert.Equal(0, handler.RequestCount);
+    }
 
     [Fact]
     public void FirstUsePlatformTargetPolicyMatchesExactFrameworkBand()
@@ -67,6 +94,191 @@ public sealed class ExternalCallGraphCommandTests
                     installed,
                     package,
                     out _));
+    }
+
+#if DEBUG
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DebugEvidencePreservesOrdinaryOutputAndFailure(bool unavailable)
+    {
+        string path = Path.Combine(Path.GetTempPath(), $"callgraph-evidence-{Guid.NewGuid():N}.json");
+        try
+        {
+            Execution ordinary = await ExecuteAsync(
+                "RunOuter", OutputFormat.Jsonl, unavailable: unavailable);
+            Execution enriched = await ExecuteAsync(
+                "RunOuter", OutputFormat.Jsonl,
+                evidenceEnvelopePath: path, unavailable: unavailable);
+
+            Assert.Equal(ordinary.ExitCode, enriched.ExitCode);
+            Assert.Equal(ordinary.Output, enriched.Output);
+            Assert.StartsWith(ordinary.Error, enriched.Error);
+            Assert.Equal(1, enriched.InspectionCount);
+            Assert.Contains($"Evidence envelope: {path}", enriched.Error);
+            using JsonDocument document = JsonDocument.Parse(
+                await File.ReadAllTextAsync(path, TestContext.Current.CancellationToken));
+            Assert.Equal(unavailable ? "unavailable" : "available",
+                document.RootElement.GetProperty("content").GetProperty("kind").GetString());
+            Assert.Equal(RootPackageId,
+                document.RootElement.GetProperty("evidence").GetProperty("root_package_id").GetString(),
+                ignoreCase: true);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Theory]
+    [InlineData("-")]
+    [InlineData("")]
+    [InlineData("--json")]
+    public async Task DebugEvidenceDestinationIsAdmittedBeforeRootLoading(string path)
+    {
+        var handler = new FailingHandler();
+        using var client = new HttpClient(handler);
+        var options = new ExternalCallGraphOptions
+        {
+            TypeName = "Shared.Entry",
+            Member = "RunOuter",
+            RootPackage = $"{RootPackageId}@{Version}",
+            RootTfm = Framework,
+            EvidenceEnvelopePath = path,
+        };
+        var loadOptions = new WorkspaceContextLoadOptions
+        {
+            HttpClient = client,
+            SourceAuthorization = new UniformPackageSourceAuthorization([Source]),
+            PackageStore = new InMemoryPackageStore(),
+            IncludePackageRootBindings = true,
+        };
+
+        var parsed = CommandLineBuilder.CreateRootCommand().Parse(
+            ["graph", "calls", "Shared.Entry", "RunOuter",
+                "--root-package", options.RootPackage, "--root-tfm", Framework,
+                "--evidence-envelope", path]);
+        Assert.Contains(parsed.Errors,
+            error => error.Message.Contains("--evidence-envelope requires", StringComparison.Ordinal));
+        var captured = await ConsoleCapture.RunAsync(
+            () => ExternalCallGraphCommand.ExecuteAsync(
+                options, loadOptions, TestContext.Current.CancellationToken));
+        Assert.Equal(1, captured.ExitCode);
+        Assert.Contains("--evidence-envelope requires", captured.Error);
+        Assert.Equal(0, handler.RequestCount);
+    }
+#endif
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task InstalledAspNetPopulationAdmitsRuntimeBindingSupport()
+    {
+        var authorization = new UniformPackageSourceAuthorization([Source]);
+        var operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Realize,
+            TimeSpan.FromMinutes(1),
+            TimeSpan.FromMinutes(1));
+        var packages = new PackageDependencyMemberCallGraphInspectionSource(
+            new PackageDependencyTraversalCandidateAdapter(authorization),
+            new AuthorizedPackageDependencyManifestSource(),
+            new PackageHouse(
+                authorization,
+                new PackagePayloadAcquisitionPlan(
+                    static (_, _) =>
+                        throw new InvalidOperationException(
+                            "Installed Platform admission must not acquire Package dependencies."))),
+            static (_, _) =>
+                throw new InvalidOperationException(
+                    "Installed Platform admission must not open a Package source operation."));
+        await using var continuation =
+            new PackageDependencyMemberCallGraphContinuationSource(
+                packages,
+                operation,
+                static () =>
+                    throw new InvalidOperationException(
+                        "Installed Platform admission must not fall back to a Package source."),
+                NuGetSourceOptions.Default);
+        var work = new AssemblyReferenceResolutionWorkLedger(
+            new(
+                maxPackageRouteOccurrences: 1,
+                maxPackageCandidateOperations: 1,
+                maxSourceOperations: 2,
+                maxAcquisitions: 0,
+                maxRealizedAssemblies: 4_096,
+                maxTransferBytes: 2L * 1024 * 1024 * 1024,
+                maxRetainedAssemblyBytes: 2L * 1024 * 1024 * 1024,
+                maxWorkspaceReplacements: 1,
+                deadline: DateTimeOffset.UtcNow.AddMinutes(1)));
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceRegistrationRevision registrations =
+            Assert.IsType<WorkspaceRegistrationReadResult.Available>(
+                workspace.GetRegistrationSnapshot()).Revision;
+        var target = new PlatformFamilyTarget(
+            PlatformFamily.AspNetCore,
+            PlatformTargetFramework.Parse($"net{Environment.Version.Major}.0"),
+            PlatformVersion.Parse(
+                Path.GetFileName(
+                    RuntimeEnvironment.GetRuntimeDirectory().TrimEnd(
+                        Path.DirectorySeparatorChar,
+                        Path.AltDirectorySeparatorChar))));
+
+        ImmutableArray<PackageDependencyMemberCallGraphPlatformLibrary> libraries =
+            await continuation.AdmitPlatformPopulationAsync(
+                workspace,
+                registrations,
+                target,
+                work,
+                TestContext.Current.CancellationToken);
+
+        Assert.Contains(
+            libraries,
+            library => library.Library.Library.ApiAssembly.AssemblyIdentity!.Identity.Name
+                == "Microsoft.AspNetCore.SignalR.Core");
+        Assert.Contains(
+            libraries,
+            library => library.Library.Library.ApiAssembly.AssemblyIdentity!.Identity.Name
+                == "System.Private.CoreLib");
+        Assert.Equal(
+            1,
+            work.GetRemainingAllowance(
+                AssemblyReferenceResolutionWorkKind.SourceOperation));
+        var support = Assert.Single(
+            libraries,
+            library => library.Library.Library.ApiAssembly.AssemblyIdentity!
+                .Identity.Name == "Microsoft.CSharp");
+        Assert.Equal(PlatformFamily.DotNetRuntime, support.Member.Target.Family);
+        Assert.Equal(
+            PlatformPopulationMemberRole.BindingSupport,
+            support.Member.Role);
+        var runtimeTarget = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            target.TargetFramework,
+            target.Version);
+        ImmutableArray<PackageDependencyMemberCallGraphPlatformLibrary> runtime =
+            await continuation.AdmitPlatformPopulationAsync(
+                workspace,
+                registrations,
+                runtimeTarget,
+                work,
+                TestContext.Current.CancellationToken);
+        var projected =
+            new PackageDependencyMemberCallGraphPlatformProjection()
+                .Project([.. libraries, .. runtime]);
+        var selected = Assert.Single(
+            projected,
+            library => library.Library.Library.ApiAssembly.AssemblyIdentity!
+                .Identity.Name == "Microsoft.CSharp");
+        Assert.Equal(runtimeTarget, selected.Target);
+        Assert.Same(
+            Assert.Single(
+                runtime,
+                library => library.Library.Library.ApiAssembly.AssemblyIdentity!
+                    .Identity.Name == "Microsoft.CSharp").Library,
+            selected.Library);
+        Assert.Equal(
+            0,
+            work.GetRemainingAllowance(
+                AssemblyReferenceResolutionWorkKind.SourceOperation));
     }
 
     [Fact]
@@ -1026,7 +1238,7 @@ public sealed class ExternalCallGraphCommandTests
                 async (request, cancellationToken) =>
                 {
                     capturedRequest = request;
-                    envelope =
+                    (envelope, _) =
                         await ExternalCallGraphCommand
                             .ExecuteInspectionAsync(
                                 request,
@@ -1117,7 +1329,7 @@ public sealed class ExternalCallGraphCommandTests
                 TestContext.Current.CancellationToken,
                 async (request, cancellationToken) =>
                 {
-                    envelope =
+                    (envelope, _) =
                         await ExternalCallGraphCommand
                             .ExecuteInspectionAsync(
                                 request,
@@ -1223,7 +1435,9 @@ public sealed class ExternalCallGraphCommandTests
         int depth = 3,
         RowSelectionIntent<string>? rowSelection = null,
         bool includeTarget = true,
-        bool count = false)
+        bool count = false,
+        string? evidenceEnvelopePath = null,
+        bool unavailable = false)
     {
         var store = new InMemoryPackageStore();
         string sourceKey = NuGetCache.GetSourceKey(Source.Url);
@@ -1264,23 +1478,52 @@ public sealed class ExternalCallGraphCommandTests
             Format = format,
             RowSelection = rowSelection,
             Count = count,
+#if DEBUG
+            EvidenceEnvelopePath = evidenceEnvelopePath,
+#endif
         };
+
+        int inspectionCount = 0;
+        async ValueTask<InspectionEnvelope<PackageDependencyMemberCallGraphInspectionOutcome>>
+            InspectAsync(
+                PackageDependencyMemberCallGraphInspectionRequest request,
+                CancellationToken cancellationToken)
+        {
+            inspectionCount++;
+            return unavailable
+                ? PackageDependencyMemberCallGraphInspection.ProjectUnavailable(
+                    PackageDependencyMemberCallGraphInspectionUnavailableReason.FocusUnavailable,
+                    "Fixture focus unavailable.")
+                : await CreateFixtureEnvelopeAsync(
+                    member, request.Graph.MaxDepth, request.Graph.MaxNodes, includeTarget);
+        }
 
         var captured = await ConsoleCapture.RunAsync(
             () => ExternalCallGraphCommand.ExecuteAsync(
                 options,
                 loadOptions,
                 TestContext.Current.CancellationToken,
-                (request, _) =>
-                    CreateFixtureEnvelopeAsync(
-                        member,
-                        request.Graph.MaxDepth,
-                        request.Graph.MaxNodes,
-                        includeTarget)));
+                InspectAsync,
+                async (request, token) => new(
+                    await InspectAsync(request, token),
+                    new PackageDependencyMemberCallGraphEvidenceDocument(
+                        request.Root.Coordinate.PackageId,
+                        request.Root.Coordinate.Version,
+                        request.Root.Coordinate.Framework,
+                        request.Focus,
+                        request.TraversalTargetPolicy,
+                        PackageDependencyMemberCallGraphEvidenceStatus.InitialPreparationUnavailable,
+                        [],
+                        [
+                            PackageDependencyMemberCallGraphUnobservedStage.RootLoading,
+                            PackageDependencyMemberCallGraphUnobservedStage.DependencyDiscovery,
+                            PackageDependencyMemberCallGraphUnobservedStage.AssemblyReferenceContinuation,
+                        ]))));
         return new Execution(
             captured.ExitCode,
             captured.Output,
-            captured.Error);
+            captured.Error,
+            inspectionCount);
     }
 
     static async ValueTask<
@@ -1435,17 +1678,23 @@ public sealed class ExternalCallGraphCommandTests
     sealed record Execution(
         int ExitCode,
         string Output,
-        string Error);
+        string Error,
+        int InspectionCount = 0);
 
     sealed class FailingHandler : HttpMessageHandler
     {
+        public int RequestCount { get; private set; }
+
         protected override Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request,
-            CancellationToken cancellationToken) =>
-            Task.FromResult(
+            CancellationToken cancellationToken)
+        {
+            RequestCount++;
+            return Task.FromResult(
                 new HttpResponseMessage(HttpStatusCode.NotFound)
                 {
                     RequestMessage = request,
                 });
+        }
     }
 }

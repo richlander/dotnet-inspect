@@ -207,6 +207,14 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     internal virtual bool Settles(TFact fact) => false;
 
     /// <summary>
+    /// Whether a settling fact closes its unit's source Type for this
+    /// producer: the Type's later units, and the units of compiler-generated
+    /// Types nested in it, are outside this producer's scope. Only a fold
+    /// whose result does not depend on those units may declare it.
+    /// </summary>
+    internal virtual bool SettlesTypes => false;
+
+    /// <summary>
     /// Runs this producer's whole pass as a closed-query kernel when it is
     /// the only producer visiting. Returns false when it has none.
     /// </summary>
@@ -227,6 +235,12 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
     /// declared-source relation before completion.
     /// </summary>
     internal virtual bool SupportsPendingRelationKernel => false;
+
+    /// <summary>
+    /// Whether complete visited facts remain publishable when generated
+    /// attribution fails at source completion.
+    /// </summary>
+    internal virtual bool RetainsResultOnGeneratedExpansionFailure => false;
 
     /// <summary>Whether this producer declares a type-scope predicate.</summary>
     internal virtual bool HasTypeScope => false;
@@ -263,6 +277,10 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
 
     bool IMethodDefinitionProducer.SupportsPendingRelationKernel =>
         SupportsPendingRelationKernel;
+
+    bool IMethodDefinitionProducer
+        .RetainsResultOnGeneratedExpansionFailure =>
+            RetainsResultOnGeneratedExpansionFailure;
 
     ImmutableArray<MethodBodyAnalyzerDeclaration>
         IMethodDefinitionProducer.InstructionAnalyzers =>
@@ -346,6 +364,7 @@ public abstract class MethodDefinitionProducer<TFact, TAccumulator, TResult>
             _classifies = producer.ClassifiesUnits;
             HasTypeScope = producer.HasTypeScope;
             SourceGate = producer.SourceGate;
+            SettledTypes = producer.SettlesTypes ? [] : null;
         }
 
         public override SourceGateGuard? SourceGate { get; }
@@ -457,6 +476,8 @@ internal interface IMethodDefinitionProducer
 
     bool SupportsPendingRelationKernel { get; }
 
+    bool RetainsResultOnGeneratedExpansionFailure { get; }
+
     MethodDefinitionExecution.ProducerState CreateState(
         MethodDefinitionExecution execution,
         ProducerTerminal terminal,
@@ -545,6 +566,16 @@ public readonly ref struct MethodDefinitionView
             return _unit.TypeHandle;
         }
     }
+
+    /// <summary>
+    /// The source Type the unit's Type was admitted under, for a producer that
+    /// settles Types: the Type a settling fact closes.
+    /// </summary>
+    internal TypeDefinitionHandle SourceType =>
+        Producer.SettledTypes is not null
+            ? Producer.CurrentSourceType
+            : throw new ProducerContractException(
+                $"Producer '{_owner}' does not settle Types.");
 
     internal TypeDefinition TypeDefinition
     {

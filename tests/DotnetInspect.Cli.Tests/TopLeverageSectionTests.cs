@@ -5,8 +5,11 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.Sections.Local;
 using DotnetInspect.Cli.Sections;
 using ILInspector.Analysis;
+using ILInspector.Analysis.Planning;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Tests;
 
@@ -293,6 +296,49 @@ public class TopLeverageSectionTests
         Assert.Equal(0, drilled.ExitCode);
     }
 
+    [Fact]
+    public void LibraryTopLeverage_FocusedExecutionRetainsExactReceipts()
+    {
+        string path = typeof(LeverageSampleType).Assembly.Location;
+        using var service =
+            ILInspector.SourceLink.SourceLinkService.OpenPrefetched(path);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(service.Context);
+        LibraryCallGraphAnalysisResult analysis =
+            LibraryMethodLeverageAnalysisQuery.Execute(
+                session,
+                path);
+        try
+        {
+            LibraryLeverageAnalysisResult leverage =
+                LibraryLeverageAnalysisResult
+                    .FromMethodLeverageProducer(analysis);
+            MethodDefinitionSourceReceipt source =
+                Assert.IsType<MethodDefinitionSourceReceipt>(
+                    leverage.MethodSourceReceipt);
+            Assert.Equal(
+                MethodDefinitionSourceCompletion.SourceIncomplete,
+                source.Completion);
+            WorkReceipt work =
+                Assert.IsType<WorkReceipt>(leverage.ProducerReceipt);
+            Assert.Equal(
+                ProducerOutcome.SourceBounded,
+                work.For(LibraryMethodLeverageProducer.Instance).Outcome);
+            var available = Assert.IsType<TopLeverageResult.Available>(
+                TopLeverageQuery.Execute(leverage));
+            Assert.Contains(
+                available.Diagnostics,
+                diagnostic => diagnostic.Message.Contains(
+                    "state-machine source does not map to a unique valid "
+                        + "execution body",
+                    StringComparison.Ordinal));
+        }
+        finally
+        {
+            analysis.ReleaseCaches();
+        }
+    }
+
     static List<DotnetInspect.Cli.Models.MethodLeverageSummary>?
         ScanLibraryTopLeverage()
     {
@@ -303,13 +349,13 @@ public class TopLeverageSectionTests
         var context = service.Context;
         var drillMap =
             LibraryMetadataService.BuildLibraryDrillMap(context, logger);
-        var result = TopLeverageQuery.Execute(
-            LibraryBodyAnalysisService.ExecuteImage(
-                path,
-                context.GetPrefetchedImage(),
-                LibraryBodyAnalysisRequest.Create(
-                    LibraryBodyAnalysisFeatures.Default))
-            .Leverage);
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Borrow(context);
+        TopLeverageResult result =
+            LocalLibraryTopLeverageInspectionOperation.Execute(
+                session,
+                path)
+            .Content;
         var inspection = new LibraryInspection();
         LibraryMetadataService.ApplyTopLeverageResult(
             path,

@@ -220,6 +220,8 @@ async function render() {
     onLibraryScopeSelect() {},
     onNamespaceJump() {},
     onPerformanceMemberSelect() {},
+    onUnsafeTypeSelect() {},
+    onUnsafeMemberSelect() {},
   });
   explorer.afterRender(target());
   await patchGroup();

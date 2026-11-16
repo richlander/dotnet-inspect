@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 
+using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Packages;
 using ILInspector.Metadata;
 
@@ -203,6 +204,69 @@ public sealed record NavigationEcosystemEvaluation
     public WorkspaceEcosystemRegistrationId Id { get; }
 }
 
+/// <summary>One exact Workspace admission and optional bounded name inventory.</summary>
+public sealed record NavigationAdmittedLibraryEvaluation
+{
+    public NavigationAdmittedLibraryEvaluation(
+        WorkspaceLibraryAdmissionReceipt admission,
+        WorkspaceLibraryOccurrence occurrence,
+        LibraryTypeDeclarationInventoryInspectionOutcome? inventory = null)
+    {
+        ArgumentNullException.ThrowIfNull(admission);
+        ArgumentNullException.ThrowIfNull(occurrence);
+        if (!admission.Occurrences.Any(candidate =>
+                ReferenceEquals(candidate, occurrence)))
+        {
+            throw new ArgumentException(
+                "The Library must be an exact occurrence in the admission.",
+                nameof(occurrence));
+        }
+        if (inventory is LibraryTypeDeclarationInventoryInspectionOutcome.Completed completed
+            && !ReferenceEquals(
+                completed.Correspondence.Library,
+                occurrence.Library))
+        {
+            throw new ArgumentException(
+                "The name inventory must belong to the exact admitted Library.",
+                nameof(inventory));
+        }
+        if (inventory is LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete
+                { Subject: { } subject }
+            && !ReferenceEquals(subject.Library, occurrence.Library))
+        {
+            throw new ArgumentException(
+                "The incomplete inventory must belong to the exact admitted Library.",
+                nameof(inventory));
+        }
+
+        Admission = admission;
+        Occurrence = occurrence;
+        Inventory = inventory;
+    }
+
+    public WorkspaceLibraryAdmissionReceipt Admission { get; }
+    public WorkspaceLibraryOccurrence Occurrence { get; }
+    public LibraryTypeDeclarationInventoryInspectionOutcome? Inventory { get; }
+}
+
+/// <summary>The exact retained source-native definition ancestry.</summary>
+public sealed record NavigationAdmittedSubjectContext
+{
+    public NavigationAdmittedSubjectContext(
+        StructuralSubjectIdentity.AdmittedLibrarySubject library,
+        StructuralSubjectIdentity.AdmittedTypeSubject? type = null)
+    {
+        ArgumentNullException.ThrowIfNull(library);
+        if (type is not null && type.Library != library)
+            throw new ArgumentException("The Type must belong to the exact Library.", nameof(type));
+        Library = library;
+        Type = type;
+    }
+
+    public StructuralSubjectIdentity.AdmittedLibrarySubject Library { get; }
+    public StructuralSubjectIdentity.AdmittedTypeSubject? Type { get; }
+}
+
 /// <summary>
 /// One exact retained Package and contiguous structural context beneath it.
 /// </summary>
@@ -300,6 +364,13 @@ public sealed record NavigationTypeDescriptor(
     bool IsActive,
     bool IsRetained);
 
+/// <summary>A name-only definition, not a prepared rich API Type.</summary>
+public sealed record NavigationAdmittedTypeDescriptor(
+    StructuralSubjectIdentity.AdmittedTypeSubject Subject,
+    AssemblyTypeDeclaration Declaration,
+    bool IsActive,
+    bool IsRetained);
+
 /// <summary>One exact Member inventory descriptor.</summary>
 public sealed record NavigationMemberDescriptor(
     NavigationMemberInventoryRow Row,
@@ -340,7 +411,11 @@ public sealed class NavigationWorkspaceSnapshot
         NavigationLensOutcome lensOutcome,
         NavigationSubjectInventory? inventory,
         ImmutableArray<NavigationDescendantLensDescriptor> descendantLenses = default,
-        StructuralSubjectIdentity.EcosystemSubject? ecosystem = null)
+        StructuralSubjectIdentity.EcosystemSubject? ecosystem = null,
+        NavigationAdmittedSubjectContext? admittedContext = null,
+        ImmutableArray<NavigationAdmittedTypeDescriptor> admittedTypes = default,
+        LibraryTypeDeclarationInventoryInspectionOutcome? admittedInventory = null,
+        NavigationAdmittedLibraryEvaluation? admittedEvaluation = null)
     {
         Scope = scope;
         Workspace = workspace;
@@ -358,6 +433,10 @@ public sealed class NavigationWorkspaceSnapshot
         Inventory = inventory;
         DescendantLenses = descendantLenses.IsDefault ? [] : descendantLenses;
         Ecosystem = ecosystem;
+        AdmittedContext = admittedContext;
+        AdmittedTypes = admittedTypes.IsDefault ? [] : admittedTypes;
+        AdmittedInventory = admittedInventory;
+        AdmittedEvaluation = admittedEvaluation;
     }
 
     public WorkspaceScopeSnapshot Scope { get; }
@@ -396,6 +475,15 @@ public sealed class NavigationWorkspaceSnapshot
     public ImmutableArray<NavigationDescendantLensDescriptor> DescendantLenses { get; }
 
     public StructuralSubjectIdentity.EcosystemSubject? Ecosystem { get; }
+
+    public NavigationAdmittedSubjectContext? AdmittedContext { get; }
+
+    public ImmutableArray<NavigationAdmittedTypeDescriptor> AdmittedTypes { get; }
+
+    /// <summary>Exact bounded inventory outcome; null means not prepared.</summary>
+    public LibraryTypeDeclarationInventoryInspectionOutcome? AdmittedInventory { get; }
+
+    internal NavigationAdmittedLibraryEvaluation? AdmittedEvaluation { get; }
 }
 
 /// <summary>Inputs for one pure stateless Navigation snapshot evaluation.</summary>
@@ -406,6 +494,10 @@ public sealed record NavigationWorkspaceSnapshotRequest
     public NavigationPackageEvaluation? Package { get; init; }
 
     public NavigationEcosystemEvaluation? Ecosystem { get; init; }
+
+    public NavigationAdmittedLibraryEvaluation? AdmittedLibrary { get; init; }
+
+    public NavigationAdmittedSubjectContext? AdmittedContext { get; init; }
 
     public StructuralSubjectIdentity? ActiveSubject { get; init; }
 
@@ -422,7 +514,12 @@ internal sealed record NavigationWorkspaceSnapshotComposition(
     ImmutableArray<NavigationPackageDescriptor> Packages,
     ImmutableArray<NavigationLibraryDescriptor> Libraries,
     NavigationSubjectInventory? Inventory,
-    NavigationPackageEvaluation? Package);
+    NavigationPackageEvaluation? Package)
+{
+    internal NavigationAdmittedLibraryEvaluation? AdmittedLibrary { get; init; }
+
+    internal NavigationAdmittedSubjectContext? AdmittedContext { get; init; }
+}
 
 internal abstract record NavigationRestorationSubjectPreparation
 {
@@ -442,7 +539,9 @@ internal abstract record NavigationRestorationSubjectPreparation
     internal sealed record Failed(
         StructuralSubjectIdentity Subject,
         string Message,
-        NavigationTypeInventoryOutcome? Inventory = null)
+        NavigationTypeInventoryOutcome? Inventory = null,
+        LibraryTypeDeclarationInventoryInspectionOutcome? AdmittedInventory = null,
+        NavigationRestorationFailureKind Kind = NavigationRestorationFailureKind.IncompleteInventory)
         : NavigationRestorationSubjectPreparation;
 
     internal sealed record Rejected(
@@ -492,7 +591,8 @@ public static class NavigationWorkspaceSnapshotEvaluation
             source.RetainedContext, source.TypeInventoryLibraryContext, source.Packages,
             source.Hierarchy, source.Libraries, source.Types, source.Members, source.Lenses,
             source.LensOutcome, source.Inventory, descriptors.ToImmutable(),
-            source.Ecosystem);
+            source.Ecosystem, source.AdmittedContext, source.AdmittedTypes,
+            source.AdmittedInventory, source.AdmittedEvaluation);
     }
 
     public static NavigationWorkspaceSnapshot Evaluate(
@@ -533,6 +633,72 @@ public static class NavigationWorkspaceSnapshotEvaluation
             request.ActiveSubject;
         NavigationRetainedSubjectContext? requestedContext =
             request.RetainedContext;
+
+        if (request.AdmittedLibrary is { } admitted)
+        {
+            if (requestedContext is not null)
+                return new NavigationRestorationSubjectPreparation.Rejected(
+                    NavigationRestorationRejectionKind.InvalidContext,
+                    "An admitted Library cannot retain Package context.");
+            StructuralSubjectIdentity.AdmittedLibrarySubject library =
+                StructuralSubjectIdentity.ForAdmittedLibrary(
+                    workspace, admitted.Occurrence);
+            NavigationAdmittedSubjectContext context =
+                request.AdmittedContext
+                    ?? requestedSubject switch
+                    {
+                        StructuralSubjectIdentity.AdmittedTypeSubject requestedType =>
+                            new(requestedType.Library, requestedType),
+                        StructuralSubjectIdentity.AdmittedLibrarySubject one =>
+                            new(one),
+                        _ => new(library),
+                    };
+            if (context.Library != library)
+                return new NavigationRestorationSubjectPreparation.Rejected(
+                    NavigationRestorationRejectionKind.InvalidContext,
+                    "The retained Library must be the exact prepared occurrence.");
+            if (requestedSubject is null && context.Type is not null)
+                return new NavigationRestorationSubjectPreparation.Rejected(
+                    NavigationRestorationRejectionKind.SubjectOutsideContext,
+                    "A subject-less restoration cannot retain a Type.");
+            StructuralSubjectIdentity active = requestedSubject ?? library;
+            if (active != workspace && active != library
+                && active != context.Type)
+                return new NavigationRestorationSubjectPreparation.Rejected(
+                    NavigationRestorationRejectionKind.SubjectOutsideContext,
+                    "The source-native subject must equal a retained path node.");
+            if (context.Type is { } type)
+            {
+                if (admitted.Inventory is not LibraryTypeDeclarationInventoryInspectionOutcome.Completed completed)
+                {
+                    return new NavigationRestorationSubjectPreparation.Failed(
+                        type,
+                        "The retained Type requires a completed exact Library name inventory.",
+                        AdmittedInventory: admitted.Inventory,
+                        Kind: admitted.Inventory switch
+                        {
+                            null => NavigationRestorationFailureKind.LibraryInventoryNotPrepared,
+                            LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete =>
+                                NavigationRestorationFailureKind.IncompleteInventory,
+                            _ => NavigationRestorationFailureKind.LibraryInventoryUnsuccessful,
+                        });
+                }
+                if (!completed.Correspondence.Inventory.Declarations.Any(
+                    row => row.Kind == AssemblyTypeDeclarationKind.Definition
+                        && row.Name == type.Name))
+                {
+                    return new NavigationRestorationSubjectPreparation.Unavailable(
+                        type,
+                        "The retained Type is absent from the complete exact Library name inventory.");
+                }
+            }
+            return new NavigationRestorationSubjectPreparation.Ready(
+                PrepareComposition(request with
+                {
+                    ActiveSubject = active,
+                    AdmittedContext = context,
+                }));
+        }
 
         if (request.Package is null)
         {
@@ -674,7 +840,9 @@ public static class NavigationWorkspaceSnapshotEvaluation
             composition.Inventory,
             registry,
             availability,
-            lensOutcome);
+            lensOutcome,
+            composition.AdmittedLibrary,
+            composition.AdmittedContext);
     }
 
     static NavigationWorkspaceSnapshotComposition PrepareComposition(
@@ -690,11 +858,76 @@ public static class NavigationWorkspaceSnapshotEvaluation
         ImmutableArray<NavigationPackageDescriptor> packages =
             PackageDescriptors(request.Scope);
 
-        if (request.Package is not null && request.Ecosystem is not null)
+        if (request.AdmittedContext is not null && request.AdmittedLibrary is null)
+            throw new ArgumentException(
+                "An admitted context requires its prepared Library.",
+                nameof(request));
+        if ((request.Package is not null && request.Ecosystem is not null)
+            || request.AdmittedLibrary is not null
+                && (request.Package is not null || request.Ecosystem is not null))
         {
             throw new ArgumentException(
-                "A snapshot cannot prepare Package and Ecosystem subjects together.",
+                "A snapshot prepares only one Package, Ecosystem, or admitted Library.",
                 nameof(request));
+        }
+
+        if (request.AdmittedLibrary is { } admitted)
+        {
+            if (!ReferenceEquals(
+                    admitted.Admission.Workspace,
+                    workspaceIdentity))
+            {
+                throw new ArgumentException(
+                    "The admission must belong to the exact Scope Workspace.",
+                    nameof(request));
+            }
+            if (request.RetainedContext is not null)
+                throw new ArgumentException(
+                    "An admitted Library has no retained Package context.",
+                    nameof(request));
+            StructuralSubjectIdentity.AdmittedLibrarySubject library =
+                StructuralSubjectIdentity.ForAdmittedLibrary(workspace, admitted.Occurrence);
+            NavigationAdmittedSubjectContext? sourceContext =
+                request.AdmittedContext;
+            if (sourceContext is not null && sourceContext.Library != library)
+                throw new ArgumentException(
+                    "The retained Library must be the exact prepared occurrence.",
+                    nameof(request));
+            ImmutableArray<AssemblyTypeDeclaration> definitions =
+                admitted.Inventory is LibraryTypeDeclarationInventoryInspectionOutcome.Completed completed
+                    ? [.. completed.Correspondence.Inventory.Declarations.Where(
+                        static declaration => declaration.Kind == AssemblyTypeDeclarationKind.Definition)]
+                    : [];
+            StructuralSubjectIdentity active =
+                request.ActiveSubject ?? library;
+            if (sourceContext?.Type is { } retainedType
+                && !definitions.Any(row => row.Name == retainedType.Name))
+                throw new ArgumentException(
+                    "The retained Type must occur in the completed name inventory.",
+                    nameof(request));
+            if (active != workspace && active != library
+                && (active is not StructuralSubjectIdentity.AdmittedTypeSubject type
+                    || type.Library != library
+                    || !definitions.Any(row => row.Name == type.Name)
+                    || sourceContext is not null && sourceContext.Type != type))
+            {
+                throw new ArgumentException(
+                    "The subject must be the exact admitted Library or a definition in its completed name inventory.",
+                    nameof(request));
+            }
+            return new NavigationWorkspaceSnapshotComposition(
+                request.Scope, workspace, Ecosystem: null,
+                ActiveOccurrence: null, active, RetainedContext: null,
+                packages,
+                [new NavigationLibraryDescriptor(
+                    library, Asset: null, IsPrimary: true,
+                    NavigationDescriptorState.Available,
+                    library == active, IsRetained: true)],
+                Inventory: null, Package: null)
+            {
+                AdmittedLibrary = admitted,
+                AdmittedContext = sourceContext,
+            };
         }
 
         if (request.Package is null)
@@ -914,6 +1147,20 @@ public static class NavigationWorkspaceSnapshotEvaluation
                 registry,
                 availability,
                 lensOutcome: null);
+        }
+
+        if (source.AdmittedEvaluation is { } admitted)
+        {
+            return Evaluate(
+                new NavigationWorkspaceSnapshotRequest
+                {
+                    Scope = source.Scope,
+                    AdmittedLibrary = admitted,
+                    AdmittedContext = source.AdmittedContext,
+                    ActiveSubject = subject,
+                },
+                registry,
+                availability);
         }
 
         NavigationRetainedSubjectContext? context =
@@ -1264,7 +1511,9 @@ public static class NavigationWorkspaceSnapshotEvaluation
             source.Inventory,
             registry,
             availability,
-            lens);
+            lens,
+            source.AdmittedEvaluation,
+            source.AdmittedContext);
 
     static NavigationWorkspaceSnapshot Compose(
         WorkspaceScopeSnapshot scope,
@@ -1278,7 +1527,9 @@ public static class NavigationWorkspaceSnapshotEvaluation
         NavigationSubjectInventory? inventory,
         ViewFacetRegistry registry,
         NavigationFacetAvailabilityProvider availability,
-        NavigationLensOutcome? lensOutcome)
+        NavigationLensOutcome? lensOutcome,
+        NavigationAdmittedLibraryEvaluation? admitted = null,
+        NavigationAdmittedSubjectContext? sourceContext = null)
     {
         if (lensOutcome is not null && lensOutcome.Basis.Subject != activeSubject)
         {
@@ -1373,6 +1624,60 @@ public static class NavigationWorkspaceSnapshotEvaluation
             }),
         ];
 
+        NavigationAdmittedSubjectContext? admittedContext = null;
+        ImmutableArray<NavigationAdmittedTypeDescriptor> admittedTypes = [];
+        LibraryTypeDeclarationInventoryInspectionOutcome? admittedInventory =
+            admitted?.Inventory;
+        if (admitted is not null)
+        {
+            var admittedLibrary =
+                (StructuralSubjectIdentity.AdmittedLibrarySubject)libraries.Single().Subject;
+            StructuralSubjectIdentity.AdmittedTypeSubject? admittedType =
+                activeSubject as StructuralSubjectIdentity.AdmittedTypeSubject;
+            admittedContext = sourceContext ?? new(admittedLibrary, admittedType);
+            if (admittedInventory is LibraryTypeDeclarationInventoryInspectionOutcome.Completed completed)
+            {
+                admittedTypes =
+                [
+                    .. completed.Correspondence.Inventory.Declarations
+                        .Where(static declaration =>
+                            declaration.Kind == AssemblyTypeDeclarationKind.Definition)
+                        .Select(declaration =>
+                        {
+                            var subject = StructuralSubjectIdentity.ForAdmittedType(
+                                admittedLibrary, declaration.Name);
+                            return new NavigationAdmittedTypeDescriptor(
+                                subject, declaration, subject == activeSubject,
+                                subject == admittedContext.Type);
+                        }),
+                ];
+            }
+            hierarchy = hierarchy.SetItem(
+                scope.Project is null ? 2 : 3,
+                new(
+                    StructuralSubjectKind.Package,
+                    Subject: null,
+                    NavigationDescriptorState.Unavailable,
+                    IsActive: false));
+            int libraryIndex = scope.Project is null ? 3 : 4;
+            hierarchy = hierarchy.SetItem(libraryIndex,
+                new(StructuralSubjectKind.Library, admittedLibrary,
+                    NavigationDescriptorState.Available,
+                    admittedLibrary == activeSubject));
+            hierarchy = hierarchy.SetItem(libraryIndex + 1,
+                new(StructuralSubjectKind.Type, admittedContext.Type,
+                    admittedContext.Type is not null
+                        ? NavigationDescriptorState.Available
+                        : admittedInventory is LibraryTypeDeclarationInventoryInspectionOutcome.Completed
+                            ? admittedTypes.IsEmpty
+                                ? NavigationDescriptorState.Unavailable
+                                : NavigationDescriptorState.SelectionRequired
+                            : admittedInventory is null
+                                ? NavigationDescriptorState.Unavailable
+                                : NavigationDescriptorState.Failed,
+                    admittedContext.Type == activeSubject));
+        }
+
         return new NavigationWorkspaceSnapshot(
             scope,
             workspace,
@@ -1388,7 +1693,11 @@ public static class NavigationWorkspaceSnapshotEvaluation
             lenses,
             outcome,
             inventory,
-            ecosystem: ecosystem);
+            ecosystem: ecosystem,
+            admittedContext: admittedContext,
+            admittedTypes: admittedTypes,
+            admittedInventory: admittedInventory,
+            admittedEvaluation: admitted);
     }
 
     static ImmutableArray<NavigationPackageDescriptor> PackageDescriptors(
@@ -1465,9 +1774,14 @@ public static class NavigationWorkspaceSnapshotEvaluation
                 or StructuralSubjectIdentity.LibrarySubject =>
                 snapshot.Libraries.Any(
                     library => library.Subject == subject && library.State == NavigationDescriptorState.Available),
+            StructuralSubjectIdentity.AdmittedLibrarySubject admitted =>
+                admitted == snapshot.AdmittedContext?.Library,
             StructuralSubjectIdentity.TypeSubject =>
                 snapshot.Types.Any(
                     type => type.Row.Subject == subject && type.State == NavigationDescriptorState.Available),
+            StructuralSubjectIdentity.AdmittedTypeSubject =>
+                snapshot.AdmittedTypes.Any(
+                    type => type.Subject == subject),
             StructuralSubjectIdentity.MemberSubject =>
                 snapshot.Members.Any(
                     member => member.Row.Subject == subject && member.State == NavigationDescriptorState.Available),

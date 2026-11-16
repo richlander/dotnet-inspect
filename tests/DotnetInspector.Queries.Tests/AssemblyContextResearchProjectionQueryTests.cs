@@ -787,6 +787,8 @@ public sealed class AssemblyContextResearchProjectionQueryTests
     [Theory]
     [InlineData("One", 1)]
     [InlineData("Configured", 1)]
+    [InlineData("Sequential", 2)]
+    [InlineData("Custom", 1)]
     public async Task MemberProjection_ProjectsClassicAwaitCompletionPaths(
         string member,
         int expectedCount)
@@ -827,33 +829,6 @@ public sealed class AssemblyContextResearchProjectionQueryTests
                 NodeText(document, node),
                 StringComparison.Ordinal);
         });
-    }
-
-    [Theory]
-    [InlineData("Sequential")]
-    [InlineData("Custom")]
-    public async Task MemberProjection_DeclinedClassicAwaitShapesProduceNoPathClaim(
-        string member)
-    {
-        ImmutableArray<byte> image =
-            ImmutableCollectionsMarshal.AsImmutableArray(
-                File.ReadAllBytes(
-                    FixtureCatalog.AnalysisCallerGraphTarget
-                        .AssemblyPath()));
-        var policy = new RecordingBindingPolicy();
-        await using var workspace = new InspectionWorkspace();
-        using AssemblyContextGroup group =
-            ContentGroup(workspace, policy, image);
-
-        AssemblyMemberProjection projection = Available(
-            AssemblyContextMemberProjectionQuery.Execute(
-                group,
-                AwaitCompletionPathRequest(image, member)));
-
-        Assert.Empty(
-            Assert.IsAssignableFrom<
-                IReadOnlyList<AssemblyMemberAwaitCompletionPath>>(
-                projection.AwaitCompletionPaths));
     }
 
     [Fact]

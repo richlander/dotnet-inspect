@@ -128,6 +128,33 @@ route-independent Library identity, or route reconciliation.
 No dedicated composition gate verifies the acquisition-absence claim for the
 registered-empty Ecosystem slice; by operator choice, that claim is unverified.
 
+Counted slice 3 of #10983 adds exact, stateless source-native Library and Type
+selection to the existing Navigation snapshot. The admitted Library subject
+binds its physical `WorkspaceLibraryOccurrence` rather than a fabricated
+Package or Metadata registration. A Type binds that Library and a definition
+name from a **completed**, exact Library declaration inventory; a missing,
+incomplete, rejected, or failed inventory cannot select a Type and retains
+its typed outcome instead of reporting a successful empty inventory. Library
+selection remains available without the inventory. Snapshot hierarchy, name
+rows, and Registry lens recommendation are projected without preparing a rich
+API surface. Package-backed identities, rich rows, and retained Package context
+remain unchanged. Canonical fresh restoration preparation also accepts the
+exact admission and optional Library/Type context, deriving that context from
+an exact subject when it is not supplied. It returns a detached
+`NavigationState` and effect authority with ordinary explicit Registry lens
+outcomes; absent definitions return `Unavailable`, while unprepared,
+incomplete, rejected, or failed name inventories return distinguishable
+non-prepared failures with typed evidence where available and no state or
+authority. Detachment preserves the admitted context, name rows, typed
+outcome, and exact admission evaluation. Retained activation/reconciliation,
+complete portable Definitions restoration, and host routes remain separate
+successors. Consumer projections do not advertise source-native actions
+until those transitions are implemented. These are explicit boundaries, not
+claims of route equivalence.
+`WorkspaceAdmission_NavigatesExactLibraryAndDefinitionWithoutPackage` and
+`WorkspaceAdmission_EqualNamesRemainDistinctAndIncompleteInventoryCannotSelectType`
+gate the current subset against the real managed runtime image.
+
 The first preparatory Ecosystem-intake slice is implemented by
 `EcosystemPopulationNavigationProjection` and its closed result shapes in
 `DotnetInspector.EcosystemLoading`. The adapter classifies each owner-issued
@@ -460,6 +487,14 @@ The real assets are
 two-version package, source-native ASP.NET Core, and package-backed neighboring
 cases through ordinary product acquisition rather than synthetic subject
 labels.
+
+The historical motivation is the original `System.Text.Json.JsonElement`
+Platform link supplied by
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`
+for `net11.0` and `System.Text.Json.dll`. The executable gate uses the
+machine's real managed `System.Text.Json` runtime image under .NET 11 RC3
+(`11.0.0-rc.3.26522.148`); it proves exact Workspace admission and definition
+selection, not acquisition or source identity of that historical RC1 link.
 
 Spotlight may reach the same exact `System.Text.Json` Library directly:
 
@@ -1071,6 +1106,34 @@ One navigation snapshot contains:
 | Lens outcome | Effective identity or non-effective outcome, evaluation basis, and exact Registry evidence |
 | Diagnostics | Partial evidence and scoped failures |
 
+Consumer projection carries Type and Member labels from each exact producer
+descriptor while walking the snapshot. It must not rediscover every row by
+scanning the complete inventory for its structural subject. This preserves
+complete ordered descriptors and opaque action identities without quadratic
+label lookup. The motivating real asset is `OpenAI@2.15.0`, `net10.0`, restored
+with the dependency-hierarchy packet in #11125 (performance follow-up #11159): its Navigation snapshot has
+2,728 Type rows and 23,441 Member rows. The exported-operation profile exposed
+repeated `NavigationConsumerProjection.Subject` inventory scans as the dominant
+restoration work. `ConsumerProjection_PreservesExactTypeAndMemberLabels` gates
+labels, summaries, ancestry, order, and action targets on the production
+projection; the pinned Web restoration gate
+`OpenAiPackage_RestoresDependencyHierarchyWithCompleteSurface` covers the real
+asset. Browser restoration and wire delivery remain supporting consumers,
+without changing their owned contracts. The reproducible NativeAOT probe
+`eng/measure-inspect-web-restoration.cs` invokes the complete Browser activation
+export and consumes its full response. Supply the encoded `w` packet in a file:
+
+```sh
+dotnet publish eng/measure-inspect-web-restoration.cs -c Release -r linux-x64 \
+  -p:PublishAot=true -p:IsPublishable=true -o artifacts/restoration-measurement
+artifacts/restoration-measurement/measure-inspect-web-restoration packet.txt
+```
+
+The probe reports row counts, response bytes, and a SHA-256 digest after
+normalizing only the fresh Navigation session nonce. Compare the complete
+response digest as well as counts; measure fresh-process wall time externally
+to include startup and output consumption.
+
 A consumer hierarchy descriptor classified as failed from inventory evidence
 carries that exact typed evidence. Consumers render the descriptor-owned
 evidence directly; they do not infer a slot association from the snapshot's
@@ -1377,15 +1440,22 @@ including opening retained packages through Search. Compile inventory uses
 `PackageCompileAssetSelector`'s `PackageLibraryOrder` result; tool inventory
 uses the same order over the tool owner's issued simple names. Summary and
 broad-surface projections preserve that exact ID, including when its surface
-fails, and never replace it with a projected sibling. Library Overview then
-issues exact Library demand; `All libraries` remains an explicit navigation
-row whose activation can request the broad Package surface.
+fails, and never replace it with a projected sibling. The browser's entry
+inspector is Package Overview, so README and framework choices stay first;
+the selected Library is already First Library, so entering Library opens its
+Library Overview, which issues exact Library demand. A Package-root URL
+records no Library selection and restores the same recommendation. `All
+libraries` remains an explicit navigation row whose activation can request
+the broad Package surface.
 
 Explicit Package, Library, Type, Member and inspector destinations, and
-restored workspace/history state, take precedence. Package remains explicitly
-reachable and retains its full Library inventory. The existing Library
-Overview is the browser's entry inspector; this slice does not adopt the
-separate Registry-backed lens-recommendation protocol below.
+restored workspace/history state, take precedence; restored workspace state
+(`w`) at the Library root without a Library selection remains `All libraries`.
+The site writes every Library-root history entry with workspace state, so a
+Library-root link without it is a legacy or hand-written link; it opens First
+Library like fresh entry. Package remains
+explicitly reachable and retains its full Library inventory. This slice does
+not adopt the separate Registry-backed lens-recommendation protocol below.
 Root-only `NoCompileAssets` and `EmptyCompileGroup` outcomes open Package with
 their explanation visible. Failed selection is not treated as an empty package.
 Browser entry and restoration are gated by

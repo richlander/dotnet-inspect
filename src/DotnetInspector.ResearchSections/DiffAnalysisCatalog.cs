@@ -115,7 +115,7 @@ public static class DiffAnalysisCatalog
                 StringLiteralRoute,
                 ProduceStringLiterals),
             Register(
-                "unsafe-member",
+                "unsafe-code",
                 InspectionCost.Moderated,
                 [
                     (

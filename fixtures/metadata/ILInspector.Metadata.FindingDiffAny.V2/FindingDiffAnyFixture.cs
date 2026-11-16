@@ -175,7 +175,17 @@ public class NullableOuter
 
 public class Added
 {
+    private int _value = 1;
+    public int Field;
+    public int Property { get; private set; }
+    public int Value() => 1;
+    internal int InternalValue() => _value;
+    [System.Runtime.InteropServices.DllImport("unused")]
+    private static extern void PrivateExtern();
+    public Func<int> Lambda() => () => 1;
 }
+
+internal enum AddedInternalEnum { First, Second }
 
 // A hidden public Member is on the API axis, marked hidden.
 public class HiddenMemberChanged
@@ -497,4 +507,60 @@ public class MemberFoldMethodImpl : IMemberFoldA, IMemberFoldB
 {
     public void M() { }
     void IMemberFoldB.M() { }
+}
+
+public class MemberFoldUncertainGetterStatus
+{
+    public int Value { [EditorBrowsable(EditorBrowsableState.Never)] get => 1; }
+}
+
+public class IteratorOnly
+{
+    public IEnumerable<int> Value(int x) { yield return x + 2; }
+}
+
+public class AnchorNullability
+{
+    public string? Value(string? input) => input;
+}
+
+public class MixedUncertainApi
+{
+    public int Value { [EditorBrowsable(EditorBrowsableState.Never)] get => 1; }
+    public long Other() => 1;
+}
+
+public class SharedGeneratedOwners
+{
+    public Func<int> First() => DateTime.Now.Year > 0 ? () => 2 : () => 3;
+    public Func<int> Second() => () => 1;
+}
+
+// Two overloads; only the first one's default changes, so the API census
+// leaves one uncertain difference that its own key selects.
+public class OverloadDefaultChanged
+{
+    public int Value(int x = 2) => x;
+    public int Value(string s) => s.Length;
+}
+
+// A Type-owned uncertain difference on a Type with no Members on either side.
+[Description("after")]
+public interface ITypeAttributeOnly
+{
+}
+
+// A Type-owned uncertain difference on a Type that declares Members.
+[Description("after")]
+public class TypeAttributeChanged
+{
+    public void Value() { }
+}
+
+// Packing is uncertain to the census but absent from the complete API diff.
+[System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential, Pack = 2)]
+public class MixedUncertainTypeLayout
+{
+    public int Field;
+    public long Value() => 1;
 }

@@ -8,7 +8,7 @@ namespace DotnetInspector.DocumentationHouse;
 /// <summary>
 /// Settles exact Library-scoped documentation into detached typed evidence.
 /// </summary>
-public static class DocumentationHouse
+public static partial class DocumentationHouse
 {
     public static async ValueTask<DocumentationHouseOutcome> ExecuteAsync(
         DocumentationHouseRequest request,
@@ -1027,85 +1027,30 @@ public static class DocumentationHouse
         DateTimeOffset parseDeadline,
         CancellationToken cancellationToken)
     {
-        if (DateTimeOffset.UtcNow >= parseDeadline)
-        {
-            return new(
-                new(
-                    CompiledXmlReadStatus.Deadline,
-                    Length: 0,
-                    EmptyEntries,
-                    EmptyIdentities),
-                PerformedSnapshot: false,
-                PerformedParse: false);
-        }
-
-        XmlSnapshot snapshot;
-        try
-        {
-            snapshot = operationLease.Snapshot(
-                selected.CompiledXmlContent!,
-                limits.MaximumCompiledXmlBytes,
-                static (view, maximumBytes, token) =>
-                {
-                    token.ThrowIfCancellationRequested();
-                    int length = view.Content.Length;
-                    return length > maximumBytes
-                        ? new XmlSnapshot(Bytes: null, length)
-                        : new XmlSnapshot(
-                            view.Content.ToArray(),
-                            length);
-                },
+        (CompiledXmlReadStatus? stopped, XmlSnapshot? taken) =
+            SnapshotCompiledXml(
+                selected,
+                operationLease,
+                limits,
+                parseDeadline,
                 cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception failure) when (
-            failure is ObjectDisposedException
-                or UnauthorizedAccessException
-                or InvalidOperationException
-                or ArgumentException)
+        if (stopped is { } status)
         {
             return new(
                 new(
-                    CompiledXmlReadStatus.ContentAccessFailed,
-                    Length: 0,
+                    status,
+                    taken?.Length ?? 0,
                     EmptyEntries,
                     EmptyIdentities),
-                PerformedSnapshot: false,
+                PerformedSnapshot: taken is not null,
                 PerformedParse: false);
         }
-
-        cancellationToken.ThrowIfCancellationRequested();
-        if (DateTimeOffset.UtcNow >= parseDeadline)
-        {
-            return new(
-                new(
-                    CompiledXmlReadStatus.Deadline,
-                    snapshot.Length,
-                    EmptyEntries,
-                    EmptyIdentities),
-                PerformedSnapshot: true,
-                PerformedParse: false);
-        }
-
-        if (snapshot.Bytes is null)
-        {
-            return new(
-                new(
-                    CompiledXmlReadStatus.ByteLimit,
-                    snapshot.Length,
-                    EmptyEntries,
-                    EmptyIdentities),
-                PerformedSnapshot: true,
-                PerformedParse: false);
-        }
+        XmlSnapshot snapshot = taken!;
 
         try
         {
             using var stream = new MemoryStream(
-                snapshot.Bytes,
+                snapshot.Bytes!,
                 writable: false);
             XmlDocumentationReadManyResult result =
                 XmlDocumentationReader.ReadMembers(
@@ -1238,6 +1183,61 @@ public static class DocumentationHouse
         return ordered[0].Precedence == ordered[1].Precedence
             ? null
             : ordered[0];
+    }
+
+    /// <summary>
+    /// Snapshots the selected companion through the borrowed lease under the
+    /// byte limit and deadline. A non-null status stops the read; the
+    /// snapshot is non-null whenever the content was observed.
+    /// </summary>
+    private static (CompiledXmlReadStatus? Stopped, XmlSnapshot? Snapshot)
+        SnapshotCompiledXml(
+            CompiledXmlContribution selected,
+            LibraryOperationLease operationLease,
+            DocumentationHouseLimits limits,
+            DateTimeOffset parseDeadline,
+            CancellationToken cancellationToken)
+    {
+        if (DateTimeOffset.UtcNow >= parseDeadline)
+            return (CompiledXmlReadStatus.Deadline, null);
+
+        XmlSnapshot snapshot;
+        try
+        {
+            snapshot = operationLease.Snapshot(
+                selected.CompiledXmlContent!,
+                limits.MaximumCompiledXmlBytes,
+                static (view, maximumBytes, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    int length = view.Content.Length;
+                    return length > maximumBytes
+                        ? new XmlSnapshot(Bytes: null, length)
+                        : new XmlSnapshot(
+                            view.Content.ToArray(),
+                            length);
+                },
+                cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception failure) when (
+            failure is ObjectDisposedException
+                or UnauthorizedAccessException
+                or InvalidOperationException
+                or ArgumentException)
+        {
+            return (CompiledXmlReadStatus.ContentAccessFailed, null);
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        if (DateTimeOffset.UtcNow >= parseDeadline)
+            return (CompiledXmlReadStatus.Deadline, snapshot);
+        if (snapshot.Bytes is null)
+            return (CompiledXmlReadStatus.ByteLimit, snapshot);
+        return (null, snapshot);
     }
 
     private sealed record XmlSnapshot(byte[]? Bytes, int Length);

@@ -63,6 +63,10 @@ production deployment.
 
 ## Readiness and concern handling
 
+The default publication mode requires the certification described below.
+The separately authorized [ship-only override](#ship-only-override) does not
+claim certification readiness.
+
 Daily operations reports a candidate as **ready to ship** only when its exact
 SHA has successful required CI, its complete artifact is unexpired, all
 required qualification jobs succeeded, and version, release notes, shipped
@@ -81,6 +85,9 @@ operator may decline the candidate or authorize that exact candidate with
 concern acceptance.
 
 ## Publication validation
+
+These certification requirements apply to the default mode. Ship-only mode
+retains all source, asset, attempt, artifact, and byte-validation requirements.
 
 `eng/validate-release-candidate.sh` downloads the selected run, latest-attempt
 jobs, retained artifact metadata, and exact-SHA `ci / ci-required` main-push
@@ -110,6 +117,30 @@ artifact ID, digest mismatch failure, retained-byte verification before either
 consumer, package publication before site deployment, and Azure build
 disablement.
 
+## Ship-only override
+
+An operator may explicitly select `ship_only=true` to publish verified retained
+assets without waiting for Deep Inspect. This is an uncertified publication,
+not green certification or acceptance of completed test failures. Set
+`accept_certification_concerns=false`; the two decisions cannot be combined.
+Disclose observed Deep Inspect outcomes and unavailable evidence before asking
+for authorization of the exact candidate and this override.
+
+The selected attempt must have successful source validation, all package
+build jobs, the production-site build, and immutable assembly. Its exact
+source CI must be green, and its one retained artifact must be unexpired and
+pass every existing identity, receipt, manifest, checksum, package, and site
+check. The overall candidate run may still be running, or may have failed or
+been cancelled after assembly; certification jobs and the certification
+readiness aggregate are not gates in this mode. Missing or failed asset work
+and mixed-attempt evidence remain blockers.
+
+Every publication stage uses the validator from the pinned Publish workflow
+revision, including when retained assets came from an earlier source revision.
+The candidate checkout and retained-byte verifier still match the candidate
+SHA. Revalidation binds `ship_only` to the resolve job's decision along with
+the SHA, attempt, artifact ID, digest, and concern acceptance.
+
 ## Dispatch
 
 From the **Publish** workflow on `main`, enter:
@@ -119,6 +150,10 @@ From the **Publish** workflow on `main`, enter:
 3. `accept_certification_concerns`: `false` for green evidence; `true` only
    after the operator accepts every disclosed concern for this candidate.
 4. `confirm`: `publish`.
+
+For the separately authorized ship-only path, also set `ship_only=true` and
+leave `accept_certification_concerns=false`. Otherwise `ship_only` defaults
+to `false`, preserving the certification gate.
 
 The resolve job fails unless the dispatch itself is from `main` and the
 confirmation is exact. It records the resolved SHA, attempt, artifact ID,

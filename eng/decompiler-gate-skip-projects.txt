@@ -17,6 +17,7 @@ fixtures/analysis/ILInspector.Analysis.CallerGraphVersionSkewTargetV2
 fixtures/analysis/ILInspector.Analysis.CrossAsmCollisionFixtures
 fixtures/analysis/ILInspector.Analysis.FacadeFixtures
 fixtures/analysis/ILInspector.Analysis.Fixtures
+fixtures/analysis/ILInspector.Analysis.IteratorFixtures
 fixtures/analysis/ILInspector.Analysis.LookalikeFixtures
 fixtures/analysis/ILInspector.Analysis.MalformedOwnershipFixtures
 fixtures/analysis/ILInspector.Analysis.MethodCorrespondenceRuntimeFixtures
@@ -45,9 +46,12 @@ fixtures/diff/DiffAsmFixtures.Caller
 fixtures/diff/DiffAsmFixtures.LibA
 fixtures/diff/DiffAsmFixtures.LibB
 fixtures/diff/DiffAsmFixtures.Target
+fixtures/diff/UnsafeMemberDiffFixtures.V1
+fixtures/diff/UnsafeMemberDiffFixtures.V2
 fixtures/inspect-web/InspectWeb.CloneTransportFixtures
 fixtures/inspect-web/InspectWeb.DocumentationFixtures
 fixtures/inspect-web/InspectWeb.MethodBodyFixtures
+fixtures/inspect-web/InspectWeb.PackagePdbFixture
 fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V1
 fixtures/inspect-web/InspectWeb.SourceComparisonFixtures.V2
 fixtures/js-export/ILInspector.JsExportSurface.DirectionalJsonValueFixtures
@@ -76,12 +80,13 @@ fixtures/js-export/TsJsExport.ContextFixtures.NormalizationDecomposed
 fixtures/js-export/TsJsExport.ContextFixtures.WrongContract
 fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V1
 fixtures/metadata/ILInspector.Metadata.ApiDeclarationCorrespondence.V2
-fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V1
-fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V2
 fixtures/metadata/ILInspector.Metadata.AttributeEnumFixtures
+fixtures/metadata/ILInspector.Metadata.CompilationProfileFixtures.RuntimeAsync
 fixtures/metadata/ILInspector.Metadata.EnablementFixtures
 fixtures/metadata/ILInspector.Metadata.ExtensionInstanceNew
 fixtures/metadata/ILInspector.Metadata.ExtensionInstanceOld
+fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V1
+fixtures/metadata/ILInspector.Metadata.FindingDiffAny.V2
 fixtures/metadata/ILInspector.Metadata.InterfaceImplContracts
 fixtures/metadata/ILInspector.Metadata.InterfaceImplFixtures
 fixtures/metadata/ILInspector.Metadata.MemorySafetyFixtures
@@ -94,6 +99,7 @@ fixtures/metadata/ILInspector.Metadata.SourceProvenanceLookalike
 fixtures/metadata/ILInspector.Metadata.SourceProvenanceNetStandard
 fixtures/metadata/ILInspector.Metadata.SpellabilityConsumer
 fixtures/metadata/ILInspector.Metadata.SpellabilityReference
+fixtures/metadata/ILInspector.Metadata.StateMachineFixtures.Debug
 fixtures/metadata/ILInspector.Metadata.TypeDependencyConsumer
 fixtures/metadata/ILInspector.Metadata.TypeDependencyReference
 fixtures/metadata/ILInspector.Metadata.VbInterfaceImplementations
@@ -130,13 +136,13 @@ src/DotnetInspect.Web.Interop.Library
 src/DotnetInspect.Web.Interop.Metadata
 src/DotnetInspect.Web.Interop.Package
 src/DotnetInspect.Web.Interop.Source
+src/DotnetInspector.Diff
 src/DotnetInspector.EcosystemLoading
 src/DotnetInspector.Ecosystems
 src/DotnetInspector.JsonSchema
 src/DotnetInspector.MetadataRendering
 src/DotnetInspector.PlatformHouse.Local
 src/DotnetInspector.Sections.Local
-src/DotnetInspector.SourceDelegation
 src/ILInspector.Analysis.App
 src/ILInspector.JsExportSurface
 src/ILInspector.TypeScriptGeneration
@@ -181,7 +187,6 @@ tests/DotnetInspector.RowSelection.Tests
 tests/DotnetInspector.RuntimeFlavorProbe
 tests/DotnetInspector.Sections.Tests
 tests/DotnetInspector.Services.Tests
-tests/DotnetInspector.SourceDelegation.Tests
 tests/DotnetInspector.SourceHouse.Tests
 tests/DotnetInspector.SourceSelection.Tests
 tests/HarnessReportDiff.Tests
@@ -231,6 +236,7 @@ tools/CSharpDiffHarness
 tools/CSharpPrinter.Benchmarks
 tools/CatalogCallGraphScorecard
 tools/DiffHarnessCommon
+tools/ExplainReadingScenarios
 tools/HarnessReportDiff
 tools/IlDiffHarness
 tools/ImplementationMetricPerformance

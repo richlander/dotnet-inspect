@@ -93,6 +93,26 @@ internal static class MethodDefinitionShapes
                 & MethodImplAttributes.ManagedMask)
             == MethodImplAttributes.Managed;
 
+    // A type's source Type: the type itself, or for a type declared in a
+    // nested compiler-generated type, the nearest enclosing type that is
+    // not, which holds the source members that own its bodies.
+    internal static TypeDefinitionHandle SourceType(
+        MetadataReader reader,
+        TypeDefinitionHandle type)
+    {
+        TypeDefinitionHandle current = type;
+        for (int depth = 0;
+            depth < MetadataSafetyPolicy.MaxRelationshipNodes;
+            depth++)
+        {
+            TypeDefinition definition = reader.GetTypeDefinition(current);
+            if (!IsDeclaredInNestedCompilerGeneratedType(reader, definition))
+                return current;
+            current = definition.GetDeclaringType();
+        }
+        return current;
+    }
+
     // A compiler-generated type nested inside another type (closure, state
     // machine, or lifted helper container) holds bodies that belong to a
     // source owner; a top-level generated type has none.

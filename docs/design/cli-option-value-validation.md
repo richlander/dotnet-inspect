@@ -35,9 +35,9 @@ rejecting surplus values. The rule does not recognize former count syntax or
 infer a token's role from numeric or Boolean-shaped text.
 
 An unbounded positional declaration is not silently narrowed. A command/view
-with a stricter existing capacity supplies that capacity; for example, the
-plural package-version views accept one package. Other multi-package views
-keep their existing positional inputs.
+with a stricter capacity supplies that capacity. The `package` command declares
+one optional Package coordinate for every view, including version listing; a
+second coordinate is surplus input.
 
 Required and optional option values retain their parsed ownership. Syntax
 after `--` remains positional input, not an option occurrence or an attached
@@ -87,8 +87,8 @@ Release CLI invocation cases must cover the table above and these boundaries:
 - Attached numeric, Boolean, empty, and ordinary-text values are rejected.
 - Valid positional inputs before/after flags, including numeric and
   Boolean-shaped package IDs, retain their ownership.
-- Finite positional slots and existing single-package view limits distinguish
-  surplus input from valid arguments; multi-package views remain supported.
+- Finite positional slots distinguish surplus input from valid arguments; a
+  second `package` coordinate is rejected for explicit and implicit invocation.
 - Required/optional values, the `--` marker, and supported row shorthand keep
   their existing ownership.
 - Explicit and implicit package invocation share the result, including early
@@ -99,7 +99,9 @@ synthetic finite/unbounded command neighbors. The local-feed
 `SourceScopedRoutingTests.PackageVersionListing_ZeroArityValidationPreservesLocalRows`
 gate exercises complete selected version rows with valid numeric and
 Boolean-shaped package IDs. The package adoption's
-`Versions_AdditionalPackageUsesMultiPackageValidation` and
+`Package_SecondCoordinateIsRejectedBeforeAcquisition` and
+`PackageCommand_WithMultiplePackageNames_IsRejected` gates pin the explicit
+and implicit surplus-coordinate diagnostics;
 `Versions_ValuedDirectionWithRangeUsesZeroArityDiagnostic` gates pin the
-changed diagnostics; `Versions_QueryDiscoveryPreservesJsonFormatContract`
+zero-arity diagnostics; `Versions_QueryDiscoveryPreservesJsonFormatContract`
 retains the existing format guard's precedence.

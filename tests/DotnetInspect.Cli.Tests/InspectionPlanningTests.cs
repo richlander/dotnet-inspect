@@ -82,6 +82,12 @@ public sealed class InspectionPlanningTests
                     ImmutableArray.Create(
                         InspectionCatalogIdentity.ApiMemberOverload,
                         InspectionCatalogIdentity.ApiMemberDetail)),
+                (
+                    StructuralViewIdentity.Diff,
+                    DiffCommand.Name,
+                    "diff",
+                    ImmutableArray.Create(
+                        InspectionCatalogIdentity.Diff)),
             ],
             views.Select(view =>
                 (
@@ -1368,7 +1374,7 @@ public sealed class InspectionPlanningTests
     [InlineData("member-kind", "Unknown C# body kind 'loop'.")]
     [InlineData("member-mermaid", "--mermaid is standalone")]
     [InlineData("type-order", "Field 'bogus' is not sortable")]
-    [InlineData("package-multi", "Multiple package inspection cannot be combined")]
+    [InlineData("package-multi", "Unrecognized command or argument 'Serilog'")]
     [InlineData("commandless-member-kind", "Unknown C# body kind 'loop'.")]
     [InlineData("commandless-order", "Field 'bogus' is not sortable")]
     [InlineData("type-version", "Use 'Newtonsoft.Json@13.0.3' to specify a version.")]
@@ -1805,6 +1811,56 @@ public sealed class InspectionPlanningTests
     }
 
     [Fact]
+    public void DiffDeclaresEverySelectableSectionShapeAndDescription()
+    {
+        SectionCatalog<DiffDiscoveryModel> catalog =
+            DiffSections.CreateCatalog().Sections;
+        StructuralSchemaProjection projection =
+            StructuralViewRegistry.Project(
+                StructuralViewRegistry.Route(
+                    StructuralViewIdentity.Diff,
+                    InspectionCatalogIdentity.Diff));
+
+        // Section model, invariant 11, and Section shapes: every selectable
+        // Diff section declares a description and a shape, and the
+        // structural route carries both for every section in its schema.
+        // Annotated Source Diff is the one Text; the rest are Tables.
+        Assert.Equal(
+            catalog.SelectableSectionNames.Order(StringComparer.OrdinalIgnoreCase),
+            catalog.SectionDescriptions.Keys.Order(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+        Assert.Equal(
+            catalog.SelectableSectionNames
+                .ToDictionary(
+                    static section => section,
+                    static section =>
+                        section == DiffSections.AnnotatedSourceDiff.Name
+                            ? SectionShape.Text
+                            : SectionShape.Table,
+                    StringComparer.OrdinalIgnoreCase)
+                .OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase),
+            catalog.SectionShapes
+                .OrderBy(static pair => pair.Key, StringComparer.OrdinalIgnoreCase));
+        Assert.Equal(
+            catalog.SelectableSectionNames.Order(StringComparer.OrdinalIgnoreCase),
+            projection.Schema.SectionNames.Order(StringComparer.OrdinalIgnoreCase),
+            StringComparer.OrdinalIgnoreCase);
+        foreach (string section in projection.Schema.SectionNames)
+        {
+            Assert.True(projection.SectionDescriptions!.ContainsKey(section), section);
+            Assert.True(projection.SectionShapes!.ContainsKey(section), section);
+        }
+        Assert.Equal(
+            [DiscoveryOutputMode.Json],
+            projection.OutputCapabilities!.FormatsForSection(
+                DiffSections.AnnotatedSourceDiff.Name));
+        Assert.DoesNotContain(
+            DiscoveryOutputMode.PlainText,
+            projection.OutputCapabilities.FormatsForSection(
+                DiffSections.Changes.Name));
+    }
+
+    [Fact]
     public void LibraryStructuralRouteDeclaresEverySectionShape()
     {
         StructuralSchemaProjection projection =
@@ -1816,17 +1872,18 @@ public sealed class InspectionPlanningTests
             Assert.IsAssignableFrom<IReadOnlyDictionary<string, SectionShape>>(
                 projection.SectionShapes);
 
-        // Every Library section declares a shape except Dependency
-        // Structure, a Graph of namespace nodes and edges.
+        // Every Library section declares a shape. Dependency Structure is a
+        // Table of namespace edges since #10567.
         foreach (string section in LibrarySections.CreateCatalog()
                      .Sections
                      .AllSectionNames)
         {
-            Assert.Equal(
-                section != SectionNames.DependencyStructure,
-                shapes.ContainsKey(section));
+            Assert.True(shapes.ContainsKey(section), section);
         }
 
+        Assert.Equal(
+            SectionShape.Table,
+            shapes[SectionNames.DependencyStructure]);
         Assert.Equal(
             SectionShape.Hierarchy,
             shapes[SectionNames.ReferenceHierarchy]);
@@ -1835,8 +1892,8 @@ public sealed class InspectionPlanningTests
             SectionShape.Table,
             shapes["Metadata: TypeDef"]);
 
-        // Field-set records that describe one subject are scalar; listings,
-        // including the Graph, are inventories.
+        // Field-set records that describe one subject are scalar; listings
+        // are inventories.
         foreach (string section in new[]
                  {
                      SectionNames.LibraryInfo,

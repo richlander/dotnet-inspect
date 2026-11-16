@@ -1220,10 +1220,11 @@ public sealed partial class InspectionWorkspace
         }
         if (bindings.Any(
                 static binding =>
-                    binding.Root.AssetSelection is not { IsSelected: true }))
+                    binding.Root.RealizedSurfaceAssets.Count == 0
+                    && binding.Root.RealizedImplementationAssets.Count == 0))
         {
             throw new ArgumentException(
-                "A shareable package-role operation accepts only selected package bindings.",
+                "A shareable package-role operation requires selected surface or implementation assets for every package binding.",
                 nameof(selectedPackages));
         }
 

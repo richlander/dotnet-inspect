@@ -46,7 +46,7 @@ contracts:
 | Owner | Amendment |
 | --- | --- |
 | [Search scope resolution](search-scope-resolution.md#explicit-composition) | For `find` only: `--ecosystem` is an explicit selector that contributes the named populations of the named Ecosystem's [lineage](ecosystem-hierarchy.md#model), searched in [layered Find order](ecosystem-hierarchy.md#layered-find); bare `--platform` contributes the platform Workspace plan's named populations instead of three frameworks. `implements`, `extensions`, and type-mode `depends` keep today's rows until their own slices |
-| [CLI host architecture](../cli-architecture.md) (valued `--platform` disambiguation) | For `find`, a valued `--platform` equal to `runtime` or `aspnetcore` (optionally `@<version>`) lowers to that Ecosystem with its platform population pinned; `netstandard[@<version>]` lowers to the .NET Standard platform family, matching `library query --platform`; any other value names one platform Library, as today |
+| [CLI host architecture](../cli-architecture.md) (valued `--platform` disambiguation) | For `find`, a valued `--platform` equal to `runtime` or `aspnetcore` (optionally `@<version>`) lowers to that Ecosystem with its platform population pinned; `netstandard[@<version>]` lowers to the .NET Standard platform family, matching `find --libraries --platform`; any other value names one platform Library, as today |
 
 ## Why
 
@@ -121,11 +121,11 @@ Rules:
    (case-insensitive) are aliases for `--ecosystem runtime` and
    `--ecosystem aspnetcore`. A version pins that Ecosystem's platform
    population: `@10.0` selects the latest 10.0.x patch, and `@10.0.0` selects
-   that exact version, matching `library query --platform`. Core packages are
+   that exact version, matching `find --libraries --platform`. Core packages are
    not pinned. For `aspnetcore`, the .NET Runtime ancestor layer is pinned to
    the same major and minor version.
 5. `--platform netstandard[@<version>]` selects the .NET Standard platform
-   family, as `library query --platform` does. It is the only way `find`
+   family, as `find --libraries --platform` does. It is the only way `find`
    searches .NET Standard once the default drops it.
 6. Any other `--platform <value>` names one platform Library, as today.
 7. `--workspace` restores the complete packet. Packet completeness is owned by

@@ -188,7 +188,7 @@ public static partial class TypeCommand
             DirectDiscoverySchema(memberPipeline),
             DirectDiscoveryManifest(type, acquisition),
             // Minimal non-tree discovery lists categories, not their
-            // members, so it never discloses Unsafe Members.
+            // members, so it never discloses Unsafe Code.
             skipBareUnsafeApplicability: true);
     }
 
@@ -329,7 +329,7 @@ public static partial class TypeCommand
                     SectionNames.SafetyFacts,
                     StringComparison.OrdinalIgnoreCase)
                 || section.Equals(
-                    SectionNames.UnsafeMembers,
+                    SectionNames.UnsafeCode,
                     StringComparison.OrdinalIgnoreCase)) == true;
 
     static DocumentSchema DirectDiscoverySchema(
@@ -443,7 +443,7 @@ public static partial class TypeCommand
                             SectionNames.SafetyFacts,
                             StringComparison.OrdinalIgnoreCase)
                         && !section.Equals(
-                            SectionNames.UnsafeMembers,
+                            SectionNames.UnsafeCode,
                             StringComparison.OrdinalIgnoreCase))
             || !TryGetDirectLibraryExactType(
                 options,

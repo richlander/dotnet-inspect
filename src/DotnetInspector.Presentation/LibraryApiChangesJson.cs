@@ -26,6 +26,18 @@ namespace DotnetInspector.Presentation;
 [JsonSerializable(typeof(LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiChangeRow>>), TypeInfoPropertyName = "ChangesDocumentOutcome")]
 public sealed partial class LibraryApiChangesJsonContext : JsonSerializerContext;
 
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
+    Converters =
+    [
+        typeof(InertStringJsonConverter),
+        typeof(LibraryApiDiffEndpointIssueJsonConverter),
+        typeof(LibraryApiTypeInventoryDocumentOutcomeJsonConverter),
+    ])]
+[JsonSerializable(typeof(LibraryApiChangesDocument<LibraryApiTypeInventoryRow>), TypeInfoPropertyName = "TypeInventoryDocument")]
+[JsonSerializable(typeof(LibraryApiChangesOutcome<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>), TypeInfoPropertyName = "TypeInventoryDocumentOutcome")]
+public sealed partial class LibraryApiTypeInventoryJsonContext : JsonSerializerContext;
+
 public abstract class LibraryApiChangesOutcomeJsonConverter<T>
     : JsonConverter<LibraryApiChangesOutcome<T>>
 {
@@ -102,5 +114,13 @@ public sealed class LibraryApiChangesDocumentOutcomeJsonConverter
 {
     protected override JsonTypeInfo<LibraryApiChangesDocument<LibraryApiChangeRow>> ContentInfo
         => LibraryApiChangesJsonContext.Default.ChangesDocument;
+    protected override string ContentProperty => "document";
+}
+
+public sealed class LibraryApiTypeInventoryDocumentOutcomeJsonConverter
+    : LibraryApiChangesOutcomeJsonConverter<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>>
+{
+    protected override JsonTypeInfo<LibraryApiChangesDocument<LibraryApiTypeInventoryRow>> ContentInfo
+        => LibraryApiTypeInventoryJsonContext.Default.TypeInventoryDocument;
     protected override string ContentProperty => "document";
 }

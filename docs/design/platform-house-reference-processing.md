@@ -1140,6 +1140,44 @@ derives the managed assembly identity from that projection. The resulting
 caller-supplied assembly display name, or projection for another Artifact
 cannot replace it.
 
+### Exact implementation-artifact correspondence
+
+Separately realized populations may retain a source-certified,
+resource-free `PlatformImplementationArtifactIdentity` on their implementation
+Artifact provenance. Equality certifies the same actual source member and
+immutable implementation image under the same source authority; the managed
+identity uses Metadata's equivalence contract. A requesting population,
+acquisition registration, or attempt generation is not physical correspondence.
+The certificate grants no content access, population membership, source
+authorization, view correspondence, or core-library entitlement.
+
+Installed certification retains the opaque hive identity, actual framework
+and version, manifest member, and source-issued content digest. Package-backed
+certification retains the opaque configured authority, actual framework,
+package version and RID, manifest member, and source-issued digest. Different
+source domains never compare equal. Equal display names, endpoints, assembly
+names, MVIDs, or consumer-computed hashes cannot substitute for certification.
+Reference-only and uncertified producers supply no correspondence; absence
+does not authorize coalescing. Existing source selection, content validation,
+and population admission remain unchanged.
+
+The motivating asset is `Microsoft.Azure.SignalR@1.33.1`, member
+`AzureSignalRApplicationBuilderExtensions.UseAzureSignalR`, root `net8.0`,
+traversal `net11.0`. At `391beb3b33f5ee01b3e2e5ab5fe6ef17b2e44727`,
+the default/pruned call graph reached duplicate `Microsoft.CSharp` 11.0.0.0
+images from Runtime and ASP.NET Core's Runtime-support closure. A temporary
+probe observed identical image digests but distinct registrations; it did not
+establish source authority. Focused materializer tests cover the same overlap,
+changed source/content neighbors, and retained certificates without another
+read or hash. Runtime-pack acquisition remains reproducible rather than
+vendoring platform binaries.
+
+Issue #11010 implements this prerequisite. Overall tracker #10987 includes
+the separate shared call-graph adopter #10932 for both CLI and Inspect Web.
+That consumer must preserve every family and registration path and continue
+rejecting genuinely distinct images. This prerequisite performs no graph
+coalescing and makes no graph-correctness or latency claim.
+
 ### Platform Library certification
 
 The shared `LibraryReference` intentionally remains neutral: it represents one

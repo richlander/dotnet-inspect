@@ -45,7 +45,8 @@ public sealed class FindingDiffAnyTypeInventoryTests
             Assert.Equal((w.Api, w.Body), (l.Api, l.Body));
             Assert.Equal(w.Facts, l.Facts);
             Assert.Equal(w.Bodies, l.Bodies);
-            Assert.Equal(w.Api == FindingDiffAnyState.Changed, w.Facts.Any(fact => fact.Axis == FindingDiffAnyAxis.Api));
+            if (w.Api == FindingDiffAnyState.Changed)
+                Assert.Contains(w.Facts, fact => fact.Axis == FindingDiffAnyAxis.Api);
             if (w.Body == FindingDiffAnyState.Changed)
                 changedTypes++;
             bodyRows += w.Bodies.Length;

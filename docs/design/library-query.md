@@ -2,6 +2,10 @@
 
 ## Status
 
+The CLI binding is `find --libraries`, under
+[Find population grains](operation-command-and-subject-section-composition.md#find-population-grains).
+The migration changes no Library Query semantic contract or Browser operation.
+
 This document owns the initial Library Query contract for
 [`#7712`](https://github.com/richlander/dotnet-inspect/issues/7712) step 7.
 
@@ -21,10 +25,10 @@ returns one row per matching Library. Its first production facet is direct
 assembly-reference qualification:
 
 ```console
-dotnet-inspect library query ./bin \
+dotnet-inspect find --libraries ./bin \
   --where "references=System.Text.Json"
 
-dotnet-inspect library query --platform runtime \
+dotnet-inspect find --libraries --platform runtime \
   --where "references=System.Text.Json"
 ```
 
@@ -147,14 +151,14 @@ count.
 
 ## Discovery and acquisition boundary
 
-`library query -Q` and `library query -Q Libraries` derive `references` from the
+`find --libraries -Q` and `find --libraries -Q Libraries` derive `references` from the
 effective operation route. Discovery performs no directory scan, pack
 resolution, download, or Metadata read.
 
 Structural discovery likewise requires no population:
 
 ```console
-dotnet-inspect library query -D
+dotnet-inspect find --libraries -D
 ```
 
 The CLI binds a directory or platform framework through `AssemblySetResolver`,

@@ -332,6 +332,7 @@ function recordingActions(calls: string[]): TypePanelBindingActions {
       calls.push(`type-access:${value}`),
     onTypeTraitSelect: value => calls.push(`type-trait:${value}`),
     onTypeLeverageRetry: () => calls.push("type-leverage-retry"),
+    onTypeAnalysisOpen: () => calls.push("type-analysis"),
     onTypeMembersOpen: () => calls.push("type-members"),
     onTypeNavBack: () => calls.push("type-nav-back"),
     onListKeyDown: event => {
@@ -408,15 +409,17 @@ test("type panel binds the qualified Type leverage retry", () => {
   assert.deepEqual(calls, ["type-leverage-retry"]);
 });
 
-test("type panel binds Type Overview member navigation", () => {
+test("type panel binds Type Overview navigation", () => {
   const root = new FakeRoot();
   const members = root.add("[data-type-members]", new FakeElement());
+  const typeAnalysis = root.add("[data-type-analysis]", new FakeElement());
   const calls: string[] = [];
 
   bindPanel(root, recordingActions(calls));
   members.dispatch("click");
+  typeAnalysis.dispatch("click");
 
-  assert.deepEqual(calls, ["type-members"]);
+  assert.deepEqual(calls, ["type-members", "type-analysis"]);
 });
 
 test("type panel bindings dispatch member filters and leverage retry", () => {
@@ -831,6 +834,39 @@ test("the type nav lists namespace groups with the current type selected", () =>
   // The icon carries the kind; the row's detail is the member count.
   assert.match(html, /title="12 members">System\.Text\.Json · 12<\/small>/);
   assert.doesNotMatch(html, /· class</);
+});
+
+test("the type nav omits unknown Member Counts and preserves known zero Counts", () => {
+  for (const members of [null, 0, 1]) {
+    const type = { ...jsonSerializer, members };
+    const html = renderTypeNav({
+      current: type,
+      visible: [type],
+      typeGroups: new Map([["System.Text.Json", [type]]]),
+      typeFilter: "",
+      namespaceFilter: "",
+      kindFilter: "",
+      ...typeSelectorOptions,
+      namespaceCount: 1,
+      namespaceOptionsHtml: "",
+      library: "System.Text.Json",
+      parentSubject: "library",
+      filtersExpanded: false,
+      filterSummary: "public",
+      escapeHtml,
+      typeDisplayName,
+      typeLibraryLabel: () => members === null ? "Supplier.dll" : "",
+      kindIcon,
+    });
+    if (members === null) {
+      assert.doesNotMatch(html, /<small title="/);
+      assert.doesNotMatch(html, /null/);
+      assert.match(html, /<small>Supplier\.dll<\/small>/);
+    } else {
+      assert.ok(html.includes(
+        `<small title="${members} ${members === 1 ? "member" : "members"}">${members}</small>`));
+    }
+  }
 });
 
 test("the type nav preserves the host selection value for the global namespace", () => {
@@ -1622,6 +1658,7 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
       typeMetadataError: null,
       typeMetadata: {
         exactTypeInspection: availableExactTypeInspection({
+          baseType: "Wrong.CompatibilityBase",
           interfaces: ["System.IDisposable"],
           members: [{
             name: "Serialize",
@@ -1629,6 +1666,17 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
             signature: null,
           }],
         }),
+        typeSignaturePresentation: {
+          type: "System.Text.Json.JsonSerializer",
+          kind: "class",
+          modifiers: [],
+          accessibility: "public",
+          namespace: "System.Text.Json",
+          baseType: "Example.GenericBase<T>",
+          typeParameters: "T : class, new()",
+          interfaceCount: 1,
+          nestedTypeCount: 2,
+        },
         hierarchy: {
           form: "Derived Types",
           status: "available",
@@ -1660,6 +1708,8 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
       <div class="composition-filters">
         <button data-member-jump-kind="method"><strong>3</strong><span>method</span></button>
       </div>`,
+    analysisSummaryHtml:
+      '<button type="button" data-type-analysis>5 called types</button>',
     escapeHtml,
     highlightCSharp,
     relatedTypeChip: (name, occurrence) =>
@@ -1681,6 +1731,10 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
     html,
     /<h1 id="type-overview-title">Overview<\/h1>[\s\S]*Type metadata[\s\S]*data-overview-badge="class"[\s\S]*data-overview-badge="public"/);
   assert.match(html, /data-type-members>12 members<\/button>/);
+  assert.match(html, /data-type-analysis>5 called types<\/button>/);
+  assert.match(
+    html,
+    /data-type-members>12 members<\/button>[\s\S]*data-type-analysis>5 called types<\/button>[\s\S]*Type shape/);
   assert.match(
     html,
     /Type shape[\s\S]*<dl><div><dt>Kind<\/dt><dd>class<\/dd>/);
@@ -1697,7 +1751,111 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
     /data-graph-asset="lib\/net9\.0\/System\.Text\.Json\.dll"/);
   assert.match(html, /Members/);
   assert.match(html, /data-member-jump-kind="method"/);
+  assert.match(html, /Base type<\/dt><dd>Example\.GenericBase&lt;T&gt;/);
+  assert.match(html, /Type parameters<\/dt><dd>T : class, new\(\)/);
+  assert.match(html, /Nested types<\/dt><dd>2/);
+  assert.doesNotMatch(html, /Wrong\.CompatibilityBase/);
   assert.doesNotMatch(html, /Custom attributes|custom-attribute-list/);
+});
+
+test("Library Type metadata preserves rich Overview while Member Names are loading", () => {
+  const item = {
+    ...jsonSerializer,
+    id: "System.Text.Json.JsonNamingPolicy",
+    name: "JsonNamingPolicy",
+    members: null,
+    signature: "",
+  };
+  const packageContext = {
+    id: "Microsoft.NETCore.App",
+    version: "11.0.0-rc.1.26425.128",
+    activeFramework: "net11.0",
+  };
+  const html = renderTypeMetadata({
+    item,
+    packageContext,
+    metadataState: {
+      typeMetadataKey: typeMetadataSignature(item, packageContext),
+      typeMetadataLoading: false,
+      typeMetadataError: null,
+      typeMetadata: {
+        exactTypeInspection: null,
+        typeSignaturePresentation: {
+          type: item.id,
+          kind: "class",
+          modifiers: ["abstract"],
+          accessibility: "public",
+          namespace: "System.Text.Json",
+          baseType: null,
+          typeParameters: "",
+          interfaceCount: 1,
+          nestedTypeCount: 0,
+        },
+        typeProjectionInspection: {
+          content: {
+            kind: "class",
+            interfaces: ["Example.INamingPolicy"],
+            derivedTypes: ["System.Text.Json.JsonCamelCaseNamingPolicy"],
+            attributes: ["System.Diagnostics.DebuggerDisplayAttribute"],
+            enumUnderlyingType: null,
+          },
+          share: {
+            kind: "nonProjectable",
+            fullUrl: null,
+            packet: null,
+            path: "type-projection/share",
+            reason: metadataInertStringFixture("No complete scenario was supplied."),
+          },
+          diagnostics: [],
+        },
+        graphNodes: [{}, {}],
+      },
+    },
+    memberCompositionHtml: '<p role="status">Loading Member Names…</p>',
+    escapeHtml,
+    highlightCSharp,
+    relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
+    factRows,
+  });
+  assert.match(html, /Type shape/);
+  assert.match(html, /data-overview-badge="abstract"/);
+  assert.match(html, /data-type-members>Members<\/button>/);
+  assert.match(html, /Implements[\s\S]*Example\.INamingPolicy/);
+  assert.match(html, /Same Library · 1 direct matches/);
+  assert.match(html, /JsonCamelCaseNamingPolicy/);
+  assert.match(html, /Custom attributes[\s\S]*DebuggerDisplayAttribute/);
+  assert.match(html, /Type relationships/);
+  assert.match(html, /Loading Member Names…/);
+  assert.doesNotMatch(html, /0 members|Metadata projection failed|Type metadata is unavailable/);
+});
+
+test("unavailable Signature does not substitute compatibility Base or hide relationships", () => {
+  const packageContext = { id: "System.Text.Json", version: "9.0.0", activeFramework: "net9.0" };
+  const html = renderTypeMetadata({
+    item: jsonSerializer,
+    packageContext,
+    metadataState: {
+      typeMetadataKey: typeMetadataSignature(jsonSerializer, packageContext),
+      typeMetadataLoading: false,
+      typeMetadataError: null,
+      typeMetadata: {
+        exactTypeInspection: availableExactTypeInspection({
+          baseType: "Wrong.CompatibilityBase",
+          interfaces: ["System.IDisposable"],
+        }),
+        typeSignaturePresentation: null,
+      },
+    },
+    memberCompositionHtml: "",
+    escapeHtml,
+    highlightCSharp,
+    relatedTypeChip: name => `<button>${escapeHtml(name)}</button>`,
+    factRows,
+  });
+
+  assert.match(html, /Type signature<\/dt><dd>Unavailable/);
+  assert.match(html, /System\.IDisposable/);
+  assert.doesNotMatch(html, /Wrong\.CompatibilityBase/);
 });
 
 for (const count of [2, 40]) {

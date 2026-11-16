@@ -183,13 +183,15 @@ public static class PackageDependencyCandidateQuery
         }
 
         PackageVersionDiscoveryResult discovery =
-            await operation.DiscoverDependencyVersionsAsync(
-                declaration.CanonicalPackageId).ConfigureAwait(false);
+            await operation.DiscoverDependencyCandidateVersionsAsync(
+                declaration.CanonicalPackageId,
+                declaration.CanonicalVersionConstraint).ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
-        if (!discovery.Contract.SupportsDependencyRangeResolution)
+        if (!discovery.SupportsDependencyRangeResolutionFor(
+            declaration.CanonicalVersionConstraint))
         {
             throw new InvalidOperationException(
-                "Dependency candidate resolution requires complete dependency-range version discovery.");
+                "Dependency candidate resolution requires Source discovery evidence covering the declaration's range.");
         }
         if (discovery.State != PackageVersionDiscoveryState.Authoritative)
         {
@@ -342,7 +344,7 @@ public static class PackageDependencyCandidateQuery
             ResolvePinnedCandidateAsync(PackageSourceCoordinate coordinate);
 
         Task<PackageVersionDiscoveryResult>
-            DiscoverDependencyVersionsAsync(string packageId);
+            DiscoverDependencyCandidateVersionsAsync(string packageId, string? constraint);
 
         void ThrowIfExpired();
     }
@@ -364,9 +366,10 @@ public static class PackageDependencyCandidateQuery
                 coordinate);
 
         public Task<PackageVersionDiscoveryResult>
-            DiscoverDependencyVersionsAsync(string packageId) =>
-            operation.DiscoverDependencyVersionsAsync(
+            DiscoverDependencyCandidateVersionsAsync(string packageId, string? constraint) =>
+            operation.DiscoverDependencyCandidateVersionsAsync(
                 packageId,
+                constraint,
                 sourceAuthorization,
                 log);
 

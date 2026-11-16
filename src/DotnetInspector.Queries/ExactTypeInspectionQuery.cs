@@ -392,7 +392,15 @@ internal sealed record ExactTypeInspectionTarget(
     string? AssemblyPath,
     string? PackageAssetPath,
     string? PackageExtractPath,
-    Func<long, Stream?>? OpenCompiledDocumentation);
+    Func<long, Stream?>? OpenCompiledDocumentation)
+{
+    /// <summary>
+    /// The retained package content that supplied the defining participant,
+    /// valid only while its Root remains admitted, or <see langword="null"/>
+    /// outside a package Root.
+    /// </summary>
+    public IPackageContent? PackageContent { get; init; }
+}
 
 internal sealed record ExactTypeInspectionExecution(
     ExactTypeInspectionResult Result,
@@ -407,7 +415,7 @@ internal sealed record FirstAvailableExactTypeInspectionExecution(
 /// Resolves and projects one exact Type through an admitted Workspace
 /// realization operation.
 /// </summary>
-internal static class ExactTypeInspectionQuery
+internal static partial class ExactTypeInspectionQuery
 {
     sealed record Candidate(
         int Order,
@@ -1280,7 +1288,8 @@ internal static class ExactTypeInspectionQuery
             string? assemblyPath,
             string? packageAssetPath,
             string? packageExtractPath,
-            Func<long, Stream?>? openCompiledDocumentation) =
+            Func<long, Stream?>? openCompiledDocumentation,
+            IPackageContent? packageContent) =
             MaterializedContent(
                 loaded,
                 supplier.Participant);
@@ -1293,7 +1302,10 @@ internal static class ExactTypeInspectionQuery
                 assemblyPath,
                 packageAssetPath,
                 packageExtractPath,
-                openCompiledDocumentation));
+                openCompiledDocumentation)
+            {
+                PackageContent = packageContent,
+            });
         return new ExactTypeInspectionResult(
             ExactTypeInspectionOutcome.Available,
             requestedType,
@@ -1371,7 +1383,8 @@ internal static class ExactTypeInspectionQuery
         string? AssemblyPath,
         string? PackageAssetPath,
         string? PackageExtractPath,
-        Func<long, Stream?>? OpenCompiledDocumentation)
+        Func<long, Stream?>? OpenCompiledDocumentation,
+        IPackageContent? PackageContent)
         MaterializedContent(
             WorkspaceContextLoadOutcome.Loaded loaded,
             AssemblyContextParticipant participant)
@@ -1389,7 +1402,8 @@ internal static class ExactTypeInspectionQuery
                 assemblyPath,
                 packageAssetPath,
                 packageExtractPath,
-                OpenCompiledDocumentation: null);
+                OpenCompiledDocumentation: null,
+                PackageContent: null);
         }
         packageAssetPath = assetPath;
 
@@ -1405,7 +1419,8 @@ internal static class ExactTypeInspectionQuery
                 assemblyPath,
                 packageAssetPath,
                 packageExtractPath,
-                OpenCompiledDocumentation: null);
+                OpenCompiledDocumentation: null,
+                PackageContent: null);
         }
 
         PackageRootBinding? root =
@@ -1438,7 +1453,8 @@ internal static class ExactTypeInspectionQuery
             assemblyPath,
             packageAssetPath,
             packageExtractPath,
-            openCompiledDocumentation);
+            openCompiledDocumentation,
+            content);
     }
 
     static ImmutableArray<AssemblyContextParticipant> PackageParticipants(

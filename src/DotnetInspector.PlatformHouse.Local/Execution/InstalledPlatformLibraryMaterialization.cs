@@ -644,7 +644,11 @@ public static class InstalledPlatformLibraryMaterializer
             provenance,
             library.Identity,
             library.ContentLength,
-            _ => library.OpenRead());
+            _ => library.OpenRead(),
+            implementationArtifactIdentity:
+                new InstalledImplementationArtifactIdentity(
+                    implementation.Value.Coordinate.Hive,
+                    library));
     }
 
     static bool TryPrepareImplementationPopulation(
@@ -700,20 +704,7 @@ public static class InstalledPlatformLibraryMaterializer
             }
             prepared.Add(
                 new PlatformPopulationLibraryArtifactMaterializationItem(
-                    new PlatformLibraryArtifactMaterializationItem(
-                        (PlatformSourceContribution.Realization)
-                            implementation.Contribution,
-                        new InstalledImplementationArtifactProvenance(
-                            implementation.Value.Generation,
-                            implementation.Value.Coordinate,
-                            library.FrameworkName,
-                            library.FrameworkVersion,
-                            library.ManifestCoordinate,
-                            library.Identity,
-                            library.ContentDigest),
-                        library.Identity,
-                        library.ContentLength,
-                        _ => library.OpenRead()),
+                    CreateImplementationItem(implementation, library),
                     attribution));
         }
 

@@ -71,6 +71,33 @@ public class MethodBodyInspectionSessionTests
     }
 
     [Fact]
+    public void OpenWithFeatures_PathlessDescriptorUsesBindingPolicy()
+    {
+        byte[] image = File.ReadAllBytes(ProductPath);
+        ResolvedAssemblyReference selected =
+            ResolvedAssemblyReference.CreateFromPath(
+                ProductPath,
+                AssemblyResolutionProvenance.Local(
+                    "pathless body analysis fixture"));
+        ResolvedAssemblyReference assembly =
+            ResolvedAssemblyReference.Create(
+                selected.Identity,
+                path: null,
+                () => new MemoryStream(image, writable: false),
+                selected.Provenance);
+        var resolver =
+            new DotnetInspector.Services.AssemblyDependencyResolver(
+                new(ProductPath));
+        var session = MethodBodyInspectionSession.OpenWithFeatures(
+            assembly,
+            new AssemblyReferenceBindingPolicy(resolver),
+            Analysis.LibraryBodyAnalysisFeatures.MethodEvidence);
+
+        Assert.NotEmpty(session.CallGraphAnalysis.Methods);
+        Assert.Equal(selected.Identity.Name, session.SourceName);
+    }
+
+    [Fact]
     [Trait("Speed", "Slow")]
     public void Open_HonorsBodyScope()
     {

@@ -47,18 +47,22 @@ independently-adoptable-tier proof for the row and limit systems; this
 contract is written to be adoptable through its public surface alone, without
 dotnet-inspect's layer names, section rendering, or CLI.
 
-The shared protocol is implemented in
-[`DotnetInspector.SourceDelegation`](../../src/DotnetInspector.SourceDelegation/).
-Its first exercising consumer is the
-[public contract harness](../../tests/DotnetInspector.SourceDelegation.Tests/),
-whose Release suite runs in PR CI. Production source and caller adoption remain
-separate work; this slice does not change source, L2, browser, or CLI execution.
+The standalone runtime protocol and public contract harness implemented under
+[#6042](https://github.com/richlander/dotnet-inspect/issues/6042) and
+[#6056](https://github.com/richlander/dotnet-inspect/pull/6056) were retired in
+[#10901](https://github.com/richlander/dotnet-inspect/issues/10901). Their only
+caller was the toy harness; neither product host adopted the implementation.
+The proposed Gallery consumer was retired, and its old adoption trackers
+[#5919](https://github.com/richlander/dotnet-inspect/issues/5919) and
+[#6071](https://github.com/richlander/dotnet-inspect/issues/6071) are superseded.
 
-[#6042](https://github.com/richlander/dotnet-inspect/issues/6042) owns the shared
-protocol implementation and public contract harness. The Gallery discovery
-consumer once proposed for this protocol is retired; the protocol remains a
-generic source-execution capability with no implied Gallery, L2, or host
-adoption.
+This document retains the design contract referenced by the row and planning
+owners. Type names and structural examples describe the retired reference
+implementation, not a currently shipped generic API. The gate names below
+remain requirements for a future implementation or adoption; they are
+**unverified** in the current repository after removal of the harness. Any
+future implementation needs a concrete production consumer and a focused plan
+through current House/QuerySpace and owner-issued byte/domain boundaries.
 
 This design uses two established evidence sources:
 
@@ -519,24 +523,25 @@ Byzantine provider behavior is not a claim of this pattern.
 ## By construction, not by gate
 
 The prior draft policed the following at runtime with identity tokens,
-validation rules, and rejection paths. Under this contract each is structural
-in the product runtime. Safety-relevant claims about that shape are proven by
-the named Release gates below rather than by runtime identity policing.
+validation rules, and rejection paths. This contract requires structural
+encoding rather than runtime identity policing. The retired implementation
+illustrated that encoding; a future implementation must establish the named
+Release gates below before claiming the same properties.
 
 | Guarantee | Structural encoding |
 | --- | --- |
 | A result answers exactly one accepted plan | The result type is constructed from, and refers to, the accepted plan. |
-| Execution happens at most once | No accepted-plan value escapes the public surface; acceptance and execution form one operation whose binding appears only inside the result. `SourceDelegationAcceptanceExecutesOnce` proves the implementation invokes and publishes once. |
-| Member maps and row sequences are immutable, complete, ordered, and duplicate-free | Candidate prefixes and results are built from the execution group's unique ordered member collection and snapshot collection membership and order; `SourceDelegationPartitionMatchesReference` proves exact candidate binding, and the result-branch and atomic-publication gates prove exact immutable result binding. |
+| Execution happens at most once | No accepted-plan value escapes the public surface; acceptance and execution form one operation whose binding appears only inside the result. `SourceDelegationAcceptanceExecutesOnce` must prove the implementation invokes and publishes once. |
+| Member maps and row sequences are immutable, complete, ordered, and duplicate-free | Candidate prefixes and results are built from the execution group's unique ordered member collection and snapshot collection membership and order; `SourceDelegationPartitionMatchesReference` must prove exact candidate binding, and the result-branch and atomic-publication gates must prove exact immutable result binding. |
 | Evidence reaches the caller only inside a member entry | Evidence is carried by the entries it accompanies rather than as free-standing values; whether a referenced basis and scope establish each entry's claim remains the semantic check owned by `SourceDelegationCompletionEvidenceBasisIsAccepted`. |
 | The residual is caller-owned | The residual is a caller-held continuation; the candidate the source sees does not contain it. |
 | The source cannot rewrite the plan | No result branch carries operations, cursors, or plan fragments. |
 | Permit classifications cannot be downgraded | There are no permits; source-closed is declared by the operation owner in its own contract and proven by that owner's gate. |
 
 Planning visits candidates in declaration order and accepts the first
-supported one; this is stated behavior verified by ordinary tests, not a
-named gate, because no promised safety property depends on which supported
-candidate wins.
+supported one. A future implementation must verify that stated behavior with
+ordinary tests; no separate named gate is required because no promised safety
+property depends on which supported candidate wins.
 
 [Query Space Composition](query-space-composition.md) records the separately
 approved target in which an incomplete or semantically bounded result may
@@ -573,13 +578,12 @@ evidence-basis acceptance and result-shape validity; the guarantees in
 [By construction, not by gate](#by-construction-not-by-gate) ship as type
 shape, not checks.
 
-The public harness covers the protocol-owned effect, result-algebra, and
-completion-evidence gates below. Its toy partition examples exercise public
-candidate construction and reference composition, but do not certify a
-production caller's `SourceDelegationPartitionMatchesReference` gate.
-`SourceClosedDeclarationsMatchOwnerContracts`,
-`OwnerObservationsRemainReferenceBarriers`, and the two optimized section-row
-equivalence gates remain unverified until their owning adoptions land.
+The retired public harness exercised the protocol-owned effect,
+result-algebra, and completion-evidence requirements. Its toy partition
+examples did not certify a production caller's partition or source-closed
+contracts. No current suite executes the gate names below: all are
+**unverified** until a future implementation and its owning adoptions add
+non-vacuous Release coverage.
 
 | Gate | Contract |
 | --- | --- |

@@ -353,11 +353,10 @@ public partial class LibraryBodyIndexTests
         try
         {
             File.WriteAllBytes(path, image);
-            LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution.Open(
+            LibraryBodyAnalysisExecution index = BodyAnalysisTestExecution
+                .OpenCompleteImplementationProfile(
                 path,
-                LibraryBodyAnalysisFeatures.MethodEvidence
-                    | LibraryBodyAnalysisFeatures
-                        .ImplementationProfiles);
+                LibraryBodyAnalysisFeatures.MethodEvidence);
             DirectCall call = Assert.Single(
                 index.CallGraph.DirectCalls,
                 candidate => candidate.Caller.Name == "ModuleAlias");
@@ -402,9 +401,8 @@ public partial class LibraryBodyIndexTests
                 LibraryBodyAnalysisService.ExecuteImage(
                     path,
                     ImmutableArray.Create(image),
-                    LibraryBodyAnalysisRequest.Create(
-                        LibraryBodyAnalysisFeatures
-                            .ImplementationProfiles));
+                    LibraryBodyAnalysisRequest
+                        .CreateCompleteImplementationProfile());
             Assert.Equal(
                 expected,
                 execution.ImplementationProfiles

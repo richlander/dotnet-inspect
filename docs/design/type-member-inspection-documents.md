@@ -16,9 +16,11 @@ The Type-side producers now have role-specific names:
 optional Member-group population used by compact projections and direct
 discovery. Remaining transitional Member content shapes and host-local
 composition must not be presented as the target contract.
-The complete Type Signature required by exact `Type Info` is specified below.
-Its source-native producer and host adoption remain pending under
-[#10169](https://github.com/richlander/dotnet-inspect/issues/10169).
+The complete Type Signature required by exact `Type Info` is implemented by
+[#10820](https://github.com/richlander/dotnet-inspect/pull/10820).
+CLI fixed-field projections and Browser Type metadata consume the same
+`TypeSignatureInspectionOperation` result. The Browser retains that envelope
+beside its additional relationship and declaration content.
 The transitional exact-Member producer remains C#-spelling-only and rejects
 Metadata spelling until a later producer slice can emit true Metadata
 declarations.
@@ -209,14 +211,19 @@ The completed operation crosses the host-neutral boundary as one
 CLI and Browser/Wasm consumers preserve that Content, Share outcome, and
 diagnostics while independently choosing gestures and presentation.
 
-The current direct CLI path is transitional. It receives category, modifier,
-interface Count, parameter names and flags, parameter annotations, constraint
-row Counts, and a base classification. It admits the source-native TSV writer
-only after content-based admission inspects those facts; constraint Types,
-parameters introduced by declaring generic Types, and nontrivial bases rerun
-the established rich path. Complete Type Signature replaces that admission
-rule and the discard-and-rerun fallback. It does not add a second Type
-formatter or a new Browser gesture.
+The direct CLI TSV path writes the completed Signature without a UTF-16
+document. Other fixed-field projections and Browser Type metadata use the
+same Signature spelling projection, including base and generic-constraint
+evidence. Transport contains byte-originated names only at the JSON sink and
+preserves the detached structural Type shapes, subject, Share, and diagnostics.
+Transported presentation names do not confer Metadata authority.
+
+`System.Text.Json@10.0.0` and the pinned CoreLib below motivate host parity:
+normal/detailed CLI `Type Info` and the existing Browser Type overview must
+not obtain different generic, Base, or nested-Type facts merely because one
+host also requests Member or relationship content. Focused shared and host
+tests compare the completed Signature and its projection without adding a
+Browser gesture.
 
 The pinned .NET 11 RC1 CoreLib below is the production witness. Its generic
 Type census contains zero-constraint and constraint-Type declarations;
@@ -255,6 +262,19 @@ identity and retain its population correspondence.
 
 Display names and signatures are data carried by a document. They never become
 identity, selectors, or population receipts.
+
+Every Type and Member document spells a Member's display signature one way:
+the C# declaration spelling the API surface uses, with the Type's and the
+Member's nullable annotations (nested ones included), dynamic, and tuple
+element names applied, every property accessor spelled with its accessibility,
+and each default written as C# would accept it (`= default` for a value type,
+`= null` for a reference type or `Nullable<T>`). The complete Type document,
+Member overviews, and Member documents therefore show the same text for the
+same Member, as `type --json` does, or `type --all --json` for a Member only
+the complete surface admits. The spelling is decoded once per Member in
+the same pass that issues its documentation identity, which nullable
+annotations do not change. Canonical signatures and documentation identities
+are identity, not display, and are unchanged by the spelling.
 
 ## Population bindings and Counts
 
@@ -531,6 +551,35 @@ equivalent multi-row documentation-table gesture; its existing exact-Member
 documentation surface is unchanged. A future host gesture may consume the same
 host-neutral composition without changing this contract.
 
+### Complete Type Member rows
+
+`TypeDocumentAttachmentCompositionOperation` composes the ordinary
+`TypeDocumentInspectionPlan` with an explicit documentation request. It retains
+that inspection outcome, Share, and diagnostics unchanged. Only an available
+Type document supplies subjects to the existing Member attachment operation;
+rejected, incomplete, or failed inspections perform no documentation work.
+Available attachments correspond to all declarations in their existing order.
+An attachment failure does not replace the completed declaration document.
+Empty declaration populations require no documentation provider call.
+
+`System.Text.Json@10.0.0`, `System.Text.Json.JsonSerializer`, motivates this
+composition: its complete declaration list includes multiple overload families,
+including fifteen `Serialize` declarations. Durable tests use the existing
+pinned package acquisition helper, compare documented and plain subjects, and
+exercise missing documentation and mismatched provider results. Documentation
+outcome settlement remains owned by DocumentationHouse. Plain declaration and
+Count operations retain their existing paths and do not acquire documentation;
+this operation adds only explicitly requested attachments to completed rows.
+CLI Type adoption (#10804) and Browser adoption (#10808) consume this shared
+composition in subsequent slices of #10802.
+
+`TypeDocumentInspectionOperationTests` gates declaration/attachment order,
+absence, typed association failures, and skipped work for empty, rejected, and
+incomplete populations. The existing
+`RealSerialize_CountAndBoundedRowsShareOneExactPopulation` and
+`CountAndRowsPlanning_ResolvesAcquisitionOnce` gates retain the independent
+Count/Rows path; that request has no documentation demand or provider.
+
 ## Platform and safety boundary
 
 Requests, documents, population receipts, and explanation handoffs are
@@ -554,22 +603,22 @@ production adoption as focused slices:
    Explanation. Complete.
 5. Implement compact `TypeOverviewDocument`. Complete.
 6. Implement complete `TypeDocument` Member population. Complete; the Type
-   Signature strengthening follows under #10169.
+   Signature strengthening is supplied by #10820.
 7. Adopt the documents independently in CLI and Browser/Wasm.
 8. Retire transitional document names and superseded host-local composition.
 
-The complete Type Signature adoption tracked by #10169 has four focused steps:
+Complete Type Signature adoption has four focused steps:
 
 1. Lock the fixed Signature contract in this owner. This document completes
    that design step.
 2. Land the independently owned
    [Metadata declaration-evidence](metadata-type-declaration-evidence.md) slice
    that supplies every required base and constraint Type shape and immediate
-   nested-Type Count without widening Name requests.
+   nested-Type Count without widening Name requests. Complete.
 3. Adopt that result in exact CLI `Type Info`, preserve every established
-   projection, and retire the post-inspection admission and rich rerun.
+   projection, and retire the post-inspection admission and rich rerun. Complete.
 4. Use the same host-neutral result for Browser/Wasm Type subject facts when
-   that host requests Signature, without adding a new UI gesture.
+   that host requests Signature, without adding a new UI gesture. Complete.
 
 The Type-side naming collision in step 8 is retired:
 `TypeSubjectInspectionOperation` names the reusable subject/population
@@ -585,6 +634,29 @@ table consumes `MemberDocumentAttachmentCompositionOperation`, preserving the
 same final resolution while attaching one compiled-documentation outcome to
 each returned declaration. `MemberGroupDocumentInspectionOperation` and its
 transitional `MemberGroupDocument` content are retired.
+
+CLI Member adoption (#10805) makes the default exact-Member report an explicit
+declaration-plus-compiled-documentation request, including when a saved Member
+replays that report. Explicit `Signature` and `Overloads` remain metadata-only;
+`Documented Overloads` requests the shared attachment composition. Count never
+requests documentation. Formatting, column projection, verbosity, and the
+transitional `ShowDocs` flags do not select compiled-documentation Content.
+
+The operator approved retaining documentation as fixed Content of compatibility
+declaration sections, including `Methods`, `Properties`, and `Extension Methods`,
+rather than removing capabilities without documented replacements. Their
+existing documentation/source settlement and acquisition boundaries remain;
+this is not permission to add source retrieval or compiled documentation to the
+metadata-only PackageHouse route. Source-part requests keep their independently
+authorized source composition, and the shared authored-documentation
+authorization predicate is unchanged. Global flag retirement remains #10810.
+
+The pinned `System.Text.Json@10.0.0` `JsonSerializer.Serialize` population above
+remains the real-asset canary. CLI gates compare plain/documented rows and
+selectors, Count and bounded Rows, exact ordinal/digest reports, malformed and
+missing compiled documentation, and ordinary versus saved Member replay.
+Compatibility-section gates retain projected-extension and non-public
+declaration documentation while checking that presentation does not add demand.
 
 Browser package, Platform, and uploaded-Library family views now consume the
 same final resolution. The managed exports preserve the established
@@ -610,7 +682,7 @@ same-image contextual-extension Exists request. Both routes share one opened
 assembly image; neither constructs Member-group Rows. Direct bare discovery
 admits only minimal, non-tree output, which lists categories without their
 members, so it does not run the opt-in unsafe applicability probe; exact
-`Unsafe Members` discovery still runs it on demand. Non-TSV output,
+`Unsafe Code` discovery still runs it on demand. Non-TSV output,
 non-direct acquisition, unsupported declaration shapes, non-exact or
 non-round-tripping names, and requests that list category members retain the
 established route and its probe.

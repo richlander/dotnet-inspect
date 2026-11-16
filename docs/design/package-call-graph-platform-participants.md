@@ -129,6 +129,18 @@ it, each selected family keeps its own exact target.
 - If the exact `DotNetRuntime` target is unavailable, the predecessor graph
   is the result, with that typed unavailability reported.
 
+The Browser's current-runtime shortcut uses the running runtime's advertised
+release version, preserving any prerelease suffix, rather than CoreLib's
+assembly informational build label. In the SignalR motivating case below,
+SDK `11.0.100` runs release `11.0.0` while CoreLib advertises build
+`11.0.0-rtm.26529.118`; only the former identifies the published runtime
+package. This does not alias arbitrary prereleases to GA. Family/framework
+checks and exact-target pruning remain unchanged. The Browser boundary tests
+gate GA and prerelease selection, unsupported runtime descriptions, and
+matching versus mismatched pruning inventories. This target repair does not
+change image budgets or close the separate retained-image investigation
+[#11111](https://github.com/richlander/dotnet-inspect/issues/11111).
+
 ### Pruning precondition
 
 Pruning removes a package participant, and it must also avoid that package's
@@ -181,6 +193,50 @@ rebuild occur for each request.
   [inspection owner](package-dependency-member-call-graph-inspection.md)
   specifies, a cancelled request produces no envelope, whether cancellation
   happens during the predecessor graph, the continuation, or the rebuild.
+
+### Overlapping implementation populations
+
+The shared graph composition consumes independently admitted complete
+populations from the intrinsic continuation and the separately owned
+[package-origin AssemblyRef route](package-origin-assemblyref-supply-routing.md).
+This does not make additional families eligible or merge their House requests.
+Every population member retains its actual target and Focus or BindingSupport
+attribution beside its exact Workspace occurrence; the requesting family
+cannot replace that attribution.
+
+The graph-only projection may represent an implementation image once when
+PlatformHouse supplies equal
+[exact implementation-artifact certificates](platform-house-reference-processing.md#exact-implementation-artifact-correspondence)
+at the same actual target. All Workspace admissions, population membership and
+route evidence remain intact. A Focus occurrence is preferred over an
+equivalent BindingSupport occurrence, independent of admission order.
+Uncertified content and different certificates remain separate inputs and
+retain the existing assembly-role ambiguity failure. Assembly names, Metadata
+identity alone, consumer hashes and registration order cannot prove equality.
+
+An explicit intrinsic continuation remains the only source of CoreLib-root
+authority. Graph coalescing preserves that authority from either equivalent
+occurrence; subsequent graph generations may retain it only through the same
+source-certified image and actual target within this request. The certificate
+alone never establishes CoreLib entitlement.
+
+Successor binding validation consumes exact physical-call evidence from the
+already-built bounded neighborhood before external-focus filtering. A newly
+resolved Platform call can enter the default baseline and disappear from the
+display without invalidating the continuation. This retains fresh successor
+registration and binding-policy evidence; it does not relax physical-occurrence
+matching, widen traversal, or perform another acquisition or analysis.
+
+The motivating asset is `Microsoft.Azure.SignalR@1.33.1`, root `net8.0`,
+`AzureSignalRApplicationBuilderExtensions.UseAzureSignalR`, traversal
+`net11.0`. Runtime and ASP.NET Core's Runtime-support closure independently
+admit the same `Microsoft.CSharp` implementation under different registrations.
+The installed and package producers certify this overlap in their tests.
+Consumer regressions cover admission order, actual attribution, complete
+Workspace retention, genuine and uncertified ambiguity, and CoreLib authority
+across fresh graph generations. The exact default/pruned CLI command and
+matching Browser path remain end-to-end gates; a partial graph must retain
+its typed diagnostics.
 
 ### Focal lengths
 

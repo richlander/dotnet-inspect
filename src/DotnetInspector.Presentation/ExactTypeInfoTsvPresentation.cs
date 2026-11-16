@@ -1,5 +1,6 @@
 using System.Buffers;
 using System.Collections.Immutable;
+using System.Reflection;
 using System.Reflection.Metadata;
 using System.Text;
 
@@ -17,9 +18,78 @@ public sealed record ExactTypeInfoTsvDocument(
     string Assembly,
     string Source);
 
+public sealed record TypeSignaturePresentation(
+    string Type,
+    string Kind,
+    string[] Modifiers,
+    string Accessibility,
+    string Namespace,
+    string? BaseType,
+    string? TypeParameters,
+    int InterfaceCount,
+    int NestedTypeCount);
+
 /// <summary>Writes one complete Type Signature as UTF-8 TSV.</summary>
 public static class ExactTypeInfoTsvPresentation
 {
+    public static TypeSignaturePresentation Project(TypeSignature signature)
+    {
+        ArgumentNullException.ThrowIfNull(signature);
+        TypeSubject subject = signature.Subject;
+        string kind = subject.DefinesCoreLibraryRoot
+            && subject.Type.ToMetadataFullName() == "System.MulticastDelegate"
+                ? "delegate"
+                : subject.Category.ToString().ToLowerInvariant();
+        TypeAttributes attributes = subject.Attributes;
+        var modifiers = ILInspector.Research.ResearchViews.TypeModifiers(
+            new ApiType
+            {
+                Kind = kind,
+                IsAbstract = (attributes & TypeAttributes.Abstract) != 0,
+                IsSealed = (attributes & TypeAttributes.Sealed) != 0,
+                IsStatic = kind == "class"
+                    && (attributes & TypeAttributes.Abstract) != 0
+                    && (attributes & TypeAttributes.Sealed) != 0,
+                IsByRefLike = subject.IsByRefLike,
+                IsReadOnly = subject.IsReadOnly,
+            });
+        string accessibility =
+            (attributes & TypeAttributes.VisibilityMask) switch
+            {
+                TypeAttributes.Public or TypeAttributes.NestedPublic => "public",
+                TypeAttributes.NestedFamily => "protected",
+                TypeAttributes.NestedFamORAssem => "protected internal",
+                TypeAttributes.NestedFamANDAssem => "private protected",
+                TypeAttributes.NestedPrivate => "private",
+                _ => "internal",
+            };
+        return new(
+            Format(output => WriteSubject(output, signature)),
+            kind,
+            [.. modifiers],
+            accessibility,
+            signature.SubjectName.Namespace.Contain(TextPolicy.Field).ToString(),
+            signature.BaseType is { } baseType
+                ? Format(output => WriteType(
+                    output,
+                    baseType.Type,
+                    signature.TypeParameters,
+                    DynamicProjection.Create(baseType.Type, baseType.DynamicFlags)))
+                : null,
+            signature.TypeParameters.IsEmpty
+                ? null
+                : Format(output => WriteTypeParameters(output, signature)),
+            signature.InterfaceCount,
+            signature.NestedTypeCount);
+    }
+
+    private static string Format(Action<IBufferWriter<byte>> write)
+    {
+        var output = new ArrayBufferWriter<byte>();
+        write(output);
+        return Encoding.UTF8.GetString(output.WrittenSpan);
+    }
+
     /// <summary>Writes one complete document without creating a UTF-16 document.</summary>
     public static void Write(
         IBufferWriter<byte> output,

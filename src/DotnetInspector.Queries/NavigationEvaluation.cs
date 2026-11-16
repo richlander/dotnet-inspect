@@ -49,6 +49,16 @@ internal static class NavigationEvaluation
         ArgumentNullException.ThrowIfNull(facts.Availability);
         if (facts.Scope.Revision.Workspace != workspace)
             throw new ArgumentException("Navigation facts require the exact Workspace.", nameof(facts));
+        if (facts.AdmittedLibrary is { } admitted
+            && (facts.Package is not null || facts.NonReadyPackage is not null
+                || facts.Ecosystem is not null
+                || !ReferenceEquals(admitted.Admission.Workspace, workspace)))
+        {
+            throw new ArgumentException(
+                "Admitted Library facts require the exact Workspace and cannot "
+                    + "be combined with Package or Ecosystem preparation.",
+                nameof(facts));
+        }
         if (facts.Ecosystem is { } ecosystem)
         {
             if (facts.Package is not null
@@ -100,6 +110,10 @@ internal static class NavigationEvaluation
     static NavigationEvaluationResult Refresh(
         NavigationEvaluationRequest request, NavigationEvaluationFacts facts, ViewFacetRegistry registry)
     {
+        if (request.Basis.AdmittedContext is not null)
+            return new(request, request.Basis, new(
+                NavigationOutcomeKind.Unavailable,
+                Message: "Source-native Library reconciliation is not yet supported."));
         NavigationWorkspaceRefreshResult refreshed = NavigationWorkspaceSnapshotEvaluation.Refresh(
             request.Basis,
             facts.Scope,

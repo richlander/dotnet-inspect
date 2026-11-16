@@ -1,0 +1,145 @@
+  Determining projects to restore...
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.Metadata/ILInspector.Metadata.csproj (in 118 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/Inspector.Artifacts.Local/Inspector.Artifacts.Local.csproj (in 118 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.ControlFlow/ILInspector.ControlFlow.csproj (in 118 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.Instructions/ILInspector.Instructions.csproj (in 118 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj (in 118 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Networking/DotnetInspector.Networking.csproj (in 119 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.Analysis/ILInspector.Analysis.csproj (in 118 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.CallGraph/ILInspector.CallGraph.csproj (in 118 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/Inspector.Graph/Inspector.Graph.csproj (in 11 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/Inspector.Findings/Inspector.Findings.csproj (in 2 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.DocumentationHouse.Contracts/DotnetInspector.DocumentationHouse.Contracts.csproj (in 118 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/Inspector.Resources/Inspector.Resources.csproj (in 16 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Platforms/DotnetInspector.Platforms.csproj (in 10 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.DocumentationHouse/DotnetInspector.DocumentationHouse.csproj (in 119 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/UntrustedDocuments/UntrustedDocuments.csproj (in 1 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.PlatformHouse/DotnetInspector.PlatformHouse.csproj (in 118 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ZipFetch/ZipFetch.csproj (in 11 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/QuerySpace/QuerySpace.csproj (in 10 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/QuerySpace.Primitives/QuerySpace.Primitives.csproj (in 8 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/NetworkAccess/NetworkAccess.csproj (in 2 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/NuGetFetch/NuGetFetch.csproj (in 10 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.PackageHouse.Execution/DotnetInspector.PackageHouse.Execution.csproj (in 9 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/Inspector.Text/Inspector.Text.csproj (in 2 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Sections/DotnetInspector.Sections.csproj (in 119 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.DependencyManifests/DotnetInspector.DependencyManifests.csproj (in 8 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Services/DotnetInspector.Services.csproj (in 118 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.EcosystemLoading/DotnetInspector.EcosystemLoading.csproj (in 118 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/CSharpText/CSharpText.csproj (in 7 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.ResearchSections/DotnetInspector.ResearchSections.csproj (in 124 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Cache/DotnetInspector.Cache.csproj (in 10 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/CSharpText.MemberSlicing/CSharpText.MemberSlicing.csproj (in 7 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj (in 121 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.InspectionContracts/DotnetInspector.InspectionContracts.csproj (in 10 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/BinaryFetch/BinaryFetch.csproj (in 13 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Sections.Local/DotnetInspector.Sections.Local.csproj (in 119 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Diff/DotnetInspector.Diff.csproj (in 143 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.MetadataRendering/DotnetInspector.MetadataRendering.csproj (in 10 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj (in 36 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.CSharp/ILInspector.CSharp.csproj (in 8 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/Inspector.Artifacts/Inspector.Artifacts.csproj (in 11 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.ILDiff/ILInspector.ILDiff.csproj (in 23 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/Inspector.Artifacts.Workspaces/Inspector.Artifacts.Workspaces.csproj (in 2 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Libraries/DotnetInspector.Libraries.csproj (in 20 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Packages/DotnetInspector.Packages.csproj (in 20 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/InertText/InertText.csproj (in 7 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.Decompiler/ILInspector.Decompiler.csproj (in 23 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj (in 19 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.LibraryMetadata/DotnetInspector.LibraryMetadata.csproj (in 33 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.PlatformQueries/DotnetInspector.PlatformQueries.csproj (in 43 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.PlatformHouse.Packages/DotnetInspector.PlatformHouse.Packages.csproj (in 31 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.SourceLink/ILInspector.SourceLink.csproj (in 12 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.PlatformHouse.Local/DotnetInspector.PlatformHouse.Local.csproj (in 32 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.Research/ILInspector.Research.csproj (in 12 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.SourceHouse/DotnetInspector.SourceHouse.csproj (in 42 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj (in 54 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspect.Cli/DotnetInspect.Cli.csproj (in 89 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Queries/DotnetInspector.Queries.csproj (in 41 ms).
+  Restored /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.ResearchQueries/DotnetInspector.ResearchQueries.csproj (in 58 ms).
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspect.Cli/DotnetInspect.Cli.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Packages/DotnetInspector.Packages.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.Research/ILInspector.Research.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Diff/DotnetInspector.Diff.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.SourceLink/ILInspector.SourceLink.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/Inspector.Text/Inspector.Text.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/CSharpText/CSharpText.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Cache/DotnetInspector.Cache.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.Instructions/ILInspector.Instructions.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.SourceSelection/DotnetInspector.SourceSelection.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.Ecosystems/DotnetInspector.Ecosystems.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspector.PackageQueries/DotnetInspector.PackageQueries.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.CallGraph/ILInspector.CallGraph.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.Analysis/ILInspector.Analysis.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.Metadata/ILInspector.Metadata.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/Inspector.Findings/Inspector.Findings.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.Decompiler/ILInspector.Decompiler.csproj]
+/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/.dotnet/sdk/11.0.100-rc.1.26425.128/Sdks/Microsoft.NET.Sdk/targets/Microsoft.NET.RuntimeIdentifierInference.targets(385,5): message NETSDK1057: You are using a preview version of .NET. See: https://aka.ms/dotnet-support-policy [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/ILInspector.ILDiff/ILInspector.ILDiff.csproj]
+  UntrustedDocuments -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/UntrustedDocuments/release/UntrustedDocuments.dll
+  BinaryFetch -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/BinaryFetch/release/BinaryFetch.dll
+  ILInspector.ControlFlow -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/ILInspector.ControlFlow/release/ILInspector.ControlFlow.dll
+  InertText -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/InertText/release/InertText.dll
+  DotnetInspector.DependencyManifests -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.DependencyManifests/release/DotnetInspector.DependencyManifests.dll
+  NetworkAccess -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/NetworkAccess/release/NetworkAccess.dll
+  DotnetInspector.Platforms -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.Platforms/release/DotnetInspector.Platforms.dll
+  Inspector.Graph -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/Inspector.Graph/release/Inspector.Graph.dll
+  QuerySpace.Primitives -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/QuerySpace.Primitives/release/QuerySpace.Primitives.dll
+  DotnetInspector.Networking -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.Networking/release/DotnetInspector.Networking.dll
+  DotnetInspector.InspectionContracts -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.InspectionContracts/release/DotnetInspector.InspectionContracts.dll
+  Inspector.Findings -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/Inspector.Findings/release/Inspector.Findings.dll
+  DotnetInspector.Cache -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.Cache/release/DotnetInspector.Cache.dll
+  QuerySpace -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/QuerySpace/release/QuerySpace.dll
+  ILInspector.MetadataPrimitives -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/ILInspector.MetadataPrimitives/release/ILInspector.MetadataPrimitives.dll
+  Inspector.Text -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/Inspector.Text/release/Inspector.Text.dll
+  ZipFetch -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/ZipFetch/release/ZipFetch.dll
+  ILInspector.Instructions -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/ILInspector.Instructions/release/ILInspector.Instructions.dll
+  NuGetFetch -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/NuGetFetch/release/NuGetFetch.dll
+  ILInspector.ILDiff -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/ILInspector.ILDiff/release/ILInspector.ILDiff.dll
+  CSharpText -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/CSharpText/release/CSharpText.dll
+  Inspector.Resources -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/Inspector.Resources/release/Inspector.Resources.dll
+  Inspector.Artifacts -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/Inspector.Artifacts/release/Inspector.Artifacts.dll
+  CSharpText.MemberSlicing -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/CSharpText.MemberSlicing/release/CSharpText.MemberSlicing.dll
+  Inspector.Artifacts.Local -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/Inspector.Artifacts.Local/release/Inspector.Artifacts.Local.dll
+  Inspector.Artifacts.Workspaces -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/Inspector.Artifacts.Workspaces/release/Inspector.Artifacts.Workspaces.dll
+  DotnetInspector.Packages -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.Packages/release/DotnetInspector.Packages.dll
+  ILInspector.Metadata -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/ILInspector.Metadata/release/ILInspector.Metadata.dll
+  DotnetInspector.SourceSelection -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.SourceSelection/release/DotnetInspector.SourceSelection.dll
+  DotnetInspector.MetadataRendering -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.MetadataRendering/release/DotnetInspector.MetadataRendering.dll
+  ILInspector.SourceLink -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/ILInspector.SourceLink/release/ILInspector.SourceLink.dll
+  ILInspector.CSharp -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/ILInspector.CSharp/release/ILInspector.CSharp.dll
+  ILInspector.Analysis -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/ILInspector.Analysis/release/ILInspector.Analysis.dll
+  DotnetInspector.Libraries -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.Libraries/release/DotnetInspector.Libraries.dll
+  ILInspector.CallGraph -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/ILInspector.CallGraph/release/ILInspector.CallGraph.dll
+  DotnetInspector.LibraryMetadata -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.LibraryMetadata/release/DotnetInspector.LibraryMetadata.dll
+  DotnetInspector.DocumentationHouse.Contracts -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.DocumentationHouse.Contracts/release/DotnetInspector.DocumentationHouse.Contracts.dll
+  DotnetInspector.PackageHouse.Execution -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.PackageHouse.Execution/release/DotnetInspector.PackageHouse.Execution.dll
+  DotnetInspector.DocumentationHouse -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.DocumentationHouse/release/DotnetInspector.DocumentationHouse.dll
+  DotnetInspector.PlatformHouse -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.PlatformHouse/release/DotnetInspector.PlatformHouse.dll
+  DotnetInspector.PlatformHouse.Packages -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.PlatformHouse.Packages/release/DotnetInspector.PlatformHouse.Packages.dll
+  DotnetInspector.PlatformHouse.Local -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.PlatformHouse.Local/release/DotnetInspector.PlatformHouse.Local.dll
+  ILInspector.Decompiler -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/ILInspector.Decompiler/release/ILInspector.Decompiler.dll
+  DotnetInspector.SourceHouse -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.SourceHouse/release/DotnetInspector.SourceHouse.dll
+  ILInspector.Research -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/ILInspector.Research/release/ILInspector.Research.dll
+  DotnetInspector.Services -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.Services/release/DotnetInspector.Services.dll
+  DotnetInspector.Queries -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.Queries/release/DotnetInspector.Queries.dll
+  DotnetInspector.EcosystemLoading -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.EcosystemLoading/release/DotnetInspector.EcosystemLoading.dll
+  DotnetInspector.PackageQueries -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.PackageQueries/release/DotnetInspector.PackageQueries.dll
+  DotnetInspector.PlatformQueries -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.PlatformQueries/release/DotnetInspector.PlatformQueries.dll
+  DotnetInspector.Sections -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.Sections/release/DotnetInspector.Sections.dll
+  DotnetInspector.Sections.Local -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.Sections.Local/release/DotnetInspector.Sections.Local.dll
+  DotnetInspector.Diff -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.Diff/release/DotnetInspector.Diff.dll
+  DotnetInspector.Ecosystems -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.Ecosystems/release/DotnetInspector.Ecosystems.dll
+  DotnetInspector.ResearchQueries -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.ResearchQueries/release/DotnetInspector.ResearchQueries.dll
+  DotnetInspector.Presentation -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.Presentation/release/DotnetInspector.Presentation.dll
+  DotnetInspector.ResearchSections -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/DotnetInspector.ResearchSections/release/DotnetInspector.ResearchSections.dll
+  DotnetInspect.Cli -> /Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/artifacts/bin/dotnet-inspect/release_osx-arm64/dotnet-inspect.dll
+xcode-select : error : tool 'xcodebuild' requires Xcode, but active developer directory '/Library/Developer/CommandLineTools' is a command line tools instance [/Users/rich/git/dotnet-inspect/.worktrees/explain-control-plane-evals/src/DotnetInspect.Cli/DotnetInspect.Cli.csproj]
+  Generating native code
+  warning: (arm64)  skipping debug map object with duplicate name and timestamp: 2026-08-25 22:48:30.000000000 /Users/rich/.nuget/packages/microsoft.netcore.app.runtime.nativeaot.osx-arm64/11.0.0-rc.1.26425.128/runtimes/osx-arm64/native/libRuntime.WorkstationGC.a(contract-descriptor.c.o)
+  warning: (arm64)  skipping debug map object with duplicate name and timestamp: 2026-08-25 22:48:30.000000000 /Users/rich/.nuget/packages/microsoft.netcore.app.runtime.nativeaot.osx-arm64/11.0.0-rc.1.26425.128/runtimes/osx-arm64/native/libRuntime.WorkstationGC.a(contractpointerdata.cpp.o)
+  warning: /var/folders/_5/zjnzxgh147qcg3bb5cg2wvqw0000gn/C/clang/ModuleCache/2NVTWR9HWT5FK/_SwiftConcurrencyShims-2EK7503T0009Z.pcm: No such file or directory
+  note: while processing /var/folders/_5/zjnzxgh147qcg3bb5cg2wvqw0000gn/C/clang/ModuleCache/2NVTWR9HWT5FK/_SwiftConcurrencyShims-2EK7503T0009Z.pcm
+  note: Linking a static library that was built with -gmodules, but the module cache was not found.  Redistributable static libraries should never be built with module debugging enabled.  The debug experience will be degraded due to incomplete debug information.
+  warning: /var/folders/_5/zjnzxgh147qcg3bb5cg2wvqw0000gn/C/clang/ModuleCache/2NVTWR9HWT5FK/Foundation-3EJO22UA1F2B1.pcm: No such file or directory
+  note: while processing /var/folders/_5/zjnzxgh147qcg3bb5cg2wvqw0000gn/C/clang/ModuleCache/2NVTWR9HWT5FK/Foundation-3EJO22UA1F2B1.pcm
+  DotnetInspect.Cli -> /tmp/explain-control-plane-20261024-267a-native/

@@ -28,11 +28,45 @@ public static partial class ExactTypeInspectionOperation
                 CancellationToken,
                 ValueTask<TResult>> use,
             CancellationToken cancellationToken = default)
+        => await ExecuteFirstAvailableWithDefiningImplementationTargetAsync(
+                requests,
+                house,
+                issueSourceOperation,
+                scope,
+                PackageHouseLibraryCompanionDemand.None,
+                use,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    /// <summary>
+    /// Resolves ordered exact package Type candidates over aggregate compile
+    /// surface, then lends the first available Type from only its defining
+    /// implementation assembly and any explicitly demanded companion.
+    /// </summary>
+    public static async Task<TResult>
+        ExecuteFirstAvailableWithDefiningImplementationTargetAsync<TResult>(
+            IReadOnlyList<ExactTypeInspectionRequest> requests,
+            PackageHouse house,
+            Func<CancellationToken, PackageSourceOperationLease>
+                issueSourceOperation,
+            ApiSurfaceScope scope,
+            PackageHouseLibraryCompanionDemand companionDemand,
+            Func<
+                InspectionEnvelope<ExactTypeInspectionResult>,
+                SelectedContextExactTypeLiveTarget?,
+                CancellationToken,
+                ValueTask<TResult>> use,
+            CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(requests);
         ArgumentNullException.ThrowIfNull(house);
         ArgumentNullException.ThrowIfNull(issueSourceOperation);
         ArgumentNullException.ThrowIfNull(use);
+        if (!Enum.IsDefined(companionDemand))
+        {
+            throw new ArgumentOutOfRangeException(
+                nameof(companionDemand));
+        }
 
         ExactTypeInspectionRequest first = ValidateCandidateRequests(requests);
         PackageSourceOperationLease surfaceOperation =
@@ -86,7 +120,8 @@ public static partial class ExactTypeInspectionOperation
                     first.Version),
                 first.TargetFramework,
                 PackageAssetDemand.SurfaceAndImplementation,
-                implementationNames: [implementationName]);
+                implementationNames: [implementationName],
+                companionDemand: companionDemand);
 
         PackageSourceOperationLease implementationOperation =
             IssueSourceOperation(issueSourceOperation, cancellationToken);
@@ -135,6 +170,17 @@ public static partial class ExactTypeInspectionOperation
                     cancellationToken)
                 .ConfigureAwait(false);
         }
+
+        ImmutableArray<byte>? implementationPortablePdb =
+            companionDemand
+                == PackageHouseLibraryCompanionDemand
+                    .ImplementationPortablePdb
+                ? await ReadImplementationPortablePdbAsync(
+                        endpoint,
+                        implementation,
+                        cancellationToken)
+                    .ConfigureAwait(false)
+                : null;
 
         ArtifactRootResult<TResult> execution =
             await endpoint.UsePackageAssemblyRolesAsync(
@@ -186,7 +232,9 @@ public static partial class ExactTypeInspectionOperation
                                 discovery.Envelope.Diagnostics);
                         return await use(
                                 envelope,
-                                LiveTarget(retained.Execution.Target),
+                                LiveTarget(
+                                    retained.Execution.Target,
+                                    implementationPortablePdb),
                                 token)
                             .ConfigureAwait(false);
                     },
@@ -213,6 +261,38 @@ public static partial class ExactTypeInspectionOperation
             _ => throw new InvalidOperationException(
                 "Package endpoint execution returned an unknown result."),
         };
+    }
+
+    static async ValueTask<ImmutableArray<byte>?>
+        ReadImplementationPortablePdbAsync(
+            PackageEndpointScope endpoint,
+            PackageEndpointParticipant implementation,
+            CancellationToken cancellationToken)
+    {
+        string? expectedPath =
+            implementation.Asset.PortablePdbCompanionPath;
+        if (expectedPath is null)
+            return null;
+
+        string? listedPath =
+            endpoint.Payload.Content
+                .EnumerateEntries()
+                .FirstOrDefault(path =>
+                    path.Equals(
+                        expectedPath,
+                        StringComparison.OrdinalIgnoreCase));
+        if (listedPath is null)
+            return null;
+
+        await using PackageHousePayloadRead read =
+            endpoint.OpenPayloadRead(
+                listedPath,
+                LibraryAddressInspectionLimits
+                    .DefaultMaximumPortablePdbBytes);
+        using var content = new MemoryStream();
+        await read.CopyToAsync(content, cancellationToken)
+            .ConfigureAwait(false);
+        return ImmutableArray.CreateRange(content.ToArray());
     }
 
     static PackageSourceOperationLease IssueSourceOperation(

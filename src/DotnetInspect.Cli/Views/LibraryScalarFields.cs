@@ -82,44 +82,29 @@ internal sealed record LibraryScalarFields(
         string? platformVersion,
         LibraryDocument document)
     {
-        LibraryImageFacts? image = document.Image;
-        LibraryDescriptionFacts? description = document.Description;
-        LibraryTextFact? informationalVersion = description?.InformationalVersion;
+        LibraryImageFactLabels? image = document.Image is { } imageFacts
+            ? LibraryFactLabels.Image(imageFacts)
+            : null;
+        LibraryDescriptionFactLabels? description =
+            document.Description is { } descriptionFacts
+                ? LibraryFactLabels.Description(descriptionFacts)
+                : null;
+        LibraryTextFact? informationalVersion = document.Description?.InformationalVersion;
         string assemblyVersion = document.Assembly.Version.ToString();
         return new(
             document.Assembly.Name.ToString(),
             assemblyVersion,
             document.Assembly.PublicKeyToken?.ToString(),
             image is null ? null : ByteSizeFormatter.FormatBytes(image.ImageBytes),
-            Text(image?.TargetFramework),
-            image?.Compilation switch
-            {
-                LibraryCompilationForm.IL => "CoreCLR",
-                LibraryCompilationForm.ReadyToRun => "ReadyToRun",
-                _ => null,
-            },
-            image?.Architecture switch
-            {
-                LibraryArchitecture.AnyCpu => "AnyCPU",
-                LibraryArchitecture.AnyCpuPrefers32Bit => "AnyCPU (32-bit preferred)",
-                LibraryArchitecture.X86 => "x86",
-                LibraryArchitecture.X64 => "x64",
-                LibraryArchitecture.Arm => "ARM",
-                LibraryArchitecture.Arm64 => "ARM64",
-                _ => null,
-            },
+            image?.TargetFramework,
+            image?.Compilation,
+            image?.Architecture,
             image?.StrongNameSigned == true,
-            image?.Reproducibility switch
-            {
-                LibraryReproducibility.Reproducible => "Yes",
-                LibraryReproducibility.NotReproducible => "No",
-                LibraryReproducibility.Unavailable => "unavailable",
-                _ => null,
-            },
-            Text(informationalVersion),
-            Text(description?.Company),
-            Text(description?.Product),
-            Text(description?.Copyright),
+            image?.Reproducible,
+            description?.InformationalVersion,
+            description?.Company,
+            description?.Product,
+            description?.Copyright,
             EnabledLabels(document.Enablements),
             ResolveVersion(
                 platformVersion,
@@ -173,23 +158,6 @@ internal sealed record LibraryScalarFields(
             null,
             LibraryInspectionDisplay.ResolveVersion(data),
             null);
-
-    private static string? Text(LibraryTextFact? fact) =>
-        fact switch
-        {
-            LibraryTextFact.Present present => present.Value.ToString(),
-            LibraryTextFact.Unavailable unavailable =>
-                $"unavailable ({Reason(unavailable.Reason)})",
-            _ => null,
-        };
-
-    private static string Reason(LibraryTextFactUnavailableReason reason) =>
-        reason switch
-        {
-            LibraryTextFactUnavailableReason.UndecodableMetadata => "undecodable-metadata",
-            LibraryTextFactUnavailableReason.ConflictingValues => "conflicting-values",
-            _ => throw new InvalidOperationException("Unknown text fact reason."),
-        };
 
     /// <summary>
     /// Enabled labels joined by <c> · </c>; null when none is Enabled. A failed

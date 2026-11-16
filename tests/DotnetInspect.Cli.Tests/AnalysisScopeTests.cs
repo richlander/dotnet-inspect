@@ -37,7 +37,7 @@ public class AnalysisScopeTests
     [InlineData(SectionNames.CallGraph)]
     [InlineData(SectionNames.CostFacts)]
     [InlineData(SectionNames.SafetyFacts)]
-    [InlineData(SectionNames.UnsafeMembers)]
+    [InlineData(SectionNames.UnsafeCode)]
     [InlineData(SectionNames.UnsafeOperations)]
     [InlineData(SectionNames.CalledTypes)]
     public void OtherAnalysisSections_NeedNeitherExpensivePhase(string section)

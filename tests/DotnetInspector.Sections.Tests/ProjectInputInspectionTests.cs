@@ -78,6 +78,32 @@ public sealed class ProjectInputInspectionTests
     }
 
     [Fact]
+    public void FailedPruningRemainsVisibleBesideACompleteGraph()
+    {
+        string assets = Assets.Replace(
+            "\"dependencies\": {",
+            "\"packagesToPrune\": \"invalid\", \"dependencies\": {",
+            StringComparison.Ordinal);
+        ProjectInputDocument document = Inspect(
+            ProjectInputKind.RestoredProject, assets).Content;
+
+        var traversal =
+            Assert.IsType<RestoredProjectDependencyTraversalResult.Available>(
+                document.RestoredTraversal);
+        Assert.Equal(RestoredProjectTraversalCompletion.Complete, traversal.Value.Completion);
+        var pruning = Assert.IsType<RestoredProjectPackagePruningResult.Failed>(
+            traversal.Value.Facts.PackagePruning);
+        Assert.Equal(RestoredProjectPackagePruningFailureReason.InvalidShape, pruning.Failure.Reason);
+        DependencyEvidenceFailureRow failure = Assert.Single(document.Evidence.Failures);
+        Assert.Equal(DependencyEvidenceFailurePhase.Pruning, failure.Phase);
+        Assert.Equal(pruning.Failure.Reason.ToString(), failure.Reason);
+        Assert.Equal(pruning.Failure.Message, failure.Message.ToString());
+        Assert.Equal(pruning.Failure.Count, failure.Occurrences);
+        Assert.Equal(Assert.Single(document.Evidence.Roots).Identity, failure.RootIdentity);
+        Assert.Equal(1, failure.RootIndex);
+    }
+
+    [Fact]
     public void RequestedRuntimeTargetSelectsItsExactGraph()
     {
         string assets = Assets.Replace(

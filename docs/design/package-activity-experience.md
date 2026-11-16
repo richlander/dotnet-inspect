@@ -61,7 +61,7 @@ there and five rows here. What they share is the request model — a population
 selection, terms, and execution bounds, owned by
 [portable query intent](portable-query-intent.md) — and sharing a model is a
 reason to share code rather than a surface. The CLI places them as siblings —
-`package query` beside what becomes `package activity` — and the browser
+`find --packages` beside what becomes `package activity` — and the browser
 follows it.
 
 An earlier revision of this document made Activity a peer **mode** on `/query`,

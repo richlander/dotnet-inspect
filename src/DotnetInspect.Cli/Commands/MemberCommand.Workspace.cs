@@ -31,7 +31,8 @@ public static partial class MemberCommand
         ApiSourceResult? source = null,
         ApiServices.LoadedApiSurface? loaded = null,
         Func<ApiType, ShareProjectionPlan, InspectionShare>? project = null,
-        bool allowImplicitDocumentation = true)
+        bool allowImplicitDocumentation = true,
+        CancellationToken cancellationToken = default)
     {
         if (options.ShareFormat is null)
         {
@@ -41,7 +42,9 @@ public static partial class MemberCommand
                     source,
                     loaded,
                     allowImplicitDocumentation:
-                        allowImplicitDocumentation)
+                        allowImplicitDocumentation,
+                    cancellationToken:
+                        cancellationToken)
                 .ConfigureAwait(false);
         }
 
@@ -66,7 +69,9 @@ public static partial class MemberCommand
                             resolvedSource, surface, type, member);
             },
             allowImplicitDocumentation:
-                allowImplicitDocumentation).ConfigureAwait(false);
+                allowImplicitDocumentation,
+            cancellationToken:
+                cancellationToken).ConfigureAwait(false);
         if (options.ShareFormat is not { } format)
             return exitCode;
         // Failure cannot produce a successful-looking navigation scalar.

@@ -1,4 +1,7 @@
 using System.Collections.Immutable;
+using DotnetInspector.Libraries;
+using DotnetInspector.LibraryMetadata;
+using ILInspector.Metadata;
 
 namespace DotnetInspector.Queries.Definitions;
 
@@ -9,22 +12,26 @@ namespace DotnetInspector.Queries.Definitions;
 public abstract class CompleteRestorationSelectedSubject
 {
     private protected CompleteRestorationSelectedSubject(
-        PackageRootBinding root,
-        WorkspacePackageOccurrenceDescriptor occurrence,
+        PackageRootBinding? root,
+        WorkspacePackageOccurrenceDescriptor? occurrence,
         NavigationLensIdentity lens,
         ImmutableArray<BoundCommittedQuery> queries,
         ImmutableArray<NavigationLibraryEvaluation> queryLibraries)
     {
-        Root = root;
-        Occurrence = occurrence;
+        _root = root;
+        _occurrence = occurrence;
         Lens = lens;
         Queries = queries;
         QueryLibraries = queryLibraries;
     }
 
     public abstract StructuralSubjectIdentity Subject { get; }
-    public PackageRootBinding Root { get; }
-    public WorkspacePackageOccurrenceDescriptor Occurrence { get; }
+    private readonly PackageRootBinding? _root;
+    private readonly WorkspacePackageOccurrenceDescriptor? _occurrence;
+    public PackageRootBinding Root => _root
+        ?? throw new InvalidOperationException("The selected subject is not Package-backed.");
+    public WorkspacePackageOccurrenceDescriptor Occurrence => _occurrence
+        ?? throw new InvalidOperationException("The selected subject is not Package-backed.");
     public NavigationLensIdentity Lens { get; }
     public ImmutableArray<BoundCommittedQuery> Queries { get; }
     public ImmutableArray<NavigationLibraryEvaluation> QueryLibraries { get; }
@@ -105,6 +112,49 @@ public abstract class CompleteRestorationSelectedSubject
 
         public override StructuralSubjectIdentity.MemberSubject Subject { get; }
         public NavigationLibraryEvaluation DefiningLibrary { get; }
+    }
+
+    /// <summary>A physically admitted Library rather than a Package Root.</summary>
+    public abstract class Admitted : CompleteRestorationSelectedSubject
+    {
+        private protected Admitted(
+            NavigationAdmittedLibraryEvaluation evaluation,
+            NavigationLensIdentity lens)
+            : base(null, null, lens, [], []) => Evaluation = evaluation;
+
+        public NavigationAdmittedLibraryEvaluation Evaluation { get; }
+        public new WorkspaceLibraryOccurrence Occurrence => Evaluation.Occurrence;
+        public WorkspaceLibraryAdmissionReceipt Admission => Evaluation.Admission;
+    }
+
+    public sealed class AdmittedLibrary : Admitted
+    {
+        internal AdmittedLibrary(
+            StructuralSubjectIdentity.AdmittedLibrarySubject subject,
+            NavigationAdmittedLibraryEvaluation evaluation,
+            NavigationLensIdentity lens)
+            : base(evaluation, lens) => Subject = subject;
+
+        public override StructuralSubjectIdentity.AdmittedLibrarySubject Subject { get; }
+    }
+
+    public sealed class AdmittedType : Admitted
+    {
+        internal AdmittedType(
+            StructuralSubjectIdentity.AdmittedTypeSubject subject,
+            NavigationAdmittedLibraryEvaluation evaluation,
+            NavigationLensIdentity lens)
+            : base(evaluation, lens)
+        {
+            Subject = subject;
+            Declaration = ((LibraryTypeDeclarationInventoryInspectionOutcome.Completed)
+                evaluation.Inventory!).Correspondence.Inventory.Declarations
+                .First(row => row.Kind == AssemblyTypeDeclarationKind.Definition
+                    && row.Name.Equals(subject.Name));
+        }
+
+        public override StructuralSubjectIdentity.AdmittedTypeSubject Subject { get; }
+        public AssemblyTypeDeclaration Declaration { get; }
     }
 }
 
@@ -190,6 +240,9 @@ public static class CompleteRestorationSelectedSubjectOperation
 
         CompleteRestorationSelectedSubject target =
             ((CompleteRestorationSubjectPreparation.Ready)prepared).Target;
+        if (target is CompleteRestorationSelectedSubject.Admitted)
+            return Unavailable<T>(
+                CompleteRestorationSubjectUnavailableReason.UnsupportedSubject);
         WorkspaceScopeReadResult scope = await workspace.GetScopeSnapshotAsync()
             .ConfigureAwait(false);
         if (scope is WorkspaceScopeReadResult.Unavailable unavailable)
@@ -220,6 +273,85 @@ public static class CompleteRestorationSelectedSubjectOperation
         ArtifactRootFailure? failure = null) =>
         new CompleteRestorationSubjectResult<T>.Unavailable(new(reason, failure));
 
+    /// <summary>Borrow the exact source-native Library and its selected subject.</summary>
+    public static async ValueTask<CompleteRestorationSubjectResult<T>> ExecuteAdmittedAsync<T>(
+        WorkspaceRealizationOperationLease authority,
+        CompleteWorkspaceActivation activation,
+        Func<CompleteRestorationSelectedSubject.Admitted, LibraryOperationLease,
+            CancellationToken, ValueTask<T>> inspect,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(authority);
+        using WorkspaceRealizationOperationUse operation = authority.EnterUse();
+        return await ExecuteAdmittedAsync(operation.Workspace, activation, inspect,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    public static async ValueTask<CompleteRestorationSubjectResult<T>> ExecuteAdmittedAsync<T>(
+        InspectionWorkspace workspace,
+        CompleteWorkspaceActivation activation,
+        Func<CompleteRestorationSelectedSubject.Admitted, LibraryOperationLease,
+            CancellationToken, ValueTask<T>> inspect,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(workspace);
+        ArgumentNullException.ThrowIfNull(activation);
+        ArgumentNullException.ThrowIfNull(inspect);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!ReferenceEquals(workspace.Identity, activation.Workspace))
+            return Unavailable<T>(CompleteRestorationSubjectUnavailableReason.ForeignWorkspace);
+        if (activation.SelectedSubject is not { } prepared)
+            return Unavailable<T>(CompleteRestorationSubjectUnavailableReason.NotCaptured);
+        if (prepared is CompleteRestorationSubjectPreparation.Unavailable unavailable)
+            return new CompleteRestorationSubjectResult<T>.Unavailable(unavailable.Failure);
+        if (((CompleteRestorationSubjectPreparation.Ready)prepared).Target
+            is not CompleteRestorationSelectedSubject.Admitted target)
+            return Unavailable<T>(CompleteRestorationSubjectUnavailableReason.UnsupportedSubject);
+        WorkspaceScopeReadResult scope = await workspace.GetScopeSnapshotAsync()
+            .ConfigureAwait(false);
+        if (scope is not WorkspaceScopeReadResult.Available available)
+            return Unavailable<T>(CompleteRestorationSubjectUnavailableReason.ArtifactUnavailable);
+        if (!ReferenceEquals(available.Snapshot.Revision,
+            activation.Snapshot.Scope.Revision))
+            return Unavailable<T>(CompleteRestorationSubjectUnavailableReason.ScopeChanged);
+        WorkspaceLibraryOperationIssueOutcome issued =
+            workspace.IssueLibraryOperation(target.Occurrence);
+        if (issued is not WorkspaceLibraryOperationIssueOutcome.Issued ready)
+            return Unavailable<T>(CompleteRestorationSubjectUnavailableReason.ArtifactUnavailable);
+        using (ready.Lease)
+        {
+            return new CompleteRestorationSubjectResult<T>.Completed(
+                await inspect(target, ready.Lease, cancellationToken)
+                    .ConfigureAwait(false));
+        }
+    }
+
+    internal static CompleteRestorationSubjectPreparation PrepareNative(
+        CompleteWorkspaceSnapshot snapshot,
+        NavigationAdmittedLibraryEvaluation evaluation)
+    {
+        NavigationWorkspaceSnapshot navigation =
+            snapshot.Navigation.State.CurrentSnapshot;
+        if (navigation.LensOutcome.EffectiveLens is not { } lens)
+            return new CompleteRestorationSubjectPreparation.Unavailable(
+                new(CompleteRestorationSubjectUnavailableReason.LensUnavailable));
+        return navigation.ActiveSubject switch
+        {
+            StructuralSubjectIdentity.AdmittedLibrarySubject library
+                when ReferenceEquals(library.Occurrence, evaluation.Occurrence) =>
+                new CompleteRestorationSubjectPreparation.Ready(
+                    new CompleteRestorationSelectedSubject.AdmittedLibrary(
+                        library, evaluation, lens)),
+            StructuralSubjectIdentity.AdmittedTypeSubject type
+                when ReferenceEquals(type.Library.Occurrence, evaluation.Occurrence) =>
+                new CompleteRestorationSubjectPreparation.Ready(
+                    new CompleteRestorationSelectedSubject.AdmittedType(
+                        type, evaluation, lens)),
+            _ => new CompleteRestorationSubjectPreparation.Unavailable(
+                new(CompleteRestorationSubjectUnavailableReason.UnsupportedSubject)),
+        };
+    }
+
     internal static CompleteRestorationSubjectPreparation Prepare(
         CompleteWorkspaceSnapshot snapshot,
         ResolvedCommittedPackageViewState? selected,
@@ -239,6 +371,7 @@ public static class CompleteRestorationSelectedSubjectOperation
             CompleteRestorationResolvedState.Version3 v => v.Definitions,
             CompleteRestorationResolvedState.Version4 v => v.Definitions,
             CompleteRestorationResolvedState.Version5 v => v.Definitions,
+            CompleteRestorationResolvedState.Version6 v => v.Definitions,
             _ => throw new InvalidOperationException("Unknown committed scenario."),
         };
         // Registry binding order follows view-state order and each state's

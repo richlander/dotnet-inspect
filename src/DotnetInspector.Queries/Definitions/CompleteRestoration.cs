@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
+using System.Text.Json;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -48,6 +49,10 @@ public abstract record CompleteRestorationRequestBasis
         public string Encoded { get; } =
             Encoded ?? throw new ArgumentNullException(nameof(Encoded));
     }
+
+    /// <summary>An explicit, bounded upgrade, never direct format-1 admission.</summary>
+    public sealed record LegacyPlatformUpgradeInput(string Encoded)
+        : CompleteRestorationRequestBasis;
 
     public sealed record DefinitionInput : CompleteRestorationRequestBasis
     {
@@ -165,6 +170,17 @@ public abstract record CompleteRestorationRecipe
             Definitions
             ?? throw new ArgumentNullException(nameof(Definitions));
     }
+
+    public sealed record Version6(CommittedScenarioDefinitionSet Definitions)
+        : CompleteRestorationRecipe;
+
+    /// <summary>Compatibility selectors; identity awaits physical admission.</summary>
+    public sealed record LegacyPlatformUpgrade(
+        WorkspaceSharePacket Packet,
+        string AssetFileName,
+        string? AssemblyLabel,
+        MetadataTypeDefinitionName? TypeName)
+        : CompleteRestorationRecipe;
 
     public sealed record RegistrationOnlyEcosystem(
         WorkspaceEcosystemRegistrationId Ecosystem,
@@ -598,6 +614,122 @@ public abstract record CompleteRestorationPreparationResult
 public static class CompleteRestorationPreparation
 {
     /// <summary>
+    /// Explicitly upgrades the single pinned Runtime Platform Overview layout.
+    /// Direct <see cref="FromPacket"/> continues to reject format 1.
+    /// </summary>
+    public static CompleteRestorationPreparationResult UpgradeLegacyPlatformPacket(
+        string encoded,
+        ICompleteRestorationIntentAuthority authority,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(encoded);
+        ArgumentNullException.ThrowIfNull(authority);
+        var request =
+            new CompleteRestorationRequestBasis.LegacyPlatformUpgradeInput(encoded);
+        if (NonCurrent(authority, request) is { } unavailable)
+            return unavailable;
+        if (cancellationToken.IsCancellationRequested)
+            return Cancelled(authority.Identity, request);
+        WorkspaceSharePacket packet;
+        try
+        {
+            packet = WorkspaceSharePacketCodec.Decode(encoded, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            return NonCurrent(authority, request)
+                ?? Cancelled(authority.Identity, request);
+        }
+        catch (WorkspaceSharePacketException failure)
+        {
+            return new CompleteRestorationPreparationResult.Failed(
+                authority.Identity, request,
+                new CompleteRestorationFailure.InvalidPacket(
+                    failure.Kind, failure.Message));
+        }
+        if (NonCurrent(authority, request) is { } stale)
+            return stale;
+        if (packet.FormatVersion != WorkspaceSharePacketCodec.LegacyFormatVersion)
+            return Refused("Explicit legacy upgrade requires packet format 1.");
+        if (packet.Tabs is not [{ SourceKind: WorkspaceShareSourceKind.Group,
+                Source: ":Platform", Version: not null, Framework: not null,
+                RuntimeIdentifier: null }]
+            || packet.Contexts.Count != 1
+            || packet.Contexts[0].TabIndexes is not [0]
+            || packet.ActiveTabIndex != 0 || packet.SelectedContextIndex != 0
+            || packet.Lens != "overview" || packet.MemberAnchor is not null
+            || packet.MemberSignature is not null || packet.Section is not null
+            || packet.SourceView is not null || packet.Libraries.Count != 1
+            || packet.TraversalTargetPolicy
+                != TraversalTargetFrameworkPolicy.ProductDefault)
+            return Refused("Legacy upgrade supports only one pinned Runtime "
+                + "Platform Library, optional Type, and Overview lens.");
+
+        string asset;
+        try
+        {
+            using JsonDocument document = JsonDocument.Parse(
+                packet.Libraries[0],
+                new JsonDocumentOptions { MaxDepth = 2 });
+            JsonElement value = document.RootElement;
+            if (value.ValueKind != JsonValueKind.Array
+                || value.GetArrayLength() != 2
+                || value[0].ValueKind != JsonValueKind.String
+                || value[0].GetString() != "netcore.app"
+                || value[1].ValueKind != JsonValueKind.String)
+                return Refused("Legacy Library selector must name a Runtime asset.");
+            asset = value[1].GetString()!;
+        }
+        catch (JsonException)
+        {
+            return Refused("Legacy Library selector is malformed.");
+        }
+        if (asset.Length == 0
+            || !asset.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+            || asset.IndexOfAny(['/', '\\', ':']) >= 0)
+            return Refused("Legacy Library selector requires one asset filename.");
+
+        string? label = null;
+        MetadataTypeDefinitionName? typeName = null;
+        if (packet.Type is { } selectedType)
+        {
+            int separator = selectedType.IndexOf(':');
+            if (separator <= 0 || separator == selectedType.Length - 1
+                || selectedType.IndexOf(':', separator + 1) >= 0)
+                return Refused("Legacy Type selector requires an assembly label "
+                    + "and a definition name.");
+            label = selectedType[..separator];
+            if (MetadataTypeDefinitionName.ParseSerialized(
+                selectedType[(separator + 1)..])
+                is not MetadataTypeDefinitionNameResult.Valid valid)
+                return Refused("Legacy Type selector is not a definition name.");
+            typeName = valid.Name;
+        }
+
+        WorkspaceDefinition workspace =
+            WorkspaceSharePacketTransposer.ToDefinitions(
+                packet, cancellationToken).Workspace;
+        return new CompleteRestorationPreparationResult.Ready(
+            new CompleteRestorationPlan(
+                authority.Identity, request,
+                InspectionDefinitionRegistry
+                    .CreateCompleteRestorationWorkspacePlan(workspace),
+                new CompleteRestorationRecipe.LegacyPlatformUpgrade(
+                    packet, asset, label, typeName),
+                [],
+                System.Collections.Immutable.ImmutableDictionary<
+                    string, PackageNavigationSource>.Empty,
+                System.Collections.Immutable.ImmutableDictionary<
+                    string, PlatformNavigationSource>.Empty));
+
+        CompleteRestorationPreparationResult Refused(string message) =>
+            new CompleteRestorationPreparationResult.Failed(
+                authority.Identity, request,
+                new CompleteRestorationFailure.InvalidPacket(
+                    WorkspaceSharePacketFailureKind.InvalidShape, message));
+    }
+
+    /// <summary>
     /// Returns whether complete restoration accepts the canonical packet format.
     /// </summary>
     public static bool SupportsPacketFormat(int formatVersion) =>
@@ -605,7 +737,8 @@ public static class CompleteRestorationPreparation
             WorkspaceSharePacketCodec.Format2Version
             or WorkspaceSharePacketCodec.CurrentFormatVersion
             or WorkspaceSharePacketCodec.Format4Version
-            or WorkspaceSharePacketCodec.Format5Version);
+            or WorkspaceSharePacketCodec.Format5Version
+            or WorkspaceSharePacketCodec.Format6Version);
 
     internal static CompleteRestorationPreparationResult
         FromCommittedDefinitions(
@@ -633,6 +766,8 @@ public static class CompleteRestorationPreparation
                 PrepareVersion4(definitions, authority, request),
             InspectionDefinitionSchema.Version5 =>
                 PrepareVersion5(definitions, authority, request),
+            InspectionDefinitionSchema.Version6 =>
+                PrepareVersion6(definitions, authority, request),
             int version =>
                 new CompleteRestorationPreparationResult.Failed(
                     authority.Identity,
@@ -643,8 +778,9 @@ public static class CompleteRestorationPreparation
                             + $"schema version "
                             + $"{InspectionDefinitionSchema.Version2}, "
                             + $"{InspectionDefinitionSchema.Version3}, "
-                            + $"{InspectionDefinitionSchema.Version4}, or "
-                            + $"{InspectionDefinitionSchema.Version5}.")),
+                            + $"{InspectionDefinitionSchema.Version4}, "
+                            + $"{InspectionDefinitionSchema.Version5}, or "
+                            + $"{InspectionDefinitionSchema.Version6}.")),
         };
     }
 
@@ -694,8 +830,9 @@ public static class CompleteRestorationPreparation
                     "Complete Workspace restoration requires packet format "
                         + $"{WorkspaceSharePacketCodec.Format2Version}, "
                         + $"{WorkspaceSharePacketCodec.CurrentFormatVersion}, "
-                        + $"{WorkspaceSharePacketCodec.Format4Version}, or "
-                        + $"{WorkspaceSharePacketCodec.Format5Version}; "
+                        + $"{WorkspaceSharePacketCodec.Format4Version}, "
+                        + $"{WorkspaceSharePacketCodec.Format5Version}, or "
+                        + $"{WorkspaceSharePacketCodec.Format6Version}; "
                         + $"format {packet.FormatVersion} is not supported."));
         }
 
@@ -715,6 +852,8 @@ public static class CompleteRestorationPreparation
                     PrepareVersion4(definitions, authority, request),
                 WorkspaceSharePacketCodec.Format5Version =>
                     PrepareVersion5(definitions, authority, request),
+                WorkspaceSharePacketCodec.Format6Version =>
+                    PrepareVersion6(definitions, authority, request),
                 _ => throw new InvalidOperationException(
                     "Unknown admitted Workspace packet format."),
             };
@@ -1007,6 +1146,8 @@ public static class CompleteRestorationPreparation
                 PrepareVersion4(version4.Definitions, authority, request),
             InspectionDefinitionScenarioPreparationResult.Version5 version5 =>
                 PrepareVersion5(version5.Definitions, authority, request),
+            InspectionDefinitionScenarioPreparationResult.Version6 version6 =>
+                PrepareVersion6(version6.Definitions, authority, request),
             InspectionDefinitionScenarioPreparationResult.Version1 =>
                 new CompleteRestorationPreparationResult.Failed(
                     authority.Identity,
@@ -1063,6 +1204,14 @@ public static class CompleteRestorationPreparation
             authority,
             request,
             new CompleteRestorationRecipe.Version5(definitions));
+
+    private static CompleteRestorationPreparationResult PrepareVersion6(
+        CommittedScenarioDefinitionSet definitions,
+        ICompleteRestorationIntentAuthority authority,
+        CompleteRestorationRequestBasis request) =>
+        PrepareCommitted(
+            definitions, authority, request,
+            new CompleteRestorationRecipe.Version6(definitions));
 
     private static CompleteRestorationPreparationResult PrepareCommitted(
         CommittedScenarioDefinitionSet definitions,

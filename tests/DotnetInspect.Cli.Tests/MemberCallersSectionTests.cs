@@ -425,6 +425,10 @@ public class MemberCallersSectionTests
             MemberFilter = [nameof(MemberCallersFixture.Target)],
             OverloadIndex = 1,
             IncludeSections = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Call Graph" },
+            // A lone Call Graph defaults to its tree (#11077); explicit
+            // Markdown keeps the edge Document this test reads.
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Normal,
         }));

@@ -19,6 +19,8 @@ import type {
   BrowserPackageOpportunities,
   BrowserPackagePerformance,
   BrowserResourceTriage,
+  BrowserUnsafeCodeTypes,
+  BrowserUnsafeMembers,
   BrowserPerformanceMember,
 } from "./facades/inspect-web-analysis.d.ts";
 import type {
@@ -37,6 +39,18 @@ import type {
 
 export type PackagePerformance = BrowserPackagePerformance;
 export type PackageResourceTriage = BrowserResourceTriage;
+export type PackageUnsafeCodeTypes = BrowserUnsafeCodeTypes;
+export type PackageUnsafeMembers = BrowserUnsafeMembers;
+export type PackageUnsafeMembersState =
+  PackageInspectionRequestState<PackageUnsafeMembers>;
+
+// The census breadth a request asks for: one Type when the stable selector is
+// empty, or one member of that Type. The Library lists its Types through
+// Finding Unsafe Any instead.
+export interface UnsafeMembersScope {
+  readonly typeIdentity: string;
+  readonly stableSelector: string;
+}
 export type PackageLibraryMetrics = BrowserLibraryMetrics;
 export type PackageLibraryDependencyStructure =
   BrowserLibraryDependencyStructure;
@@ -104,7 +118,7 @@ export function resolvePackagePerformanceType(
 }
 
 export function projectPackagePerformanceType(
-  performanceMember: BrowserPerformanceMember,
+  performanceMember: Pick<BrowserPerformanceMember, "declaringType">,
 ): AppTypeSurface {
   return createAppTypeSurface({
     ...performanceMember.declaringType,
@@ -287,6 +301,12 @@ export interface PackageInspectionState {
   packageResourceTriageLoading: boolean;
   packageResourceTriageError: string;
   packageResourceTriageKey: string;
+  packageUnsafeCodeTypes: PackageUnsafeCodeTypes | null;
+  packageUnsafeCodeTypesLoading: boolean;
+  packageUnsafeCodeTypesError: string;
+  packageUnsafeCodeTypesKey: string;
+  packageTypeUnsafeMembers: PackageUnsafeMembersState;
+  packageMemberUnsafeMembers: PackageUnsafeMembersState;
   packageLibraryMetrics: PackageLibraryMetrics | null;
   packageLibraryMetricsLoading: boolean;
   packageLibraryMetricsError: string;
@@ -342,6 +362,15 @@ export interface PackageInspectionDependencies {
     packageModel: AppPackage,
     library: string,
   ): Promise<PackageResourceTriage>;
+  queryPackageUnsafeCodeTypes(
+    packageModel: AppPackage,
+    library: string,
+  ): Promise<PackageUnsafeCodeTypes>;
+  queryPackageUnsafeMembers(
+    packageModel: AppPackage,
+    library: string,
+    scope: UnsafeMembersScope,
+  ): Promise<PackageUnsafeMembers>;
   queryPackageLibraryMetrics(
     packageModel: AppPackage,
     library: string,
@@ -362,6 +391,20 @@ export interface PackageInspectionDependencies {
     assemblyFileName: string,
     pack: string,
   ): Promise<PackageResourceTriage>;
+  queryPlatformUnsafeCodeTypes(
+    framework: string,
+    platformVersion: string,
+    assemblyFileName: string,
+    pack: string,
+  ): Promise<PackageUnsafeCodeTypes>;
+  queryPlatformUnsafeMembers(
+    framework: string,
+    platformVersion: string,
+    assemblyFileName: string,
+    pack: string,
+    typeIdentity: string,
+    stableSelector: string,
+  ): Promise<PackageUnsafeMembers>;
   queryPlatformLibraryMetrics(
     framework: string,
     platformVersion: string,
@@ -429,6 +472,17 @@ export interface PackageInspectionCoordinator {
     signature: string,
     scopedLibrary: string | null,
   ): Promise<void>;
+  loadUnsafeCodeTypes(
+    packageModel: AppPackage,
+    signature: string,
+    scopedLibrary: string | null,
+  ): Promise<void>;
+  loadUnsafeMembers(
+    packageModel: AppPackage,
+    signature: string,
+    scopedLibrary: string | null,
+    scope: UnsafeMembersScope,
+  ): Promise<void>;
   loadLibraryMetrics(
     packageModel: AppPackage,
     signature: string,
@@ -467,6 +521,7 @@ export function createPackageInspectionCoordinator(
 ): PackageInspectionCoordinator {
   const { state } = dependencies;
   let packageResultGeneration = 0;
+  let packagePerformanceRequestSequence = 0;
 
   const platformCoordinates = (
     packageModel: AppPackage,
@@ -547,6 +602,12 @@ export function createPackageInspectionCoordinator(
       state.packageResourceTriageLoading = false;
       state.packageResourceTriageError = "";
       state.packageResourceTriageKey = "";
+      state.packageUnsafeCodeTypes = null;
+      state.packageUnsafeCodeTypesLoading = false;
+      state.packageUnsafeCodeTypesError = "";
+      state.packageUnsafeCodeTypesKey = "";
+      state.packageTypeUnsafeMembers = { status: "idle" };
+      state.packageMemberUnsafeMembers = { status: "idle" };
       state.packageLibraryMetrics = null;
       state.packageLibraryMetricsLoading = false;
       state.packageLibraryMetricsError = "";
@@ -811,9 +872,11 @@ export function createPackageInspectionCoordinator(
         return;
       }
       const generation = packageResultGeneration;
+      const requestSequence = ++packagePerformanceRequestSequence;
       const ownsRequest = () =>
         state.packagePerformanceKey === signature
-        && generation === packageResultGeneration;
+        && generation === packageResultGeneration
+        && requestSequence === packagePerformanceRequestSequence;
       state.packagePerformanceKey = signature;
       state.packagePerformance = null;
       state.packagePerformanceError = "";
@@ -893,6 +956,106 @@ export function createPackageInspectionCoordinator(
           dependencies.render();
         }
       }
+    },
+
+    // Only the current request for this exact Library and coordinate may
+    // publish; replacement and invalidation retire it without publication.
+    async loadUnsafeCodeTypes(packageModel, signature, scopedLibrary) {
+      if (packageModel.isRuntimePack && !scopedLibrary) return;
+      if (state.packageUnsafeCodeTypesKey === signature
+        && (state.packageUnsafeCodeTypes || state.packageUnsafeCodeTypesError)) {
+        dependencies.render();
+        return;
+      }
+      const generation = packageResultGeneration;
+      const ownsRequest = () =>
+        state.packageUnsafeCodeTypesKey === signature
+        && generation === packageResultGeneration;
+      state.packageUnsafeCodeTypesKey = signature;
+      state.packageUnsafeCodeTypes = null;
+      state.packageUnsafeCodeTypesError = "";
+      state.packageUnsafeCodeTypesLoading = true;
+      dependencies.render();
+      try {
+        const coordinates = packageModel.isRuntimePack
+          ? platformCoordinates(packageModel, scopedLibrary ?? "")
+          : null;
+        const result = coordinates
+          ? await dependencies.queryPlatformUnsafeCodeTypes(
+              coordinates.framework,
+              coordinates.platformVersion,
+              coordinates.assemblyFileName,
+              coordinates.pack)
+          : await dependencies.queryPackageUnsafeCodeTypes(
+              packageModel,
+              scopedLibrary ?? "");
+        if (ownsRequest()) {
+          state.packageUnsafeCodeTypes = result;
+        }
+      } catch (error) {
+        if (ownsRequest()) {
+          state.packageUnsafeCodeTypesError = dependencies.describeError(error);
+        }
+      } finally {
+        if (ownsRequest()) {
+          state.packageUnsafeCodeTypesLoading = false;
+        }
+        if (generation === packageResultGeneration) {
+          dependencies.render();
+        }
+      }
+    },
+
+    // Only the current request for this exact Library, coordinate, Type, and
+    // member may publish; replacement and invalidation retire it without
+    // publication.
+    async loadUnsafeMembers(packageModel, signature, scopedLibrary, scope) {
+      if (packageModel.isRuntimePack && !scopedLibrary) return;
+      const coordinates = packageModel.isRuntimePack
+        ? platformCoordinates(packageModel, scopedLibrary ?? "")
+        : null;
+      const query = () => coordinates
+        ? dependencies.queryPlatformUnsafeMembers(
+            coordinates.framework,
+            coordinates.platformVersion,
+            coordinates.assemblyFileName,
+            coordinates.pack,
+            scope.typeIdentity,
+            scope.stableSelector)
+        : dependencies.queryPackageUnsafeMembers(
+            packageModel,
+            scopedLibrary ?? "",
+            scope);
+      const field = scope.stableSelector
+        ? "packageMemberUnsafeMembers"
+        : "packageTypeUnsafeMembers";
+      const current = state[field];
+      if ((current.status === "ready" || current.status === "failed")
+        && current.key === signature) {
+        dependencies.render();
+        return;
+      }
+      if (current.status === "loading" && current.request.key === signature) return;
+      const request = { key: signature };
+      const ownsRequest = () => {
+        const live = state[field];
+        return live.status === "loading" && live.request === request;
+      };
+      state[field] = { status: "loading", request };
+      dependencies.render();
+      try {
+        const result = await query();
+        if (!ownsRequest()) return;
+        state[field] = { status: "ready", key: signature, result };
+      } catch (error) {
+        if (!ownsRequest()) return;
+        state[field] = {
+          status: "failed",
+          key: signature,
+          error: dependencies.describeError(error),
+        };
+      }
+      dependencies.render();
     },
 
     async loadLibraryMetrics(packageModel, signature, scopedLibrary) {

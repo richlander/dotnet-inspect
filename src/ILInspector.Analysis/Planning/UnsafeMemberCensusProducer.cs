@@ -50,7 +50,7 @@ public sealed class UnsafeMemberCensusProducer
     UnsafeMemberCensusProducer()
         : base(
             "UnsafeMemberCensus",
-            version: 1,
+            version: 2,
             tier: 0,
             MethodDefinitionLayers.Body
                 | MethodDefinitionLayers.Calls
@@ -127,6 +127,20 @@ public sealed class UnsafeMemberCensusProducer
                 requiresOwnerByShape);
         }
 
+        UnsafeMemberModuleRules rules = UnsafeMemberModuleRules.NotRead;
+        if (HasInnerUnsafeEvidence(evidence))
+        {
+            try
+            {
+                rules = ModuleRules(view.GetMemorySafetyRules());
+            }
+            catch (Exception exception)
+                when (IsRecoverable(exception))
+            {
+                rules = UnsafeMemberModuleRules.Unknown;
+            }
+        }
+
         return new(
             Facts(
                 token,
@@ -134,9 +148,31 @@ public sealed class UnsafeMemberCensusProducer
                 extensionShape,
                 availability,
                 failureDetail: null,
-                evidence),
+                evidence) with { ModuleRules = rules },
             requiresOwnerByShape);
     }
+
+    // Any role but the member's own contract is evidence of an unsafe context
+    // the body used.
+    static bool HasInnerUnsafeEvidence(ImmutableArray<UnsafeMemberUseEvidence> evidence)
+    {
+        foreach (UnsafeMemberUseEvidence item in evidence)
+        {
+            if (item.Kind != UnsafeMemberUseKind.ExplicitContract)
+                return true;
+        }
+        return false;
+    }
+
+    static UnsafeMemberModuleRules ModuleRules(MemorySafetyRulesResult rules) =>
+        rules switch
+        {
+            MemorySafetyRulesResult.Available { State: MemorySafetyRulesState.Updated } =>
+                UnsafeMemberModuleRules.Updated,
+            MemorySafetyRulesResult.Available { State: MemorySafetyRulesState.Legacy } =>
+                UnsafeMemberModuleRules.Legacy,
+            _ => UnsafeMemberModuleRules.Unknown,
+        };
 
     internal override List<UnsafeMemberCensusBodyFact> Seed() => [];
 
@@ -149,6 +185,20 @@ public sealed class UnsafeMemberCensusProducer
     }
 
     internal override UnsafeMemberCensus Complete(
+        List<UnsafeMemberCensusBodyFact> accumulator,
+        MethodDefinitionCompletionView completion) =>
+        UnsafeMemberCensusBuilder.Build(
+            AttributedBodies(accumulator, completion),
+            hasFullMethodEvidenceScope: true,
+            completion.GetReferenceAssemblyStatus(),
+            RootSet(completion.GetPublicMethodRoots()),
+            attributionBounded: completion.IsSourceBounded);
+
+    /// <summary>
+    /// The visited bodies' facts with the owner the settled declared-source
+    /// relation authenticates for each.
+    /// </summary>
+    internal static List<UnsafeMemberBodyFacts> AttributedBodies(
         List<UnsafeMemberCensusBodyFact> accumulator,
         MethodDefinitionCompletionView completion)
     {
@@ -211,12 +261,7 @@ public sealed class UnsafeMemberCensusProducer
             });
         }
 
-        return UnsafeMemberCensusBuilder.Build(
-            bodies,
-            hasFullMethodEvidenceScope: true,
-            completion.GetReferenceAssemblyStatus(),
-            RootSet(completion.GetPublicMethodRoots()),
-            attributionBounded: completion.IsSourceBounded);
+        return bodies;
     }
 
     /// <summary>
@@ -566,6 +611,33 @@ public static class UnsafeMemberCensusAnalysis
             ? accepted.Description
             : throw new InvalidOperationException(
                 "The unsafe member census request must plan.");
+
+    /// <summary>
+    /// Member-scope breadth: one declared member's method definitions with the
+    /// generated bodies authenticated to them in every role. It reaches no
+    /// nested type, so it has no unauthenticated candidates.
+    /// </summary>
+    public static MethodDefinitionSourceBreadth MemberScope(
+        IEnumerable<MethodDefinitionHandle> methods,
+        MethodDefinitionGeneratedExpansionLimits? limits = null)
+    {
+        ArgumentNullException.ThrowIfNull(methods);
+        return MethodDefinitionSourceBreadth
+            .ExactMethods(methods.ToImmutableArray())
+            .IncludeGeneratedExecutionBodies(
+                limits,
+                MethodDefinitionGeneratedBodyRoles.All);
+    }
+
+    /// <summary>The census request over one declared member's definitions.</summary>
+    public static MethodDefinitionSourceRequest<UnsafeMemberCensus>
+        ForMethods(
+            IEnumerable<MethodDefinitionHandle> methods,
+            MethodDefinitionGeneratedExpansionLimits? limits = null) =>
+        MethodDefinitionSourceRequest<UnsafeMemberCensus>.Create(
+            Description,
+            UnsafeMemberCensusProducer.Instance,
+            MemberScope(methods, limits));
 
     /// <summary>
     /// Type-scope breadth: the selected types' methods with their generated

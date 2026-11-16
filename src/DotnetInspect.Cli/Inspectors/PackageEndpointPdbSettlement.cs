@@ -63,6 +63,7 @@ internal sealed class PackageEndpointPdbSettlement(
                 new SourcePolicyPackageSourceAuthorization(sourceOptions))
             {
                 PackagePreparation = packagePreparation,
+                MicrosoftSymbolServerFallback = true,
                 NuGetSourceOptions = sourceOptions,
                 Timeout = TimeSpan.FromMinutes(5),
                 Log = logger.Log,

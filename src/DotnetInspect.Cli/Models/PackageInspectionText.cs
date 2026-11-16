@@ -548,22 +548,6 @@ internal sealed class PackageFileJsonRow(InertString path, long size)
     public long Size { get; } = size;
 }
 
-internal sealed class PackageFileMultiJsonRow(
-    InertString package,
-    InertString version,
-    InertString path,
-    long? size)
-{
-    private InertString PackageText { get; } = package;
-    private InertString VersionText { get; } = version;
-    private InertString PathText { get; } = path;
-
-    public string Package => PackageText.ToString();
-    public string Version => VersionText.ToString();
-    public string Path => PathText.ToString();
-    public long? Size { get; } = size;
-}
-
 internal sealed class PackageFileContentText
 {
     private PackageFileContentText(PackageFileContent value)

@@ -252,8 +252,10 @@ public partial class SectionPipelineTests
     public void ApiMemberPipeline_HasExpectedSectionCount()
     {
         var pipeline = ApiMemberSectionDescriptors.CreatePipeline();
-        Assert.Equal(37, pipeline.AllSectionNames.Length);
+        Assert.Equal(39, pipeline.AllSectionNames.Length);
         Assert.Contains(SectionNames.CloneCandidates, pipeline.AllSectionNames);
+        Assert.Contains(SectionNames.Implementers, pipeline.AllSectionNames);
+        Assert.Contains(SectionNames.DerivedTypes, pipeline.AllSectionNames);
     }
 
     [Fact]
@@ -420,8 +422,8 @@ public partial class SectionPipelineTests
                 ApiMemberSectionDescriptors.CostOverlay.SizeClass),
             (ApiMemberSectionDescriptors.SemanticsOverlay.Name,
                 ApiMemberSectionDescriptors.SemanticsOverlay.SizeClass),
-            (ApiMemberSectionDescriptors.UnsafeMembers.Name,
-                ApiMemberSectionDescriptors.UnsafeMembers.SizeClass),
+            (ApiMemberSectionDescriptors.UnsafeCode.Name,
+                ApiMemberSectionDescriptors.UnsafeCode.SizeClass),
             (ApiMemberSectionDescriptors.CloneCandidates.Name,
                 ApiMemberSectionDescriptors.CloneCandidates.SizeClass),
             (ApiMemberSectionDescriptors.ExceptionRegions.Name,
@@ -719,6 +721,7 @@ public partial class SectionPipelineTests
             SectionCategoryNames.Calls,
             SectionCategoryNames.Decompiler,
             SectionCategoryNames.Performance,
+            SectionCategoryNames.Relations,
             SectionCategoryNames.Source,
             SectionCategoryNames.SourceLink,
         ];
@@ -735,7 +738,7 @@ public partial class SectionPipelineTests
         Assert.Contains(SectionNames.MethodGroups, broad.BaseSectionNames);
         Assert.Contains(SectionNames.Methods, broad.BaseSectionNames);
         Assert.Contains(
-            SectionNames.UnsafeMembers,
+            SectionNames.UnsafeCode,
             broad.GetCategoryMap()[SectionCategoryNames.Audit]);
         Assert.Contains(
             SectionNames.CalledTypes,
@@ -794,6 +797,8 @@ public partial class SectionPipelineTests
         Assert.Equal(
             [
                 SectionNames.Signature,
+                SectionNames.Overloads,
+                SectionNames.DocumentedOverloads,
                 SectionNames.MemberIndex,
                 SectionNames.CustomAttributes,
                 SectionNames.FindingCensus,

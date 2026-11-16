@@ -14,6 +14,24 @@ namespace DotnetInspect.Cli.Commands;
 /// </summary>
 internal static class LibraryTypeHierarchyCommand
 {
+    internal static OutputItemBinding<LibraryDocument> Items { get; } =
+        OutputItemBinding<LibraryDocument>.Create<LibraryTypeShape>(
+            "Library Types",
+            static document => ((LibraryTypePopulationRowsOutcome.Read)document.Types!.Rows!).Items
+                .OrderBy(static row => row.Namespace.ToString(), StringComparer.Ordinal)
+                .ThenBy(static row => row.DisplayName.ToString(), StringComparer.Ordinal)
+                .ToArray(),
+            static (document, rows) => document with
+            {
+                Types = document.Types! with
+                {
+                    Rows = ((LibraryTypePopulationRowsOutcome.Read)document.Types.Rows!) with
+                    {
+                        Items = [.. rows],
+                    },
+                },
+            });
+
     private static readonly LibraryInspectionBounds s_bounds =
         new(
             maxTypes: 5_000,
@@ -78,8 +96,10 @@ internal static class LibraryTypeHierarchyCommand
 
         try
         {
+            if (!Items.TrySelect(available.Document, plan.RowSelection, out LibraryDocument document))
+                return 1;
             LibraryTypeHierarchyPresentation.Write(
-                available.Document,
+                document,
                 presentation,
                 Console.Out,
                 new InertString(

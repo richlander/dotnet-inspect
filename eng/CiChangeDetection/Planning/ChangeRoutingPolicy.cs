@@ -612,6 +612,8 @@ internal sealed class ChangeRoutingPolicy
             "eng/CiChangeDetection/ReleasePublicationWorkflowContract.cs",
             "eng/validate-release-candidate.cs",
             "eng/validate-release-candidate.sh",
+            "eng/test-linux-aot-abi.sh",
+            "eng/verify-linux-aot-abi.sh",
             "eng/verify-nuget-retry-package.cs",
             "eng/verify-release-candidate-artifact.sh",
             ".github/workflows/ci.yml",

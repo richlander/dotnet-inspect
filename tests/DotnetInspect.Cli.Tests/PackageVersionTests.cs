@@ -100,6 +100,8 @@ public class PackageVersionTests
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
+        // Surplus option-like package input keeps the package parser's
+        // focused diagnostic after #10943's single coordinate (#11195).
         Assert.Equal(
             $"Error: Unrecognized option '{option}'.{Environment.NewLine}",
             error);
@@ -398,7 +400,7 @@ public class PackageVersionTests
         var package = root.Subcommands.Single(command => command.Name == "package");
         var option = Assert.IsType<Option<bool>>(
             package.Options.Single(option => option.Name == optionName));
-        var packageArgument = Assert.IsType<Argument<string[]>>(
+        var packageArgument = Assert.IsType<Argument<string?>>(
             Assert.Single(package.Arguments));
         string[] arguments = optionName is "--versions" or "--versions-with-feed"
             ? ["package", optionName, "false"]
@@ -408,24 +410,17 @@ public class PackageVersionTests
 
         Assert.Empty(result.Errors);
         Assert.True(result.GetValue(option));
-        Assert.Equal(
-            ["false"],
-            Assert.IsType<string[]>(result.GetValue(packageArgument)));
+        Assert.Equal("false", result.GetValue(packageArgument));
     }
 
     [Theory]
-    [InlineData("--versions", "--lines", null)]
-    [InlineData("--versions", "--tail-lines", null)]
-    [InlineData("--versions", "--lines", "false")]
-    [InlineData("--versions", "--tail-lines", "false")]
-    [InlineData("--versions-with-feed", "--lines", "false")]
-    [InlineData("--versions-with-feed", "--tail-lines", "false")]
-    [InlineData("--versions", "--lines", "true")]
-    [InlineData("--versions", "--tail-lines", "true")]
+    [InlineData("--versions", "--lines")]
+    [InlineData("--versions", "--tail-lines")]
+    [InlineData("--versions-with-feed", "--lines")]
+    [InlineData("--versions-with-feed", "--tail-lines")]
     public async Task Versions_LinesRejectsDocumentJsonBeforeAcquisition(
         string selector,
-        string modifier,
-        string? followingInput)
+        string modifier)
     {
         var (exit, output, error) = await RunAppAsync(
             [
@@ -435,7 +430,6 @@ public class PackageVersionTests
                 "-n",
                 "2",
                 modifier,
-                .. followingInput is null ? Array.Empty<string>() : [followingInput],
                 "--json"
             ]);
 
@@ -452,12 +446,10 @@ public class PackageVersionTests
     }
 
     [Theory]
-    [InlineData("--lines", null)]
-    [InlineData("--lines", "false")]
-    [InlineData("--tail-lines", "false")]
+    [InlineData("--lines")]
+    [InlineData("--tail-lines")]
     public async Task Versions_LinesRejectsEnvironmentDocumentJsonBeforeAcquisition(
-        string modifier,
-        string? followingInput)
+        string modifier)
     {
         string? originalFormat =
             Environment.GetEnvironmentVariable("DOTNET_INSPECT_FORMAT");
@@ -473,8 +465,7 @@ public class PackageVersionTests
                     "--versions",
                     "-n",
                     "2",
-                    modifier,
-                    .. followingInput is null ? Array.Empty<string>() : [followingInput]
+                    modifier
                 ]);
 
             Assert.Equal(1, exit);
@@ -738,7 +729,7 @@ public class PackageVersionTests
         var package = root.Subcommands.Single(command => command.Name == "package");
         var option = Assert.IsType<Option<bool>>(
             package.Options.Single(option => option.Name == selector));
-        var packageArgument = Assert.IsType<Argument<string[]>>(
+        var packageArgument = Assert.IsType<Argument<string?>>(
             Assert.Single(package.Arguments));
         string[] args = ["package", selector, packageName];
 
@@ -750,9 +741,7 @@ public class PackageVersionTests
         var result = root.Parse(args);
         Assert.Empty(result.Errors);
         Assert.True(result.GetValue(option));
-        Assert.Equal(
-            [packageName],
-            Assert.IsType<string[]>(result.GetValue(packageArgument)));
+        Assert.Equal(packageName, result.GetValue(packageArgument));
     }
 
     [Theory]
@@ -1250,20 +1239,6 @@ public class PackageVersionTests
         Assert.Equal(1, exit);
         Assert.Contains("Error: 'badversion' is not a valid package version.", error);
         Assert.Contains("To list available versions: dotnet-inspect package system.text.json --versions", error);
-    }
-
-    [Fact]
-    public async Task MultiPackage_InvalidPinnedVersion_ReturnsPerPackageHint()
-    {
-        var root = CommandLineBuilder.CreateRootCommand();
-        var args = new[] { "package", "System.Text.Json@badversion", "Newtonsoft.Json", "--table" };
-
-        var (exit, _, error) = await ConsoleCapture.RunAsync(
-            () => Task.FromResult(root.Parse(args).InvokeAsync().Result));
-
-        Assert.Equal(1, exit);
-        Assert.Contains("Error: 'badversion' is not a valid package version.", error);
-        Assert.Contains("Use id@version for per-package version pins.", error);
     }
 
     private static Task<(int Exit, string Output, string Error)> RunAppAsync(

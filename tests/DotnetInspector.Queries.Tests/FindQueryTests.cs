@@ -85,7 +85,10 @@ public sealed class FindQueryTests
                 (RowSelectionStageKind.Tail, null, null, 1),
             ],
             plan.Rows.Operations.Select(Operation));
-        Assert.Null(plan.InputRows);
+        Assert.Null(
+            FindQuery.AssociateResultRows(
+                plan,
+                Question(kind)).DelegatedInputRows);
 
         static (
             RowSelectionStageKind Kind,
@@ -113,7 +116,7 @@ public sealed class FindQueryTests
     [Theory]
     [InlineData(FindQueryRouteKind.TypeResults)]
     [InlineData(FindQueryRouteKind.MemberResults)]
-    public void PureHead_ExposesItsAcceptedInputRange(
+    public void PureHead_AssociatesItsDelegatedInputRange(
         FindQueryRouteKind kind)
     {
         FindQueryPlan plan = Accepted(
@@ -126,13 +129,17 @@ public sealed class FindQueryTests
                     []),
                 TestContext.Current.CancellationToken));
 
-        Assert.Equal(new FindInputRowSelection(1, 3), plan.InputRows);
+        Assert.Equal(
+            new FindInputRowSelection(1, 3),
+            FindQuery.AssociateResultRows(
+                plan,
+                Question(kind)).DelegatedInputRows);
     }
 
     [Theory]
     [InlineData(FindQueryRouteKind.TypeResults)]
     [InlineData(FindQueryRouteKind.MemberResults)]
-    public void FiniteWindow_ExposesItsAcceptedInputRange(
+    public void FiniteWindow_AssociatesItsDelegatedInputRange(
         FindQueryRouteKind kind)
     {
         FindQueryPlan plan = Accepted(
@@ -145,7 +152,11 @@ public sealed class FindQueryTests
                     []),
                 TestContext.Current.CancellationToken));
 
-        Assert.Equal(new FindInputRowSelection(2, 5), plan.InputRows);
+        Assert.Equal(
+            new FindInputRowSelection(2, 5),
+            FindQuery.AssociateResultRows(
+                plan,
+                Question(kind)).DelegatedInputRows);
     }
 
     [Theory]
@@ -173,9 +184,107 @@ public sealed class FindQueryTests
                     []),
                 TestContext.Current.CancellationToken));
 
-        Assert.Null(openWindow.InputRows);
-        Assert.Null(tail.InputRows);
+        FindQuestion question = Question(kind);
+        Assert.Null(
+            FindQuery.AssociateResultRows(
+                openWindow,
+                question).DelegatedInputRows);
+        Assert.Null(
+            FindQuery.AssociateResultRows(
+                tail,
+                question).DelegatedInputRows);
     }
+
+    [Fact]
+    public void MemberFiniteWindow_AssociatesExactPlanAndDelegatedRange()
+    {
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(["Add*"], FindVisibility.Public);
+        FindQueryPlan plan = Accepted(
+            FindQuery.ResolveIntent(
+                FindQueryRouteKind.MemberResults,
+                PortableQueryIntent.Create(
+                    [],
+                    [],
+                    [PortableQueryStage.Window(2, 5)],
+                    []),
+                TestContext.Current.CancellationToken));
+
+        FindResultRowPlan associated =
+            FindQuery.AssociateResultRows(plan, question);
+
+        Assert.Same(plan, associated.Query);
+        Assert.Equal(
+            new FindInputRowSelection(2, 5),
+            associated.DelegatedInputRows);
+    }
+
+    [Theory]
+    [InlineData("Thing", false)]
+    [InlineData("Thing*", true)]
+    [InlineData("System.Thing", true)]
+    public void TypeFiniteWindow_DelegatesOnlyWithoutImplicitMemberFallback(
+        string pattern,
+        bool delegates)
+    {
+        TypeFindQuestion question =
+            TypeFindQuestion.Create([pattern], FindVisibility.Public);
+        FindQueryPlan plan = Accepted(
+            FindQuery.ResolveIntent(
+                FindQueryRouteKind.TypeResults,
+                PortableQueryIntent.Create(
+                    [],
+                    [],
+                    [PortableQueryStage.Window(2, 5)],
+                    []),
+                TestContext.Current.CancellationToken));
+
+        FindResultRowPlan associated =
+            FindQuery.AssociateResultRows(plan, question);
+
+        Assert.Same(plan, associated.Query);
+        Assert.Equal(
+            delegates ? new FindInputRowSelection(2, 5) : null,
+            associated.DelegatedInputRows);
+    }
+
+    [Theory]
+    [MemberData(nameof(ExhaustiveSelections))]
+    public void ExhaustiveSelection_RetainsExactPlanWithoutDelegation(
+        PortableQueryStage[] stages)
+    {
+        MemberFindQuestion question =
+            MemberFindQuestion.Create(["Add*"], FindVisibility.Public);
+        FindQueryPlan plan = Accepted(
+            FindQuery.ResolveIntent(
+                FindQueryRouteKind.MemberResults,
+                PortableQueryIntent.Create([], [], stages, []),
+                TestContext.Current.CancellationToken));
+
+        FindResultRowPlan associated =
+            FindQuery.AssociateResultRows(plan, question);
+
+        Assert.Same(plan, associated.Query);
+        Assert.Null(associated.DelegatedInputRows);
+    }
+
+    public static TheoryData<PortableQueryStage[]> ExhaustiveSelections =>
+        new()
+        {
+            {
+                new[] { PortableQueryStage.Tail(2) }
+            },
+            {
+                new[] { PortableQueryStage.Window(2, null) }
+            },
+            {
+                new[]
+                {
+                    PortableQueryStage.Head(5),
+                    PortableQueryStage.Window(2, 3),
+                }
+            },
+        };
 
     [Theory]
     [InlineData(FindQueryRouteKind.TypeResults)]
@@ -221,4 +330,14 @@ public sealed class FindQueryTests
         FindQueryPlanResult result) =>
         Assert.IsType<FindQueryPlanResult.Accepted>(
             result).Plan;
+
+    private static FindQuestion Question(
+        FindQueryRouteKind kind) =>
+        kind is FindQueryRouteKind.MemberResults
+            ? MemberFindQuestion.Create(
+                ["Thing*"],
+                FindVisibility.Public)
+            : TypeFindQuestion.Create(
+                ["Thing*"],
+                FindVisibility.Public);
 }

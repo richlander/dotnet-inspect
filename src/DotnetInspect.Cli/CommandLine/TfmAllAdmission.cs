@@ -17,7 +17,7 @@ internal static class TfmAllAdmission
     public static bool TryGetError(ParseResult parseResult, out string? error)
     {
         CommandResult command = parseResult.CommandResult;
-        // A subcommand such as `package query` may inherit its parent's --tfm,
+        // A subcommand may inherit its parent's --tfm,
         // so the value is read from the command and every ancestor.
         if (command.Command.Name == "router"
             || !IsAll(LastToken(command, TfmOptionName)))

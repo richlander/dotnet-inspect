@@ -92,13 +92,14 @@ return address required by bounded path analysis. Existing pair completion,
 path limits, diagnostics, and rendered output remain unchanged, and root-path
 analysis no longer opens `LibraryBodyAnalysisService`.
 
-The group-wide call-census adoption uses the same focused execution boundary.
-`AssemblyContextCallCensusQuery` acquires every available participant from one
-admitted assembly group, while `CatalogCallGraphScope` owns exact member and
+The unadopted group-wide `AssemblyContextCallCensusQuery` adapter and its
+dedicated tests were retired under
+[#11147](https://github.com/richlander/dotnet-inspect/issues/11147).
+`CatalogCallGraphScope` remains the live Analysis owner of exact member and
 static-call correspondence, physical occurrence retention, canonical ordering,
-unresolved physical occurrences, and graph diagnostics. Acquisition failures
-remain Query evidence beside the positive census; no compatibility index
-participates.
+unresolved physical occurrences, and graph diagnostics. Future group-wide
+acquisition must establish a current House/QuerySpace consumer rather than
+restore the retired assembly-context wrapper.
 
 The first Research adoption publishes `LibraryAllocationAnalysisResult`,
 extends `LibrarySafetyAnalysisResult` with its producer-owned occurrence map,
@@ -486,12 +487,10 @@ empty. A `CompleteProfileV1` convenience names the metrics required by the
 current `MethodImplementationProfile`; later metric additions do not
 silently increase its cost.
 
-The temporary `ImplementationProfiles` compatibility feature has no caller
-budget to preserve. While that flag exists, normalization uses a named
-`LegacyUnbounded` metric budget and records the compatibility origin. Every
-new `CreateImplementationMetrics` caller supplies finite positive bounds.
-Removing the final compatibility caller removes `LegacyUnbounded`; it is not a
-general public convenience.
+The named complete-profile compatibility request uses the `LegacyUnbounded`
+metric budget because the existing product experience has no smaller caller
+budget to preserve. Every new `CreateImplementationMetrics` caller supplies
+finite positive bounds; `LegacyUnbounded` is not a general public convenience.
 
 The initial work bounds are:
 
@@ -809,17 +808,22 @@ constructed, then releases reader-bound state before returning.
 
 ### Complete-profile compatibility and retirement
 
-During migration,
-`LibraryBodyAnalysisFeatures.ImplementationProfiles` normalizes to the named
-`CompleteProfileV1` metric request. The plan records that compatibility origin,
-so both routes share the named metric and fact plan while retirement
-progresses.
+Remaining whole-library callers select the named `CompleteProfileV1` metric
+request through `CreateCompleteImplementationProfile` or compose it with other
+features and Resource Lifecycle work through
+`WithCompleteImplementationProfile`. The exact-family CLI and Inspect Web
+operation no longer opens this service: it executes exact MethodDefs plus
+authenticated generated execution bodies through Method Query Source and
+composes the same compatibility profile from the focused facts. The
+`LibraryBodyAnalysisFeatures.ImplementationProfiles` value, its compatibility
+normalization, and the separate legacy profile collection path have been
+removed.
 
-The explicit `CreateCompleteImplementationProfile` route now executes that
-composition through focused metric producers. The legacy
-`ImplementationProfiles` feature temporarily retains its original execution
-path as the parity oracle; it does not force explicit complete-profile requests
-back onto `MethodEvidence` or legacy profile collection.
+The explicit complete-profile route executes the composition through focused
+metric evidence. When it shares an execution with ordinary method-evidence
+features, those features and the exact metric request retain one acquisition
+and one receipt; the shared runner publishes the same complete metric fields
+rather than reconstructing a second profile.
 When complete-profile structural metrics already traverse decoded
 instructions, direct-invocation counting joins that traversal instead of
 running a separate discovery pass. Count-only requests retain the shallow
@@ -838,10 +842,9 @@ discovery producer and do not acquire canonical context.
   `Complexity Explorer` and `Relationship Crossing` document.
 
 The adapter performs no body acquisition, instruction decode, call scan,
-safety scan, signal scan, or scope expansion. Compatibility parity is required
-before any existing caller moves. Production callers then replace the feature
-bit with `CreateImplementationMetrics(CompleteProfileV1, ...)`; the enum value
-and compatibility normalization are removed after the final caller migrates.
+safety scan, signal scan, or scope expansion. Compatibility parity was
+required before callers moved; the adapter now consumes only the named focused
+metric result.
 
 The adapter preserves the current profile's `IsComplete` and existing
 diagnostic behavior even when the focused result additionally marks a
@@ -1173,13 +1176,20 @@ The counted implementation path is:
    or allocation producers cannot prove whether partial evidence is complete.
 5. Publish per-body typed outcomes and per-metric coverage in
    `LibraryImplementationMetricAnalysisResult`.
-6. Adapt the complete implementation profile from the focused result and
-   migrate `AssemblyContextImplementationProfileFamilyQuery`, preserving its
-   existing CLI and Inspect Web consumers. `AssemblyContextLibraryMetricsQuery`
-   instead consumes the exact structural result described below.
+6. Adapt the complete implementation profile from focused facts and migrate
+   `AssemblyContextImplementationProfileFamilyQuery`, preserving its existing
+   CLI and Inspect Web consumers. This is complete: the query now uses exact
+   Method Query Source breadth with authenticated generated-body expansion and
+   never opens `LibraryBodyAnalysisService`. Recoverable malformed metadata
+   retries the exact family without generated expansion before isolating
+   MethodDefs that still cannot execute together; explicit unavailable coverage
+   preserves failure visibility. `AssemblyContextLibraryMetricsQuery` remains
+   the whole-library successor described below.
 7. Retire the monolithic feature bit after remaining complete-profile callers
-   move, then let #8445 adopt the selective result through
-   `MemberMetricsInspect`.
+   move. This is complete: CLI, API, Diff, and shared-query callers compose the
+   named request, and the enum, normalization, measurements, accumulation, and
+   legacy result projection are removed. #8445 can continue adopting the
+   selective result through `MemberMetricsInspect`.
 
 Each slice is independently coherent and reaches an existing production
 consumer or the next named host-neutral consumer. No unused generic execution
@@ -1401,11 +1411,12 @@ or request collapse. Those belong to later producer slices and to level 2.
 
 ## Consumer-led adoption
 
-The library section system is the first deliberate result-type consumer. It
-currently maps its complete selected-query set to one feature union, lazily
-builds one `LibraryBodyIndex`, and passes that index to five unrelated typed
-queries. The migration keeps the useful single execution and removes the
-shared semantic input.
+The library section system was the first deliberate result-type consumer. It
+previously mapped its complete selected-query set to one feature union, lazily
+built one `LibraryBodyIndex`, and passed that index to unrelated typed queries.
+That aggregate and its acquisition adapters are removed. The remaining
+migration keeps useful shared executions while draining the monolithic
+`LibraryBodyAnalysisService`.
 
 | Sequence | Production consumer | Focused Analysis result |
 | --- | --- | --- |
@@ -1414,7 +1425,7 @@ shared semantic input.
 | 3 | Library Top Leverage and member call-graph composition | `LibraryLeverageAnalysisResult` for ranking and `LibraryCallGraphAnalysisResult` for detached local/catalog graph evidence |
 | 4 | Library Resource Triage section under #6731 | `LibraryResourceLifecycleAnalysisResult`, consuming `ResourceOccurrenceAnalysisResult` from #6730 |
 | 5 | API/member sections, Timeline, Research, JavaScript export, and remaining CLI adapters | Bespoke owner results selected by each consumer; no mechanical aggregate substitution |
-| 6 | Exact-family and Library Metrics profiles, then MemberMetricsInspect | Selective `LibraryImplementationMetricAnalysisResult` plus the temporary complete-profile adapter |
+| 6 | Library Metrics profiles, then MemberMetricsInspect | Whole-library structural evidence plus selective exact-Member metric requests; the exact-family complete-profile route already uses Method Query Source |
 
 Every slice:
 
@@ -1422,7 +1433,7 @@ Every slice:
 2. makes `LibraryBodyAnalysisService` publish it from the shared execution;
 3. changes at least one production section or query to consume that type;
 4. lets `InspectionQueryContext` share the execution receipt without exposing
-   `LibraryBodyIndex` to the migrated section;
+   a monolithic semantic aggregate to the migrated section;
 5. removes the superseded index member, projection, or compatibility call when
    no remaining consumer needs it; and
 6. gates unchanged section output, diagnostics, cost declaration, and
@@ -1460,11 +1471,11 @@ signals, or exception classification. The wider member Research projection
 retains its current unrelated evidence but passes its associated call-graph
 result to root-path analysis.
 
-The following slice shares that participant-analysis path with
-`AssemblyContextCallCensusQuery`. Analysis publishes one generation-bound
-graph-wide census over the focused results; Queries projects its exact members,
-physical call occurrences, ordering keys, and graph diagnostics onto inert
-assembly-context subjects while retaining typed acquisition failures.
+The historical group-wide assembly-context call-census adapter was never
+adopted by a production host and was retired under #11147. Analysis continues
+to publish a generation-bound graph-wide census over focused results for its
+live pairwise and member-call consumers. The removed wrapper is not evidence
+of completed group-wide host acquisition.
 
 The first sequence-5 slice moves member Research fact production from
 `LibraryBodyIndex` and `ResearchAssemblyContext` to four exact focused results:
@@ -1493,13 +1504,15 @@ body-scope qualification, recoverable diagnostics, and unavailable-body
 classification so Research can later decide whether a whole-library report is
 available.
 
-The selective implementation-metric slice replaces that result's monolithic
-producer input without changing its public complete-profile projection.
-`AssemblyContextImplementationProfileFamilyQuery` is the compatibility
-production witness because both the CLI and Inspect Web already consume its
-completed envelope. `AssemblyContextLibraryMetricsQuery` is the full-library
-witness: it continues to accept one `LibraryBodyAnalysisExecution` so Research
-can compose the adapted profiles with the same execution's call graph for
+The exact-family compatibility slice has replaced its monolithic producer input
+without changing its public complete-profile projection.
+`AssemblyContextImplementationProfileFamilyQuery` is the production witness:
+both the CLI and Inspect Web consume its completed envelope, while its source
+receipt proves exact MethodDef breadth, authenticated generated-body expansion,
+and proportional terminal body work.
+`AssemblyContextLibraryMetricsQuery` remains the full-library witness: it
+continues to accept one `LibraryBodyAnalysisExecution` so Research can compose
+the adapted profiles with the same execution's call graph for
 `Complexity Explorer` and `Relationship Crossing`. `MemberMetricsInspect` is
 the first caller that bypasses the complete adapter and proves evidence-level
 work selection.

@@ -276,13 +276,14 @@ public class SearchScopeResolutionTests
             StringComparison.OrdinalIgnoreCase);
     }
 
+    // The relationships skill no longer teaches --package-prefix (#10961 defers
+    // detailed contracts to installed explanation), so it has no expansion
+    // claim to disclose; the option description is gated by
+    // PackagePrefixGuidance_DisclosesExpansionLimit.
     [Theory]
     [InlineData(
         "docs/workflows/core/type-queries.md",
         "across all Azure AI packages")]
-    [InlineData(
-        "skills/relationships/SKILL.md",
-        "search every package under")]
     public void PackagePrefixCurrentGuidance_DisclosesExpansionLimit(
         string relativePath,
         string exhaustiveClaim)
@@ -297,6 +298,19 @@ public class SearchScopeResolutionTests
             StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(
             exhaustiveClaim,
+            content,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void RelationshipsSkill_MakesNoExhaustivePackagePrefixClaim()
+    {
+        string content = File.ReadAllText(Path.Combine(
+            CommandErrorOwnershipTests.RepositoryRoot(),
+            "skills/relationships/SKILL.md"));
+
+        Assert.DoesNotContain(
+            "search every package under",
             content,
             StringComparison.OrdinalIgnoreCase);
     }

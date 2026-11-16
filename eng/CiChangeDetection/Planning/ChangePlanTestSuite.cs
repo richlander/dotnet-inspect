@@ -192,6 +192,8 @@ internal static class ChangePlanTestSuite
                 "code,web"),
             ("eng/validate-release-candidate.cs", "packaging,web"),
             ("eng/validate-release-candidate.sh", "packaging,web"),
+            ("eng/test-linux-aot-abi.sh", "packaging"),
+            ("eng/verify-linux-aot-abi.sh", "packaging"),
             ("eng/verify-nuget-retry-package.cs", "code,packaging"),
             ("eng/verify-release-candidate-artifact.sh", "packaging,web"),
             ("eng/generate-inspect-web-engine-facade.sh",

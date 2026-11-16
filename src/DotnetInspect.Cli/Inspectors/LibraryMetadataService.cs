@@ -92,27 +92,41 @@ internal static class LibraryMetadataService
             bool needsResourceLifecycle =
                 requiredQueries?.Contains(
                     ResourceTriageQuery.Definition) == true;
-            bool usesFocusedLibraryMetrics =
-                requiredQueries?.Count == 1
-                && requiredQueries.Contains(
-                    LibraryMetricsQuery.Definition);
+            bool usesImplementationProfiles =
+                requiredQueries?.Contains(
+                    ImplementationProfilesQuery.Definition) == true;
+            bool usesLibraryMetrics =
+                requiredQueries?.Contains(
+                    LibraryMetricsQuery.Definition) == true;
             Analysis.LibraryBodyAnalysisRequest bodyAnalysisRequest =
                 needsResourceLifecycle
                     ? Analysis.LibraryBodyAnalysisRequest
                         .CreateResourceLifecycle(
                             Analysis.ArrayPoolResourceEffectModel.Create(),
                             bodyAnalysisFeatures)
-                    : usesFocusedLibraryMetrics
-                            ? Analysis.LibraryBodyAnalysisRequest
-                                .CreateLibraryStructuralReport()
                     : Analysis.LibraryBodyAnalysisRequest.Create(
                         bodyAnalysisFeatures);
+            if (usesImplementationProfiles)
+            {
+                bodyAnalysisRequest =
+                    bodyAnalysisRequest
+                        .WithCompleteImplementationProfile();
+            }
+            else if (usesLibraryMetrics)
+            {
+                bodyAnalysisRequest =
+                    bodyAnalysisRequest
+                        .WithLibraryStructuralReport();
+            }
             bool needsPrefetchedImage =
                 bodyAnalysisFeatures
                     != Analysis.LibraryBodyAnalysisFeatures.None
                 || requiredQueries?.Contains(
+                    TopLeverageQuery.Definition) == true
+                || requiredQueries?.Contains(
                     SyncCallsInAsyncDemand.Section) == true
-                || usesFocusedLibraryMetrics
+                || usesImplementationProfiles
+                || usesLibraryMetrics
                 || needsResourceLifecycle;
             bool needsBodyReferenceResolver =
                 bodyAnalysisFeatures.HasFlag(
@@ -592,18 +606,10 @@ internal static class LibraryMetadataService
         IReadOnlyCollection<InspectionQueryDefinition>? queries)
     {
         var features = Analysis.LibraryBodyAnalysisFeatures.None;
-        if (queries?.Contains(TopLeverageQuery.Definition) == true
-            || queries?.Contains(
+        if (queries?.Contains(
                 LibraryDependencyStructureQuery.Definition) == true)
         {
             features |= Analysis.LibraryBodyAnalysisFeatures.MethodEvidence;
-        }
-        if (queries?.Contains(
-                ImplementationProfilesQuery.Definition) == true
-            || queries?.Contains(LibraryMetricsQuery.Definition) == true)
-        {
-            features |= Analysis.LibraryBodyAnalysisFeatures
-                .ImplementationProfiles;
         }
         if (queries?.Contains(OptimizationOpportunitiesQuery.Definition) == true)
         {
@@ -2347,10 +2353,10 @@ internal static class LibraryMetadataService
         }
 
         if (results.TryGet(
-                UnsafeMemberCensusQuery.Definition,
-                out UnsafeMemberCensusQueryResult? unsafeMembers))
+                FindingUnsafeAnyQuery.Definition,
+                out FindingUnsafeAnyQueryResult? unsafeCode))
         {
-            ApplyUnsafeMemberCensusResult(path, inspection, logger, unsafeMembers);
+            ApplyFindingUnsafeAnyResult(path, inspection, logger, unsafeCode);
         }
 
         if (results.TryGet(
@@ -3264,48 +3270,42 @@ internal static class LibraryMetadataService
         }
     }
 
-    internal static void ApplyUnsafeMemberCensusResult(
+    internal static void ApplyFindingUnsafeAnyResult(
         string path,
         LibraryInspection inspection,
         VerboseLogger logger,
-        UnsafeMemberCensusQueryResult result)
+        FindingUnsafeAnyQueryResult result)
     {
+        string title = Analysis.AnalysisFindings.UnsafeMemberDescriptor.Title;
         switch (result)
         {
-            case UnsafeMemberCensusQueryResult.Inspected inspected:
-                inspection.UnsafeMemberInspection =
-                    Analysis.AnalysisFindings.InspectUnsafeMembers(
-                        inspected.Census,
-                        FindingSubjectFor(path));
-                if (inspection.UnsafeMemberInspection
-                    is Analysis.UnsafeMemberFindingInspection.Failed census)
-                {
-                    logger.LogWarning(
-                        $"Error reading unsafe members in {path}: {census.Error.Reason}");
-                }
-                UnsafeMemberProjection.Disclose(
-                    inspection.UnsafeMemberInspection,
-                    logger.Enabled);
+            case FindingUnsafeAnyQueryResult.Inspected { Answer: Analysis.Planning.FindingUnsafeAnyResult.Available available }:
+                inspection.UnsafeCodeInspection =
+                    new UnsafeCodeLibraryInspection.Available(available.Types);
+                UnsafeMemberProjection.Disclose(available.Types, logger.Enabled);
                 break;
 
-            case UnsafeMemberCensusQueryResult.NoMetadata:
-                inspection.UnsafeMemberInspection = null;
-                break;
-
-            case UnsafeMemberCensusQueryResult.Failed failed:
+            case FindingUnsafeAnyQueryResult.Inspected { Answer: Analysis.Planning.FindingUnsafeAnyResult.Failed failed }:
                 logger.LogWarning(
-                    $"Error reading unsafe members in {path}: {failed.Error.Message}");
-                inspection.UnsafeMemberInspection =
-                    new Analysis.UnsafeMemberFindingInspection.Failed(
-                        new InspectionError(
-                            FindingSubjectFor(path),
-                            Analysis.AnalysisFindings.UnsafeMemberDescriptor,
-                            failed.Error.Message));
+                    $"Error reading unsafe code in {path}: {failed.Error.Message}");
+                inspection.UnsafeCodeInspection =
+                    new UnsafeCodeLibraryInspection.Failed(title, failed.Error.Message);
+                break;
+
+            case FindingUnsafeAnyQueryResult.NoMetadata:
+                inspection.UnsafeCodeInspection = null;
+                break;
+
+            case FindingUnsafeAnyQueryResult.Failed failed:
+                logger.LogWarning(
+                    $"Error reading unsafe code in {path}: {failed.Error.Message}");
+                inspection.UnsafeCodeInspection =
+                    new UnsafeCodeLibraryInspection.Failed(title, failed.Error.Message);
                 break;
 
             default:
                 throw new InvalidOperationException(
-                    $"Unknown unsafe member census result '{result.GetType().Name}'.");
+                    $"Unknown Finding Unsafe Any result '{result.GetType().Name}'.");
         }
     }
 

@@ -453,7 +453,7 @@ Interaction](inspect-web-shell-interaction.md#product-navigation-menu) and its
 
 The motivating real asset is
 `Microsoft.Extensions.Configuration.Binder@10.0.12`, observed through
-`package query 'Microsoft.Extensions.*' --where
+`find --packages 'Microsoft.Extensions.*' --where
 'depends=Microsoft.Extensions.Configuration' --nuspec-only`: its nuspec
 declares the requested dependency and makes Package Dependencies the natural
 continuation of the result. The durable Browser fixture uses the same
@@ -797,7 +797,7 @@ preset never needs to "contain" its own history.
 
 ## v1 non-goals
 
-- No free-text predicate DSL. Browser and `package query` consume the same
+- No free-text predicate DSL. Browser and `find --packages` consume the same
   product-issued term descriptors and semantics, while each host deliberately
   chooses how to present them.
 - No client-side re-filtering of a fetched result set — every term change is

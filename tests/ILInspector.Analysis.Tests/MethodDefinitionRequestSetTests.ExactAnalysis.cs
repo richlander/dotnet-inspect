@@ -183,6 +183,29 @@ public sealed partial class MethodDefinitionRequestSetTests
 
 public static unsafe class ExactMethodAnalysisFixture
 {
+    public static IAsyncEnumerable<int> AsyncIteratorLocalOwner(int value)
+    {
+        return Transform(value);
+
+        static async IAsyncEnumerable<int> Transform(int input)
+        {
+            await Task.Yield();
+            yield return Callee(input);
+        }
+    }
+
+    public static async Task<int> GenericLocalOwner(int value)
+    {
+        await Task.Yield();
+        return await Transform(value);
+
+        static async Task<int> Transform(int input)
+        {
+            await Task.Yield();
+            return Callee(input);
+        }
+    }
+
     public static int Target(int value)
     {
         try

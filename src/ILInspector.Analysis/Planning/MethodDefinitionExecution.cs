@@ -1425,14 +1425,30 @@ public sealed class MethodDefinitionExecution
             if (!ReadsRelation(state))
                 continue;
 
-            state.SourceBounded = true;
-            state.Failure =
-                new ProducerFailure(unit, GeneratedExpansionLabel, message);
-            state.SourceFailure = new MethodDefinitionSourceFailure(
-                unit,
-                GeneratedExpansionLabel,
-                message);
+            BoundRelationReader(state, unit, message);
         }
+    }
+
+    static void BoundRelationReader(
+        ProducerState state,
+        Exception error) =>
+        BoundRelationReader(
+            state,
+            0,
+            ProducerFailure.Describe(error));
+
+    static void BoundRelationReader(
+        ProducerState state,
+        int unit,
+        string message)
+    {
+        state.SourceBounded = true;
+        state.Failure =
+            new ProducerFailure(unit, GeneratedExpansionLabel, message);
+        state.SourceFailure = new MethodDefinitionSourceFailure(
+            unit,
+            GeneratedExpansionLabel,
+            message);
     }
 
     const string GeneratedExpansionLabel = "(generated body expansion)";
@@ -1982,7 +1998,12 @@ public sealed class MethodDefinitionExecution
             // completion, so the failure is its source failure too.
             foreach (ProducerState state in _states)
             {
-                if (ReadsRelation(state))
+                if (!ReadsRelation(state))
+                    continue;
+
+                if (state.RetainsResultOnGeneratedExpansionFailure)
+                    BoundRelationReader(state, ex);
+                else
                     FailSource(state, 0, GeneratedExpansionLabel, ex);
             }
         }
@@ -2045,6 +2066,14 @@ public sealed class MethodDefinitionExecution
                     reader,
                     typeHandle,
                     typeDefinition);
+            }
+            if (inScope && state.SettledTypes is { } settledTypes)
+            {
+                inScope = SourceTypeInScope(
+                    state,
+                    settledTypes,
+                    reader,
+                    typeHandle);
             }
 
             state.TypeInScopeNow = inScope;
@@ -2231,6 +2260,32 @@ public sealed class MethodDefinitionExecution
         return false;
     }
 
+    /// <summary>
+    /// Whether the type's source Type is still open for a producer that
+    /// settles Types, recording it as the Type a settling fact closes.
+    /// </summary>
+    static bool SourceTypeInScope(
+        ProducerState state,
+        HashSet<TypeDefinitionHandle> settledTypes,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle)
+    {
+        try
+        {
+            state.CurrentSourceType =
+                MethodDefinitionShapes.SourceType(reader, typeHandle);
+            return !settledTypes.Contains(state.CurrentSourceType);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            // A Type whose nesting cannot be read stays open, so it is
+            // visited and settles only its own units.
+            state.CurrentSourceType = typeHandle;
+            return !settledTypes.Contains(typeHandle);
+        }
+    }
+
     static bool TypeInScope(
         ProducerState state,
         MetadataReader reader,
@@ -2373,6 +2428,12 @@ public sealed class MethodDefinitionExecution
             return;
 
         state.SettlingFacts++;
+        if (state.SettledTypes is { } settledTypes)
+        {
+            settledTypes.Add(state.CurrentSourceType);
+            state.TypeInScopeNow = false;
+        }
+
         if (state.Terminal == ProducerTerminal.Exists
             || state.RowLimit is int rowLimit
                 && state.SettlingFacts >= rowLimit)
@@ -2768,6 +2829,10 @@ public sealed class MethodDefinitionExecution
 
         public abstract bool SupportsPendingRelationKernel { get; }
 
+        public bool RetainsResultOnGeneratedExpansionFailure =>
+            ((IMethodDefinitionProducer)Producer)
+                .RetainsResultOnGeneratedExpansionFailure;
+
         public abstract bool Visit(scoped MethodDefinitionView view);
 
         public virtual bool SupportsFusedInstructionShapes => false;
@@ -2827,6 +2892,15 @@ public sealed class MethodDefinitionExecution
 
         /// <summary>Whether the type being visited is in this producer's scope.</summary>
         public bool TypeInScopeNow = true;
+
+        /// <summary>
+        /// The source Types a settling fact closed, for a producer that
+        /// settles Types; null otherwise.
+        /// </summary>
+        public HashSet<TypeDefinitionHandle>? SettledTypes;
+
+        /// <summary>The source Type of the type being visited, for a producer that settles Types.</summary>
+        public TypeDefinitionHandle CurrentSourceType;
 
         public bool HasBodyLayer { get; } =
             (layers & MethodDefinitionLayers.Body) != 0;

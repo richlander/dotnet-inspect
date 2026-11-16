@@ -4,7 +4,7 @@ using NuGetFetch;
 
 namespace DotnetInspector.Packages;
 
-internal sealed class PackageSourceSettlementGeneration
+internal sealed partial class PackageSourceSettlementGeneration
 {
     private readonly Func<
         ConfiguredPackageAuthority,

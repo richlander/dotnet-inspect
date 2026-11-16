@@ -385,7 +385,7 @@ public sealed class AnalysisLibraryBodyUsePerformanceTests(
                     continue;
                 }
                 foreach (BodyTypeUseOccurrence occurrence
-                    in fact.Occurrences)
+                    in fact.Occurrences ?? [])
                 {
                     occurrences.Add(
                         new(

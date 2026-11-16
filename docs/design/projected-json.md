@@ -651,7 +651,6 @@ Existing pilot coverage proves only the currently wired slice:
   `ProjectedJsonRoutingAudit_EffectiveDiscoveryProjectionPreservesRows`,
   `ProjectedJsonRoutingAudit_EmptyEffectiveDiscoveryValidatesProjection`,
   `ProjectedJsonRoutingAudit_IlOffsetsProjectionFailsClosed`,
-  `ProjectedJsonRoutingAudit_MultiPackagePayloadProjectionsFailClosed`,
   `ProjectedJsonRoutingAudit_NarrowedDiscoveryOwnsProjectionValidation`,
   `ProjectedJsonRoutingAudit_PackageLensFieldsFailBeforeAcquisition`,
   `ProjectedJsonRoutingAudit_PackageLensPayloadFailsBeforeAcquisition`,

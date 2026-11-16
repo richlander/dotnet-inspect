@@ -632,7 +632,7 @@ public sealed class MemberBodyProducerMemberRenderTests
             pdbPath: null);
 
         Assert.Equal(MemberBodyProductionStatus.Complete, rendered.Status);
-        Assert.Contains("public event EventHandler Changed;", rendered.Text, StringComparison.Ordinal);
+        Assert.Contains("public event EventHandler? Changed;", rendered.Text, StringComparison.Ordinal);
         Assert.DoesNotContain(" add", rendered.Text, StringComparison.Ordinal);
         Assert.DoesNotContain(" remove", rendered.Text, StringComparison.Ordinal);
     }

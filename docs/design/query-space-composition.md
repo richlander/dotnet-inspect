@@ -100,6 +100,12 @@ associations retain independent results and receipts while one source group
 serves the selected combination. The Method Query Source owner constructs the
 structural requests through Analysis-owned `ExactMethodSemanticAnalysis`;
 Research consumes detached results rather than depending on QuerySpace.
+The same operation also exposes independent encoded-body-size and
+sibling-invocation lanes for later Member Metrics orchestration. A body-size
+lane opens no instruction source; a sibling-invocation lane retains only
+invocation operands, peeled MethodDef tokens, and typed targets. Their selected
+combination shares the same exact-MethodDef source group without selecting the
+complete implementation-profile producer.
 
 Method Classification is the first mixed-terminal production adopter. Its
 session-backed query lowers independent analyzer Rows, Count, Exists, and Head
@@ -225,10 +231,10 @@ The target interaction remains one consistent tuple of facet, operator, and
 operand:
 
 ```console
-dotnet-inspect package query 'Microsoft.Extensions.*' \
+dotnet-inspect find --packages 'Microsoft.Extensions.*' \
   --where "depends starts-with Microsoft.Extensions."
 
-dotnet-inspect library query ./artifacts \
+dotnet-inspect find --libraries ./artifacts \
   --where "references=System.Runtime"
 
 dotnet-inspect library ./artifacts/example.dll \

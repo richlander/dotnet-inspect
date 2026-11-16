@@ -120,6 +120,92 @@ public class QueryDiscoveryTests
     }
 
     [Fact]
+    public async Task DiffQuery_ListsTheStringLiteralKeyWithoutAcquisition()
+    {
+        // The one Diff section query key: the string-literals predicate over
+        // Transitions. A missing package is never acquired.
+        var bare = await Run(
+            "diff",
+            "--package",
+            "/missing/query-discovery.nupkg@1.0.0..2.0.0",
+            "-Q",
+            "--json");
+
+        Assert.Equal(0, bare.ExitCode);
+        Assert.Empty(bare.Error);
+        using (var json = JsonDocument.Parse(bare.Output))
+        {
+            JsonElement listed = Assert.Single(
+                json.RootElement.GetProperty("sections").EnumerateArray());
+            Assert.Equal(
+                DiffSections.Transitions.Name,
+                listed.GetProperty("section").GetString());
+            Assert.Equal(1, listed.GetProperty("facet_count").GetInt32());
+        }
+
+        var named = await Run(
+            "diff",
+            "-Q",
+            DiffSections.Transitions.Name,
+            "--json");
+
+        Assert.Equal(0, named.ExitCode);
+        Assert.Empty(named.Error);
+        using var described = JsonDocument.Parse(named.Output);
+        JsonElement section = Assert.Single(
+            described.RootElement.GetProperty("sections").EnumerateArray());
+        Assert.Contains(
+            "--analysis string-literals",
+            section.GetProperty("summary").GetString());
+        JsonElement facet = Assert.Single(
+            section.GetProperty("facets").EnumerateArray());
+        Assert.Equal(
+            StringLiteralComparisonQuery.LiteralKey,
+            facet.GetProperty("name").GetString());
+        Assert.Equal(
+            ["--where"],
+            facet.GetProperty("operators")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+        Assert.Equal(
+            ["contains", "starts-with"],
+            facet.GetProperty("comparisons")
+                .EnumerateArray()
+                .Select(value => value.GetString()));
+    }
+
+    [Theory]
+    [InlineData("Changes")]
+    [InlineData("Analysis Diff")]
+    [InlineData("Annotated Source Diff")]
+    public async Task DiffQuery_DeclaresSectionsWithoutQueryKeysHonestly(
+        string sectionName)
+    {
+        var result = await Run("diff", "-Q", sectionName, "--json");
+
+        Assert.Equal(0, result.ExitCode);
+        Assert.Empty(result.Error);
+        using var json = JsonDocument.Parse(result.Output);
+        JsonElement section = Assert.Single(
+            json.RootElement.GetProperty("sections").EnumerateArray());
+        Assert.Equal(sectionName, section.GetProperty("section").GetString());
+        Assert.Equal(0, section.GetProperty("facet_count").GetInt32());
+        Assert.Empty(section.GetProperty("facets").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task DiffHistoryQuery_IsRejected()
+    {
+        var result = await Run("diff", "--history", "-Q");
+
+        Assert.Equal(1, result.ExitCode);
+        Assert.Empty(result.Output);
+        Assert.Contains(
+            "Query discovery is not supported by 'diff --history'.",
+            result.Error);
+    }
+
+    [Fact]
     public async Task DependsQuery_NonJsonDiscoveryRendersRegisteredKindValues()
     {
         var result = await Run(
@@ -173,8 +259,8 @@ public class QueryDiscoveryTests
     public async Task LibraryQuery_ProjectsRegisteredReferenceCapabilityWithoutAcquisition()
     {
         var result = await Run(
-            "library",
-            "query",
+            "find",
+            "--libraries",
             "-Q",
             LibraryQuerySections.LibrariesName,
             "--json");
@@ -383,8 +469,8 @@ public class QueryDiscoveryTests
     public async Task QueryRejectsDataDiscoveryModes(string mode)
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-Q",
             "Packages",
             mode,
@@ -412,8 +498,8 @@ public class QueryDiscoveryTests
         string expected)
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             option,
             value,
             "-Q",
@@ -518,15 +604,15 @@ public class QueryDiscoveryTests
     public async Task PackageQueryDiscovery_IsInertAndDescribesExecutableTerms()
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-Q",
             "Packages",
             "--json");
         Assert.Equal(0, result.ExitCode);
         using var json = JsonDocument.Parse(result.Output);
         Assert.Equal(
-            "package query",
+            "find --packages",
             json.RootElement.GetProperty("command").GetString());
         JsonElement[] facets =
         [
@@ -612,10 +698,10 @@ public class QueryDiscoveryTests
             ? [$"{option}=Query: Packages"]
             : [option, "Query: Packages"];
         var result = await Run(
-            ["package", "query", .. selector, "--json"]);
+            ["find", "--packages", .. selector, "--json"]);
         var query = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-Q",
             "Packages",
             "--json");
@@ -737,8 +823,8 @@ public class QueryDiscoveryTests
     public async Task PackageQueryDiscovery_AppliesSemanticSelectionStages()
     {
         var result = await Run(
-            "package",
-            "query",
+            "find",
+            "--packages",
             "-Q",
             "Packages",
             "-n",

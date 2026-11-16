@@ -77,7 +77,7 @@ public static partial class ApiSurfaceExtractor
     /// is not admitted: no other assembly can reach it. A nested
     /// <c>private protected</c> Type is not admitted either.
     /// </summary>
-    static bool AdmitsApiAxisType(
+    internal static bool AdmitsApiAxisType(
         MetadataReader reader,
         TypeDefinitionHandle handle,
         TypeDefinition typeDef)

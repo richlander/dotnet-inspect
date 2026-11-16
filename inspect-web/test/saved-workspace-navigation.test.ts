@@ -4,7 +4,7 @@ import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
 import { parseSync } from "oxc-parser";
-import { defaultAnalysisMode } from "../src/analysis-inspector.ts";
+import { analysisModeForScope, defaultAnalysisMode } from "../src/analysis-inspector.ts";
 import { createCatalogRequests } from "../src/catalog-requests.ts";
 import {
   createPackageComparisonTargets,
@@ -16,6 +16,7 @@ import {
   retainWorkspacePackage,
   setTypeViewFacetCatalog,
   typeLensesFor,
+  typeRelationshipsOfferedFor,
 } from "../src/data.ts";
 import type {
   BrowserWorkspaceShareDecodeResult,
@@ -164,7 +165,7 @@ const hostNames = new Set([
   "capturedShareTabs", "resolvedWorkspaceShareTabs", "activeShareTabIndex",
   "workspaceCoordinateCount", "packageHierarchyTargetFramework",
   "workspaceTraversalTargetFramework",
-  "selectedLibraryShareKey", "packageDependenciesData",
+  "selectedLibraryShareKey", "currentAnalysisInspectorMode", "currentTypeAnalysisMode", "typeAnalysisContext", "packageDependenciesData",
   "scope", "syncUrl", "buildStateUrl",
   "buildShareUrl", "share",
   "navigateInAppUrl", "navigateWithinCurrentWorkspace",
@@ -705,6 +706,8 @@ function harness() {
     history,
     document,
     defaultAnalysisMode,
+    analysisModeForScope,
+    typeRelationshipsOfferedFor,
     hierarchyShareTargetFramework,
     workspaceLocation: asyncWorkspaceLocation,
     engineClient: {
@@ -901,6 +904,7 @@ function harness() {
     currentPlatformForwarderView: () => null,
     selectedLibrary: () => null,
     selectedLibraryRequest: () => "asset:retained-library",
+    firstLibraryScope: () => null,
     isRuntimePackId: () => false,
     loadPackage: async (
       id: string, version: string, framework: string,
@@ -1058,6 +1062,7 @@ function harness() {
 setTypeViewFacetCatalog([
   { id: "type.overview", kind: "Type", title: "Overview", order: 100 },
   { id: "type.api", kind: "Type", title: "Members", order: 200 },
+  { id: "type.analysis", kind: "Type", title: "Analysis", order: 250 },
   { id: "type.metadata", kind: "Type", title: "Metadata", order: 300 },
   { id: "type.source", kind: "Type", title: "Source", order: 400 },
   { id: "type.compare", kind: "Type", title: "Compare", order: 500 },
@@ -2647,6 +2652,7 @@ test("mixed source publication keeps its inactive Platform visible", () => {
   const posting = {
     retainedDefinitionId: "workspace-definition-1",
     realizationId: "realization-1",
+    platforms: [{ navigationId: "platform-tab", nativeSelection: null }],
     canonicalLocation: "https://inspect.test/?w=source-mixed",
     definition: {
       activeTabId: "package-tab",

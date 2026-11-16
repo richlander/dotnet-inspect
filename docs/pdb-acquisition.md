@@ -251,7 +251,9 @@ The initial CLI policy is:
    MSDL;
 2. for a NuGet.org-produced package, embedded, verified store, applicable
    package-local evidence, `.snupkg`, the NuGet symbol server, then any
-   explicitly configured fallback provider;
+   explicitly configured fallback provider; the CLI configures MSDL as that
+   fallback, so a Microsoft package whose PDB is published only to MSDL
+   settles without inferring its publisher;
 3. for another package producer, only package-local and external providers
    explicitly authorized for that producer; and
 4. in offline or cache-only mode, embedded and verified-store content plus
@@ -266,6 +268,17 @@ Microsoft-owned-package specialization remains unavailable until an
 owner-issued publisher identity exists. The current package-ID-prefix
 heuristic is compatibility behavior to retire, not a source of normative
 policy.
+
+The configured MSDL fallback is not that specialization. The host chooses it
+for every NuGet.org-produced package, so nothing about the package selects
+it; it queries MSDL by the exact Portable PDB identity, and identity
+validation admits only matching content. Because it runs last, an earlier
+provider's failure, such as the NuGet symbol server's HTTP 403, stays
+non-absence: when the fallback supplies the PDB, settlement is Acquired, as
+for any later provider; when it does not, settlement keeps the earlier
+failure. The cost is one MSDL request for a NuGet.org package whose PDB no
+earlier provider has, and an exact HTTP 404 is a reusable negative
+observation for that route.
 
 ### Positive verified-PDB store
 

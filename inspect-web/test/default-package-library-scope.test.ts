@@ -7,13 +7,20 @@ import { parseWorkspaceRoute } from "../src/workspace-navigation.ts";
 import { functionDeclaration, sourceText } from "./composition-root-test-fixture.ts";
 
 const selectDefault = stripTypeScriptTypes(
-  sourceText(functionDeclaration("selectDefaultPackageSubject")),
+  `${sourceText(functionDeclaration("firstLibraryScope"))}\n`
+  + sourceText(functionDeclaration("selectDefaultPackageSubject")),
 );
 const selectLens = stripTypeScriptTypes(
   sourceText(functionDeclaration("selectLibraryLens")),
 );
 const applyLocation = stripTypeScriptTypes(
   sourceText(functionDeclaration("applyLocationView")),
+);
+const installSurface = stripTypeScriptTypes(
+  sourceText(functionDeclaration("installPackageSurfacePopulation")),
+);
+const prepareSpotlight = stripTypeScriptTypes(
+  sourceText(functionDeclaration("prepareSpotlightResults")),
 );
 
 type PackageChildren =
@@ -47,8 +54,12 @@ function packageChildren(
   };
 }
 
-test("fresh package navigation opens Package Overview and clears the previous Library selection", () => {
+test("fresh package navigation opens Package Overview with First Library selected", () => {
   const state = {
+    package: {
+      assemblies: [{ id: "first" }, { id: "best" }],
+      assemblyId: "best",
+    },
     workspaceSubjectOpen: true,
     libraryScope: new Set(["previous"]),
     atLibraryRoot: true,
@@ -56,13 +67,81 @@ test("fresh package navigation opens Package Overview and clears the previous Li
     packageLens: "metadata",
     libraryLens: "api",
   };
-  runInNewContext(`${selectDefault}\nselectDefaultPackageSubject();`, { state });
+  runInNewContext(`${selectDefault}\nselectDefaultPackageSubject();`, {
+    state,
+    packageLibrariesForModel,
+  });
   assert.equal(state.workspaceSubjectOpen, false);
   assert.equal(state.atLibraryRoot, false);
   assert.equal(state.atPackageRoot, true);
-  assert.equal(state.libraryScope, null);
+  assert.deepEqual(Array.from(state.libraryScope ?? []), ["best"]);
   assert.equal(state.packageLens, "overview");
   assert.equal(state.libraryLens, "overview");
+});
+
+test("fresh package navigation without an admitted First Library selects no Library", () => {
+  const state = {
+    package: { assemblies: [{ id: "first" }], assemblyId: "missing" },
+    libraryScope: new Set(["previous"]) as Set<string> | null,
+  };
+  runInNewContext(`${selectDefault}\nselectDefaultPackageSubject();`, {
+    state,
+    packageLibrariesForModel,
+  });
+  assert.equal(state.libraryScope, null);
+});
+
+for (const hasWorkspaceState of [false, true]) {
+  test(`${hasWorkspaceState ? "restored" : "routed"} Package Overview selects First Library for Library entry`, () => {
+    const loc = {
+      ...parseWorkspaceRoute(new URL(
+        "https://inspect.example/?package=Sample&version=1.0.0#pkg",
+      )).visible,
+      hasWorkspaceState,
+    };
+    const state = {
+      package: {
+        assemblies: [{ id: "first" }, { id: "best" }],
+        assemblyId: "best",
+      },
+      rootKind: "package",
+      atLibraryRoot: false,
+      atPackageRoot: true,
+      libraryScope: null as Set<string> | null,
+    };
+    runInNewContext(`${selectDefault}\n${applyLocation}\napplyLocationView(loc);`, {
+      state,
+      loc,
+      packageLibrariesForModel,
+    });
+    assert.equal(state.atPackageRoot, true);
+    assert.deepEqual(Array.from(state.libraryScope ?? []), ["best"]);
+  });
+}
+
+test("restored All libraries navigation stays the explicit aggregate", () => {
+  const loc = {
+    ...parseWorkspaceRoute(new URL(
+      "https://inspect.example/?package=Sample&version=1.0.0#library",
+    )).visible,
+    hasWorkspaceState: true,
+  };
+  const state = {
+    package: {
+      assemblies: [{ id: "first" }, { id: "best" }],
+      assemblyId: "best",
+    },
+    atLibraryRoot: false,
+    atPackageRoot: false,
+    libraryScope: null as Set<string> | null,
+  };
+  runInNewContext(`${selectDefault}\n${applyLocation}\napplyLocationView(loc);`, {
+    state,
+    loc,
+    packageLibrariesForModel,
+  });
+  assert.equal(state.atLibraryRoot, true);
+  assert.equal(state.libraryScope, null);
 });
 
 for (const [hash, subject, lens] of [
@@ -94,7 +173,7 @@ for (const [hash, subject, lens] of [
     assert.equal(state.atPackageRoot, subject === "package");
     assert.equal(state.atLibraryRoot, subject === "library");
     assert.equal(subject === "package" ? state.packageLens : state.libraryLens, lens);
-    if (subject === "library") {
+    if (subject === "library" || hash === "") {
       assert.deepEqual(Array.from(state.libraryScope), ["best"]);
     }
   });
@@ -117,7 +196,11 @@ test("restored Library navigation retains its exact selection and inspector", ()
     libraryScope: new Set(["first"]),
     libraryLens: "overview",
   };
-  runInNewContext(`${selectDefault}\n${applyLocation}\napplyLocationView(loc);`, { state, loc });
+  runInNewContext(`${selectDefault}\n${applyLocation}\napplyLocationView(loc);`, {
+    state,
+    loc,
+    packageLibrariesForModel,
+  });
   assert.equal(state.atPackageRoot, false);
   assert.equal(state.atLibraryRoot, true);
   assert.equal(state.libraryLens, "metadata");
@@ -127,30 +210,79 @@ test("restored Library navigation retains its exact selection and inspector", ()
 const autoLoad = stripTypeScriptTypes(
   sourceText(functionDeclaration("maybeAutoLoadPackageSurfaceForLibraryNavigation")),
 );
+const deepLoad = stripTypeScriptTypes(
+  sourceText(functionDeclaration("loadDeepPackageSurface")),
+);
 
 for (const lens of ["overview", "api"]) {
-  test(`Library ${lens} requests broad Type navigation only when needed`, () => {
-    let loads = 0;
+  test(`Library ${lens} requests its exact Type surface only when needed`, () => {
+    const loads: (string | null)[] = [];
     runInNewContext(`${autoLoad}\nmaybeAutoLoadPackageSurfaceForLibraryNavigation();`, {
       state: { package: { id: "Sample" }, atLibraryRoot: true, libraryLens: lens, libraryScope: new Set(["best"]) },
-      packageSurfaceCanLoadTypes: () => true,
-      loadPackageSurface: () => { loads++; return Promise.resolve(true); },
+      packageSurfaceIsEligible: () => true,
+      loadPackageSurface: (_pkg: unknown, libraryId: string | null) => {
+        loads.push(libraryId);
+        return Promise.resolve(true);
+      },
       observeAsync: () => {},
     });
-    assert.equal(loads, lens === "overview" ? 0 : 1);
+    assert.deepEqual(loads, lens === "overview" ? [] : ["best"]);
   });
 }
 
 
 test("All Libraries Overview retains its broad Type navigation request", () => {
-  let loads = 0;
+  const loads: (string | null)[] = [];
   runInNewContext(`${autoLoad}\nmaybeAutoLoadPackageSurfaceForLibraryNavigation();`, {
     state: { package: { id: "Sample" }, atLibraryRoot: true, libraryLens: "overview", libraryScope: null },
-    packageSurfaceCanLoadTypes: () => true,
-    loadPackageSurface: () => { loads++; return Promise.resolve(true); },
+    packageSurfaceIsEligible: () => true,
+    loadPackageSurface: (_pkg: unknown, libraryId: string | null) => {
+      loads.push(libraryId);
+      return Promise.resolve(true);
+    },
     observeAsync: () => {},
   });
-  assert.equal(loads, 1);
+  assert.deepEqual(loads, [null]);
+});
+
+test("deep Library Type navigation requests only its exact Library surface", async () => {
+  const loads: (string | null)[] = [];
+  await runInNewContext(
+    `${deepLoad}\nloadDeepPackageSurface(pkg, deep, undefined);`,
+    {
+      pkg: { id: "Sample" },
+      deep: { atLibraryRoot: true, library: "sibling", type: "Sibling.Type" },
+      packageSurfaceIsEligible: () => true,
+      packageLibrariesForModel: () => [{ id: "sibling-id" }],
+      resolvePackageLibrary: () => ({ id: "sibling-id" }),
+      resolveReplacementPackageLibrary: () => null,
+      loadPackageSurface: (_pkg: unknown, libraryId: string | null) => {
+        loads.push(libraryId);
+        return Promise.resolve(true);
+      },
+    },
+  );
+  assert.deepEqual(loads, ["sibling-id"]);
+});
+
+test("package-scoped deep Type navigation retains aggregate loading", async () => {
+  const loads: (string | null)[] = [];
+  await runInNewContext(
+    `${deepLoad}\nloadDeepPackageSurface(pkg, deep, undefined);`,
+    {
+      pkg: { id: "Sample" },
+      deep: { type: "Sibling.Type" },
+      packageSurfaceIsEligible: () => true,
+      packageLibrariesForModel: () => [{ id: "first" }, { id: "sibling" }],
+      resolvePackageLibrary: () => null,
+      resolveReplacementPackageLibrary: () => null,
+      loadPackageSurface: (_pkg: unknown, libraryId: string | null) => {
+        loads.push(libraryId);
+        return Promise.resolve(true);
+      },
+    },
+  );
+  assert.deepEqual(loads, [null]);
 });
 
 
@@ -216,6 +348,77 @@ test("an exact-only Library lens consumes the owner-issued First Library", () =>
   });
   assert.deepEqual(selected, ["owner-first"]);
   assert.equal(state.libraryLens, "api");
+});
+
+test("installing an exact sibling surface retains the owner-issued First Library", () => {
+  const ownerChildren = { content: { libraries: [] } };
+  const pkg = {
+    assembly: "Owner.First",
+    assemblyId: "owner-first",
+    assemblyAsset: "ref/net8.0/Owner.First.dll",
+    packageChildren: ownerChildren,
+    packageInfo: { content: "owner-info" },
+    versionSettlement: { content: "owner-version" },
+    types: [],
+  };
+  const expanded = {
+    assembly: "Sibling",
+    assemblyId: "sibling",
+    assemblyAsset: "ref/net8.0/Sibling.dll",
+    packageChildren: { content: { libraries: ["sibling"] } },
+    packageInfo: undefined,
+    versionSettlement: undefined,
+    types: [{ name: "Sibling.Type" }],
+  };
+  runInNewContext(
+    `${installSurface}\ninstallPackageSurfacePopulation(pkg, expanded, true);`,
+    { pkg, expanded },
+  );
+  assert.equal(pkg.assembly, "Owner.First");
+  assert.equal(pkg.assemblyId, "owner-first");
+  assert.equal(pkg.assemblyAsset, "ref/net8.0/Owner.First.dll");
+  assert.equal(pkg.packageChildren, ownerChildren);
+  assert.deepEqual(pkg.types, [{ name: "Sibling.Type" }]);
+});
+
+test("Spotlight queues aggregate loading while an exact request is in flight", async () => {
+  const pkg = { id: "Sample" };
+  const loads: (string | null)[] = [];
+  let releaseExact!: () => void;
+  const exactSettled = new Promise<void>(resolve => {
+    releaseExact = resolve;
+  });
+  let observed!: Promise<unknown>;
+  let updates = 0;
+  runInNewContext(`${prepareSpotlight}\nprepareSpotlightResults();`, {
+    state: {
+      spotlightOpen: true,
+      spotlightQuery: "Sibling.Type",
+      spotlightScope: "types",
+      packages: [pkg],
+      package: pkg,
+    },
+    packageSurfaceIsEligible: () => true,
+    packageSurfaceIsAvailable: () => false,
+    packageSurfaceFailed: () => false,
+    loadPackageSurface: async (_pkg: unknown, libraryId: string | null = null) => {
+      loads.push(libraryId);
+      await exactSettled;
+      return true;
+    },
+    observeAsync: (operation: Promise<unknown>) => {
+      observed = operation;
+    },
+    spotlight: {
+      updateResults: () => {
+        updates++;
+      },
+    },
+  });
+  assert.deepEqual(loads, [null]);
+  releaseExact();
+  await observed;
+  assert.equal(updates, 1);
 });
 
 test("summary construction without a default field preserves its legacy fallback", () => {

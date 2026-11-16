@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using DotnetInspector.LibraryMetadata;
 
 namespace DotnetInspector.Queries;
 
@@ -40,17 +41,6 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
         NavigationWorkspaceSnapshot snapshot,
         StructuralSubjectIdentity subject)
     {
-        StructuralSubjectIdentity? parent = subject switch
-        {
-            StructuralSubjectIdentity.EcosystemSubject => snapshot.Workspace,
-            StructuralSubjectIdentity.ProjectSubject => snapshot.Workspace,
-            StructuralSubjectIdentity.PackageSubject => snapshot.Workspace,
-            StructuralSubjectIdentity.AllLibrariesSubject all => all.Package,
-            StructuralSubjectIdentity.LibrarySubject library => library.Package,
-            StructuralSubjectIdentity.TypeSubject type => type.Library,
-            StructuralSubjectIdentity.MemberSubject member => member.DeclaringType,
-            _ => null,
-        };
         (string label, string? summary) = subject switch
         {
             StructuralSubjectIdentity.WorkspaceSubject =>
@@ -68,18 +58,49 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
                 ("All libraries", "All admitted libraries in this Package."),
             StructuralSubjectIdentity.LibrarySubject library =>
                 (snapshot.Libraries.First(row => row.Subject == library).Asset!.Path, null),
+            StructuralSubjectIdentity.AdmittedLibrarySubject library =>
+                (library.Occurrence.Library.AssemblyCorrespondence.ApiIdentity.Identity.Name, null),
             StructuralSubjectIdentity.TypeSubject type =>
                 TypeLabel(snapshot.Types.First(row => row.Row.Subject == type)),
+            StructuralSubjectIdentity.AdmittedTypeSubject type =>
+                (TypeName(type.Name), null),
             StructuralSubjectIdentity.MemberSubject member =>
                 MemberLabel(snapshot.Members.First(row => row.Row.Subject == member)),
             _ => throw new InvalidOperationException("Unknown Navigation subject."),
         };
-        return new(SubjectId(subject), subject.Kind, label, summary,
+        return Subject(snapshot, subject, (label, summary));
+    }
+
+    NavigationConsumerSubject Subject(
+        NavigationWorkspaceSnapshot snapshot,
+        StructuralSubjectIdentity subject,
+        (string Label, string? Summary) label)
+    {
+        StructuralSubjectIdentity? parent = subject switch
+        {
+            StructuralSubjectIdentity.EcosystemSubject => snapshot.Workspace,
+            StructuralSubjectIdentity.ProjectSubject => snapshot.Workspace,
+            StructuralSubjectIdentity.PackageSubject => snapshot.Workspace,
+            StructuralSubjectIdentity.AllLibrariesSubject all => all.Package,
+            StructuralSubjectIdentity.LibrarySubject library => library.Package,
+            StructuralSubjectIdentity.AdmittedLibrarySubject => snapshot.Workspace,
+            StructuralSubjectIdentity.TypeSubject type => type.Library,
+            StructuralSubjectIdentity.AdmittedTypeSubject type => type.Library,
+            StructuralSubjectIdentity.MemberSubject member => member.DeclaringType,
+            _ => null,
+        };
+        return new(SubjectId(subject), subject.Kind, label.Label, label.Summary,
             parent is null ? null : SubjectId(parent));
     }
 
     static (string, string?) TypeLabel(NavigationTypeDescriptor row) =>
         (row.Row.ProducerRow.FullName, row.Row.ProducerRow.Documentation.Summary);
+
+    static string TypeName(ILInspector.Metadata.MetadataTypeDefinitionName name)
+    {
+        string path = string.Join("+", name.Segments);
+        return name.Namespace.Length == 0 ? path : $"{name.Namespace}.{path}";
+    }
 
     static (string, string?) MemberLabel(NavigationMemberDescriptor row) =>
         (row.Row.ProducerRow.Name, row.Row.ProducerRow.Documentation.Summary);
@@ -143,6 +164,7 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
         NavigationConsumerScopeStatus? scope = null,
         bool actionsEnabled = true)
     {
+        actionsEnabled &= snapshot.AdmittedContext is null;
         string generation = Token();
         var actions = new Dictionary<string, NavigationActionTarget>(StringComparer.Ordinal);
         string source = SubjectId(snapshot.ActiveSubject);
@@ -165,15 +187,45 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
             NavigationDescriptorState state,
             bool active,
             bool retained,
-            ImmutableArray<NavigationInventoryEvidence> evidence = default) =>
-            new(kind, kind.ToString(), subject is null ? null : Subject(snapshot, subject),
+            ImmutableArray<NavigationInventoryEvidence> evidence = default,
+            ImmutableArray<NavigationConsumerDiagnostic> additional = default,
+            NavigationConsumerSubject? projectedSubject = null) =>
+            new(kind, kind.ToString(), projectedSubject
+                    ?? (subject is null ? null : Subject(snapshot, subject)),
                 state, active, retained,
-                evidence.IsDefaultOrEmpty
-                    ? []
-                    : [.. evidence.Select(Diagnostic)],
+                [
+                    .. (evidence.IsDefaultOrEmpty ? [] : evidence.Select(Diagnostic)),
+                    .. (additional.IsDefaultOrEmpty ? [] : additional),
+                ],
                 state == NavigationDescriptorState.Available && subject is not null && !active
                     ? Action(NavigationOperationKind.Subject, subject)
                     : null);
+
+        ImmutableArray<NavigationConsumerDiagnostic> sourceDiagnostics =
+            snapshot.AdmittedContext is not { } admitted
+                ? []
+                : snapshot.AdmittedInventory switch
+                {
+                    LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete incomplete =>
+                    [
+                        new(NavigationDiagnosticKind.LibraryInventoryIncomplete,
+                            SubjectId(admitted.Library),
+                            $"Name inventory incomplete: {incomplete.Bound}."),
+                    ],
+                    LibraryTypeDeclarationInventoryInspectionOutcome.Rejected rejected =>
+                    [
+                        new(NavigationDiagnosticKind.LibraryInventoryRejected,
+                            SubjectId(admitted.Library),
+                            $"Name inventory rejected: {rejected.Kind}."),
+                    ],
+                    LibraryTypeDeclarationInventoryInspectionOutcome.Failed failed =>
+                    [
+                        new(NavigationDiagnosticKind.LibraryInventoryFailed,
+                            SubjectId(admitted.Library),
+                            $"Name inventory failed: {failed.Kind}."),
+                    ],
+                    _ => [],
+                };
 
         ImmutableArray<NavigationInventoryEvidence> HierarchyEvidence(
             NavigationHierarchyDescriptor descriptor)
@@ -299,7 +351,9 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
             [
                 .. snapshot.Hierarchy.Select(row => Descriptor(
                     row.Kind, row.Subject, row.State, row.IsActive,
-                    row.Subject is not null, HierarchyEvidence(row))),
+                    row.Subject is not null, HierarchyEvidence(row),
+                    row.Kind == StructuralSubjectKind.Type
+                        ? sourceDiagnostics : [])),
             ],
             [
                 .. snapshot.Libraries.Select(row => new NavigationConsumerLibraryDescriptor(
@@ -308,14 +362,23 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
             ],
             [
                 .. snapshot.Types.Select(row => new NavigationConsumerTypeDescriptor(
-                    Descriptor(StructuralSubjectKind.Type, row.Row.Subject, row.State, row.IsActive, row.IsRetained),
+                    Descriptor(StructuralSubjectKind.Type, row.Row.Subject, row.State, row.IsActive, row.IsRetained,
+                        projectedSubject: Subject(snapshot, row.Row.Subject, TypeLabel(row))),
                     SubjectId(row.Row.Subject.Library), row.Row.ProducerRow.Accessibility,
                     row.Row.ProducerRow.Kind, Descendants(row.Row.Subject))),
+                .. snapshot.AdmittedTypes.Select(row => new NavigationConsumerTypeDescriptor(
+                    Descriptor(StructuralSubjectKind.Type, row.Subject,
+                        NavigationDescriptorState.Available, row.IsActive, row.IsRetained),
+                    SubjectId(row.Subject.Library),
+                    row.Declaration.IsPublicSurface ? "public" : "non-public",
+                    row.Declaration.DefinitionKind?.ToString() ?? "Definition",
+                    [])),
             ],
             [
                 .. snapshot.Members.Select(row => new NavigationConsumerMemberDescriptor(
                     Descriptor(StructuralSubjectKind.Member, row.Row.Subject, row.State,
-                        row.Row.Subject == snapshot.ActiveSubject, row.IsRetained),
+                        row.Row.Subject == snapshot.ActiveSubject, row.IsRetained,
+                        projectedSubject: Subject(snapshot, row.Row.Subject, MemberLabel(row))),
                     SubjectId(row.Row.Subject.DeclaringType.Library), SubjectId(row.Row.ContainingType),
                     SubjectId(row.Row.Subject.DeclaringType), row.Row.ProducerRow.Accessibility,
                     row.Row.ProducerRow.Kind, row.Row.ProducerRow.Signature, Descendants(row.Row.Subject))),
@@ -327,6 +390,7 @@ internal sealed class NavigationConsumerProjection(NavigationProjectionState sta
             lensOutcome,
             [
                 .. (snapshot.Inventory?.Types.Evidence ?? []).Select(Diagnostic),
+                .. sourceDiagnostics,
             ]);
         return (result, actions);
     }

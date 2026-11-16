@@ -201,6 +201,8 @@ async function measure(
     if (surface.inspectionError) {
       throw new Error(`Package inspection failed: ${surface.inspectionError}`);
     }
+    if (surface.totalMembers === null)
+      throw new Error("Package Member count is unavailable.");
     const type = surface.types.find(
       candidate => candidate.definitionId === input.scenario.typeIdentity,
     );

@@ -17,7 +17,7 @@ concurrency:
 env:
   DOTNET_CLI_TELEMETRY_OPTOUT: true
   DOTNET_NOLOGO: true
-  DOTNET_SDK_VERSION: '11.0.100-rc.1.26425.128'
+  DOTNET_SDK_VERSION: '11.0.x'
 
 jobs:
   source:
@@ -134,8 +134,12 @@ jobs:
             os: macos-latest
           - rid: linux-x64
             os: ubuntu-26.04
+            image: azurelinux-3.0-net11.0-cross-amd64
+            rootfs: /crossrootfs/x64
           - rid: linux-arm64
-            os: ubuntu-26.04-arm
+            os: ubuntu-26.04
+            image: azurelinux-3.0-net11.0-cross-arm64
+            rootfs: /crossrootfs/arm64
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -148,6 +152,7 @@ jobs:
           dotnet-version: ${{ env.DOTNET_SDK_VERSION }}
 
       - name: Pack RID-specific package
+        if: runner.os != 'Linux'
         run: >
           dotnet pack
           src/DotnetInspect.Cli
@@ -155,6 +160,35 @@ jobs:
           -r ${{ matrix.rid }}
           -p:OfficialAotBuild=true
           -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net
+
+      - name: Pack RID-specific Linux package
+        if: runner.os == 'Linux'
+        env:
+          RID: ${{ matrix.rid }}
+          IMAGE: ${{ matrix.image }}
+          ROOTFS_DIR: ${{ matrix.rootfs }}
+        run: |
+          sdk_dir="$(dirname "$(readlink -f "$(command -v dotnet)")")"
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            -v "$GITHUB_WORKSPACE:/src" \
+            -v "$sdk_dir:/host-dotnet:ro" \
+            -w /src \
+            -e HOME=/tmp \
+            -e DOTNET_ROOT=/host-dotnet \
+            -e DOTNET_CLI_TELEMETRY_OPTOUT \
+            -e DOTNET_NOLOGO \
+            -e PATH="/host-dotnet:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
+            -e ROOTFS_DIR \
+            -e RID \
+            "mcr.microsoft.com/dotnet-buildtools/prereqs:$IMAGE" \
+            sh -c 'dotnet pack src/DotnetInspect.Cli -c Release -r "$RID" -p:OfficialAotBuild=true -p:DotnetInspectWebsiteUrl=https://dotnet-inspect.net -p:SysRoot="$ROOTFS_DIR" -p:LinkerFlavor=lld'
+
+      - name: Verify Linux package ABI
+        if: runner.os == 'Linux'
+        env:
+          RID: ${{ matrix.rid }}
+        run: eng/verify-linux-aot-abi.sh artifacts/package/release/dotnet-inspect."$RID".*.nupkg "$RID"
 
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

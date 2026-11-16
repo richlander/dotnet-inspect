@@ -101,12 +101,14 @@ public static class ImplementationComplexityService
                 + "or both implementation-diff endpoints.");
         }
 
-        if (oldByAssembly.Values.Any(profile => !profile.Receipt.HasFullMethodEvidenceScope)
-            || newByAssembly.Values.Any(profile => !profile.Receipt.HasFullMethodEvidenceScope))
+        if (oldByAssembly.Values.Any(
+                profile => !profile.Coverage.HasFullMethodEvidenceScope)
+            || newByAssembly.Values.Any(
+                profile => !profile.Coverage.HasFullMethodEvidenceScope))
         {
             return Unavailable(
                 "Normal-flow cyclomatic complexity requires unscoped "
-                + "method-evidence coverage for both implementation-diff "
+                + "profile coverage for both implementation-diff "
                 + "endpoints.");
         }
 
