@@ -3,8 +3,10 @@ using DotnetInspector.Diff;
 namespace DotnetInspect.Web.Interop.Metadata;
 
 /// <summary>
-/// Retains the most recent whole-Library API comparison so Library, Type, and
-/// Member Compare requests over the same endpoint pair complete it once.
+/// Retains the most recent whole-Library API comparison, which a Library
+/// Compare request computes, so later Library, Type, and Member Compare
+/// requests over the same endpoint pair reuse it. A Type or Member request
+/// never computes it: without it, the request loads only its Types.
 /// </summary>
 /// <remarks>
 /// The comparison is a pure function of the two acquired package contents,
@@ -44,6 +46,25 @@ static class LibraryApiComparisonMemo
         {
             return s_computations.GetValueOrDefault(currentPackageId);
         }
+    }
+
+    /// <summary>
+    /// Reads the retained comparison of this endpoint pair, if any. A Type or
+    /// Member request uses the value it read, and otherwise loads only its
+    /// Types rather than computing the comparison.
+    /// </summary>
+    internal static bool TryGet(Key key, out LibraryApiComparison value)
+    {
+        lock (Gate)
+        {
+            if (s_entry is { } entry && entry.Key == key)
+            {
+                value = entry.Value;
+                return true;
+            }
+        }
+        value = default!;
+        return false;
     }
 
     internal static LibraryApiComparison GetOrCompute(
