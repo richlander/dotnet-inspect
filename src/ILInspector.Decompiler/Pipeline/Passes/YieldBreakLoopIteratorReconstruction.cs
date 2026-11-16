@@ -5,7 +5,7 @@ namespace ILInspector.Decompiler.Pipeline;
 /// explicit conditional <c>yield break</c>. The discriminator is the loop header
 /// that falls through to terminal <c>return false</c> before the yield block;
 /// ordinary counting iterators keep their direct branch-to-condition shape and
-/// remain owned by <see cref="CountingLoopReconstruction"/>.
+/// belong to the general inverse.
 /// </summary>
 internal static class YieldBreakLoopIteratorReconstruction
 {
