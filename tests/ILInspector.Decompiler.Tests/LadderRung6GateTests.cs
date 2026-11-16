@@ -322,16 +322,16 @@ public class LadderRung6GateTests
                 "static unsafe int M(Point* p)",
                 body,
                 """
-                public unsafe struct Point
+                public struct Point
                 {
                     public int X;
                     public int P { get; set; }
                     public int this[int i] => X + i;
                     public int M() => X;
                 }
-                public static unsafe class Extensions
+                public static class Extensions
                 {
-                    public static int ExtPtr(Point* p)
+                    public static unsafe int ExtPtr(Point* p)
                     {
                         unsafe
                         {

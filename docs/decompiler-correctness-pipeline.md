@@ -112,7 +112,7 @@ Semantic compilation replays the normalized memory-safety model with a compiler
 configuration that actually enforces it. Updated modules use Preview plus the
 `updated-memory-safety-rules` feature. Legacy, malformed, unsupported, and
 unmarked modules use the stable latest language version without that feature;
-Roslyn 5.9 Preview itself enables the updated behavior and therefore cannot
+Roslyn 5.12 Preview itself enables the updated behavior and therefore cannot
 serve as a legacy oracle. Runtime-async is added independently from method
 implementation metadata.
 `CompilerFeatureOptionsTests.HarnessReplayEnforcesDistinctLegacyAndUpdatedUnsafeRules`
