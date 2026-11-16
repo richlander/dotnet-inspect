@@ -1,0 +1,1 @@
+Error: -v is not available with package query --explain; only --json and process-wide controls may accompany the installed-query explanation.

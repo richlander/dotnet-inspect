@@ -1,0 +1,14 @@
+{"kind": "view", "file": "view-01.txt", "source": "assigned guide", "time_ns": 32617916}
+{"kind": "request-start", "id": 1, "time_ns": 21779250}
+{"kind": "request", "id": 1, "time_ns": 49723583}
+{"kind": "view", "file": "view-02.txt", "source": "response-01.out", "time_ns": 19407291}
+{"kind": "request-start", "id": 2, "time_ns": 25159666}
+{"kind": "request", "id": 2, "time_ns": 54124625}
+{"kind": "view", "file": "view-03.txt", "source": "response-02.out", "time_ns": 26473833}
+{"kind": "request-start", "id": 3, "time_ns": 22670791}
+{"kind": "request", "id": 3, "time_ns": 51469416}
+{"kind": "view", "file": "view-04.txt", "source": "response-03.out", "time_ns": 26308083}
+{"kind": "request-start", "id": 4, "time_ns": 25434416}
+{"kind": "request", "id": 4, "time_ns": 1355573500}
+{"kind": "view", "file": "view-05.txt", "source": "response-04.out", "time_ns": 29732291}
+{"kind": "view", "file": "view-06.txt", "source": "response-04.err", "time_ns": 22362500}

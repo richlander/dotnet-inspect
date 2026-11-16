@@ -1,0 +1,141 @@
+[
+  {
+    "name": "command",
+    "argv": [
+      "package",
+      "query",
+      "--explain"
+    ],
+    "exit": 0,
+    "stdout_bytes": 18770,
+    "stdout_sha256": "291faaf34918bb9150312009e70a4ecdb372118e80a4938f64bfeb8eda8927df",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "command-json",
+    "argv": [
+      "package",
+      "query",
+      "--explain",
+      "--json"
+    ],
+    "exit": 0,
+    "stdout_bytes": 18770,
+    "stdout_sha256": "291faaf34918bb9150312009e70a4ecdb372118e80a4938f64bfeb8eda8927df",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "root-hal",
+    "argv": [
+      "explain",
+      "package-query/query",
+      ".hal",
+      "--json"
+    ],
+    "exit": 0,
+    "stdout_bytes": 18770,
+    "stdout_sha256": "291faaf34918bb9150312009e70a4ecdb372118e80a4938f64bfeb8eda8927df",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "facet-hal",
+    "argv": [
+      "explain",
+      "package-query/query/facets/depends",
+      ".hal",
+      "--json"
+    ],
+    "exit": 0,
+    "stdout_bytes": 2643,
+    "stdout_sha256": "3f4fb39938d1438e995d001e1cea059b7744adaa3f471482cac6e77caa41055a",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "help",
+    "argv": [
+      "package",
+      "query",
+      "--help"
+    ],
+    "exit": 0,
+    "stdout_bytes": 3264,
+    "stdout_sha256": "eaff003cf16f5394a85af4437eb37da379fc68bc9e6fac0a56df06f6ab5fa1f3",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "query-help",
+    "argv": [
+      "package",
+      "query",
+      "-Q",
+      "--json"
+    ],
+    "exit": 0,
+    "stdout_bytes": 1526,
+    "stdout_sha256": "5a91c77d9f1c35407ff0531a80c59a5e9872f1e94a221ff23d1f191933791185",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "name": "tips",
+    "argv": [
+      "package",
+      "query",
+      "--explain",
+      ".tips"
+    ],
+    "exit": 1,
+    "stdout_bytes": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_bytes": 121,
+    "stderr_sha256": "add27f40439cebff43b2df5c20f5e3d0f359830864538ecea0d22fb6517f1d9b"
+  },
+  {
+    "name": "seed",
+    "argv": [
+      "package",
+      "query",
+      "Microsoft.Extensions.Http.Polly",
+      "--explain"
+    ],
+    "exit": 1,
+    "stdout_bytes": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_bytes": 95,
+    "stderr_sha256": "64e10354c370f28c612ed9dca8ba703b8aae3be8a41d8d7cce7a8943cc49f1ac"
+  },
+  {
+    "name": "root-output",
+    "argv": [
+      "-v",
+      "q",
+      "package",
+      "query",
+      "--explain"
+    ],
+    "exit": 1,
+    "stdout_bytes": 0,
+    "stdout_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stderr_bytes": 142,
+    "stderr_sha256": "9eb21c0e6b80fbf7075f8595637c3d174226bf70fcfe839c8665b54909b278e7"
+  },
+  {
+    "name": "offline",
+    "argv": [
+      "--offline",
+      "package",
+      "query",
+      "--explain"
+    ],
+    "exit": 0,
+    "stdout_bytes": 18770,
+    "stdout_sha256": "291faaf34918bb9150312009e70a4ecdb372118e80a4938f64bfeb8eda8927df",
+    "stderr_bytes": 0,
+    "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]
