@@ -140,7 +140,8 @@ public static class PackageHouseRootContributionAdapter
                 Selection.Status:
                     PackageCompileAssetSelectionStatus.NoCompileAssets
                     or PackageCompileAssetSelectionStatus
-                        .NoMatchingTargetFramework,
+                        .NoMatchingTargetFramework
+                    or PackageCompileAssetSelectionStatus.EmptyCompileGroup,
             } selection
             || !PackageRootBinding.TryCreateFromSourceSelection(
                 acquired.Payload,
