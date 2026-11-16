@@ -21,6 +21,7 @@ const assetPattern
   = /^assets\/(?:[A-Za-z0-9_-][A-Za-z0-9._-]*\/)*[A-Za-z0-9_-][A-Za-z0-9._-]*$/;
 const rootEntryAssets = new Set([
   "browser-package-entry-cache.js",
+  "ecosystem-find-index-assets.js",
 ]);
 
 function validateAsset(asset: unknown): string {
