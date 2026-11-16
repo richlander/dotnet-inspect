@@ -1,0 +1,10 @@
+In a unified diff hunk header, git may print a heading after the closing "@@" that names the declaration enclosing the hunk. These outputs may also carry a change label that describes how the change was characterized.
+
+For each output (1 to 6), report:
+- "heading": the enclosing declaration exactly as it is written in C# source, or null if the header has none.
+- "label": the change label exactly, or null if the header has none.
+
+Also report "format_notes": anything in the header format you found ambiguous or had to guess.
+
+Reply with exactly this JSON shape:
+{"1": {"heading": null, "label": null}, "2": {...}, "3": {...}, "4": {...}, "5": {...}, "6": {...}, "format_notes": ""}

@@ -1,0 +1,39 @@
+{
+  "S1": {
+    "changed": "Run's count parameter changed from int to long",
+    "classification": "Breaking: parameter type changed",
+    "type_declaration_1_0_0": "public sealed class Widget",
+    "type_changed": "unchanged"
+  },
+  "S2": {
+    "changed": "Read(TimeSpan window) was added with the new Gauge type",
+    "classification": "none",
+    "type_declaration_1_0_0": "did not exist",
+    "type_changed": "not stated"
+  },
+  "S3": {
+    "changed": "nothing",
+    "classification": "Unchanged since 1.0.0",
+    "type_declaration_1_0_0": "public sealed class Widget",
+    "type_changed": "unchanged"
+  },
+  "S4": {
+    "changed": "Count's Tag attribute value changed from \"a\" to \"b\"",
+    "classification": "none",
+    "type_declaration_1_0_0": "public sealed class Widget",
+    "type_changed": "unchanged"
+  },
+  "S5": {
+    "changed": "Flush's buffer initialization changed from new byte[count] to ArrayPool<byte>.Shared.Rent((int)count)",
+    "classification": "allocation removed",
+    "type_declaration_1_0_0": "public sealed class Widget",
+    "type_changed": "unchanged"
+  },
+  "S6": {
+    "changed": "Reset() was removed",
+    "classification": "Breaking: member removed",
+    "type_declaration_1_0_0": "public sealed class Widget",
+    "type_changed": "unchanged"
+  },
+  "format_notes": "Treated unchanged context lines as present in both versions. In S2, \"Type added in 2.0.0\" describes the containing type, not a classification of the Member's change; a declaration that did not previously exist cannot be assessed as changed or unchanged."
+}

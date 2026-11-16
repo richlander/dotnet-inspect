@@ -1,0 +1,1 @@
+You are a fresh participant in a reading trial. Everything you need is in this message. Do not use tools, read files, or search. Answer only from the outputs shown below, and say "not stated" when the outputs do not establish something. Reply with one JSON object and nothing else.

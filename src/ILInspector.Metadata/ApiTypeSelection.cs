@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 
 namespace ILInspector.Metadata;
 
@@ -16,13 +17,16 @@ namespace ILInspector.Metadata;
 /// either side: those Types and their nested Types stay in both projections,
 /// and a selection that admits one of them keeps both projections complete.
 /// A Type whose name traversal is rejected also stays, so its failure is
-/// reported as in the complete projection.
+/// reported as in the complete projection. A selection of exact full names
+/// (<see cref="ForFullNames"/>) pairs instead with only the Types that declare
+/// an extension for a selected Type.
 /// </remarks>
 public sealed class ApiTypeSelection
 {
     readonly Func<string, bool> _matchesFullName;
     readonly IReadOnlySet<string> _extensionTypes;
     readonly MetadataTypeDefinitionName? _definition;
+    readonly IReadOnlySet<string>? _fullNames;
 
     public bool MatchesFullName(string fullName) => _matchesFullName(fullName);
 
@@ -34,13 +38,41 @@ public sealed class ApiTypeSelection
     ApiTypeSelection(
         Func<string, bool> matchesFullName,
         IReadOnlySet<string> extensionTypes,
-        MetadataTypeDefinitionName? definition = null)
+        MetadataTypeDefinitionName? definition = null,
+        IReadOnlySet<string>? fullNames = null)
     {
         ArgumentNullException.ThrowIfNull(matchesFullName);
         _matchesFullName = matchesFullName;
         _extensionTypes = extensionTypes;
         _definition = definition;
+        _fullNames = fullNames;
     }
+
+    /// <summary>
+    /// Selects the Types whose full names, as <see cref="ApiType.FullName"/>
+    /// spells them, equal one of <paramref name="fullNames"/> exactly. A
+    /// comparison pairs it with only the Types that declare an extension for
+    /// a selected Type (<see cref="ExtensionDeclaringTypeNamesFor"/>), not
+    /// with every extension-declaring Type.
+    /// </summary>
+    public static ApiTypeSelection ForFullNames(IEnumerable<string> fullNames)
+    {
+        ArgumentNullException.ThrowIfNull(fullNames);
+        var names = new HashSet<string>(fullNames, StringComparer.Ordinal);
+        if (names.Count == 0)
+            throw new ArgumentException("An exact Type selection names at least one Type.", nameof(fullNames));
+        return new(
+            names.Contains,
+            new HashSet<string>(StringComparer.Ordinal),
+            definition: null,
+            names);
+    }
+
+    /// <summary>
+    /// The exact full names a <see cref="ForFullNames"/> selection names, or
+    /// null for any other selection.
+    /// </summary>
+    public IReadOnlySet<string>? FullNames => _fullNames;
 
     /// <summary>
     /// Selects one exact Type definition without conflating namespace and
@@ -75,7 +107,109 @@ public sealed class ApiTypeSelection
         extensionTypes.UnionWith(after);
         return extensionTypes.Any(_matchesFullName)
             ? null
-            : new ApiTypeSelection(_matchesFullName, extensionTypes, _definition);
+            : new ApiTypeSelection(_matchesFullName, extensionTypes, _definition, _fullNames);
+    }
+
+    /// <summary>
+    /// Returns the full names of the top-level Types that declare an
+    /// extension, in this image, whose receiver is a Type named by
+    /// <paramref name="receivers"/>, hidden, obsolete, and non-public
+    /// extensions included, or null when a name, a receiver's extension
+    /// relations, or a declaring Type cannot be read completely; with null,
+    /// <see cref="PairWith"/> keeps both projections complete.
+    /// When a named Type itself declares an extension, returns every
+    /// extension-declaring Type instead, so <see cref="PairWith"/> keeps both
+    /// projections complete as it does for any selection of such a Type: its
+    /// extensions pair with members of the Types they extend.
+    /// </summary>
+    /// <remarks>
+    /// Otherwise reads the canonical same-image extension relation population
+    /// of each receiver Type, which holds extension methods and properties,
+    /// so no Type is projected for pairing unless it declares an extension
+    /// for a selected Type.
+    /// </remarks>
+    internal static IReadOnlySet<string>? ExtensionDeclaringTypeNamesFor(
+        PEReader image,
+        MetadataReader reader,
+        IReadOnlySet<string> receivers)
+    {
+        IReadOnlySet<string>? everyDeclaring = ExtensionDeclaringTypeNames(reader);
+        if (everyDeclaring is null || everyDeclaring.Overlaps(receivers))
+            return everyDeclaring;
+
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        try
+        {
+            AssemblyReferenceIdentity? identity = null;
+            foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
+            {
+                if (reader.ResolveFullTypeName(handle)
+                    is not RelationshipTraversalResult<string>.Completed { Value: var name })
+                {
+                    return null;
+                }
+                if (!receivers.Contains(name))
+                    continue;
+                if (MetadataTypeDefinitionName.Read(reader, handle)
+                    is not MetadataTypeDefinitionNameReadResult.Read { Name: var typeName })
+                {
+                    return null;
+                }
+
+                identity ??= AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
+                MetadataExtensionRelationPopulationOutcome outcome =
+                    MetadataRelationInspection.ExecuteExtensionPopulation(
+                        image,
+                        reader,
+                        new MetadataExtensionRelationPopulationRequest(
+                            new MetadataExtensionReceiverSelection(
+                                identity,
+                                typeName,
+                                MetadataTypeDefinitionAddress.FromHandle(reader, handle)),
+                            new MetadataOperationPolicy(int.MaxValue),
+                            rows: new MetadataExtensionRelationPopulationRowsRequest(0, int.MaxValue),
+                            // The complete comparison pairs with every
+                            // extension it projects, hidden, obsolete, and
+                            // non-public ones included.
+                            includeNonPublic: true),
+                        CancellationToken.None);
+                if (outcome is not MetadataExtensionRelationPopulationOutcome.Available
+                    {
+                        Result:
+                        {
+                            Disposition: MetadataRelationFamilyDisposition.Complete,
+                            Rows: MetadataExtensionRelationPopulationRowsOutcome.Read
+                            {
+                                NextOrdinal: null,
+                            } rows,
+                        },
+                    })
+                {
+                    return null;
+                }
+
+                foreach (MetadataExtensionRelationPopulationRow row in rows.Items)
+                {
+                    foreach (MetadataExtensionRelationEvidence occurrence in row.Occurrences)
+                    {
+                        if (!occurrence.DeclaringType.TryResolve(reader, out TypeDefinitionHandle declaring)
+                            || reader.ResolveFullTypeName(Outermost(reader, declaring))
+                                is not RelationshipTraversalResult<string>.Completed { Value: var declaringName })
+                        {
+                            return null;
+                        }
+                        names.Add(declaringName);
+                    }
+                }
+            }
+        }
+        catch (Exception ex) when (ex is BadImageFormatException
+            or InvalidOperationException
+            or ArgumentOutOfRangeException)
+        {
+            return null;
+        }
+        return names;
     }
 
     /// <summary>

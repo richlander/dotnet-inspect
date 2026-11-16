@@ -1,0 +1,8 @@
+{
+  "arm": "M",
+  "replicate": 2,
+  "exit": 0,
+  "seconds": 15.0,
+  "prompt_sha256": "ebff40bedfda8ae63aba00403bb3fecb55f4eabaeee8b54b16d467970ba4a9ca",
+  "parsed": true
+}

@@ -4,6 +4,7 @@ using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
 using DotnetInspector.Queries;
+using DotnetInspector.Sections;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Commands;
@@ -27,6 +28,7 @@ public partial class ApiCommand
             || options.MemberDigest is not null
             || options.MemberGenericArity is not null
             || string.IsNullOrWhiteSpace(typeName)
+            || TypeMatcher.IsTypeGlobPattern(typeName)
             || !TryGetSingleMemberFilter(
                 options.MemberFilter,
                 out string memberName))
@@ -45,12 +47,19 @@ public partial class ApiCommand
         using (AssemblyInspectionSession session =
             AssemblyInspectionSession.Open(assemblyPath))
         {
+            ExactTypeDefinitionSelection type = ExactTypeInspectionOperation.SelectDeclarations(
+                session.TypeDeclarations(), typeName,
+                options.IncludeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.Public).Content;
+            if (type.Outcome != ExactTypeInspectionOutcome.Available
+                || type.DefinitionToken is not { } definition)
+                return null;
+            int typeToken = definition.Value;
             int? selected = options.IncludeAll
-                ? ResolveMetadataOnlyMethod(session, typeName, memberName, options)
+                ? ResolveMetadataOnlyMethod(session, typeToken, memberName, options)
                 : null;
             selected ??=
                 session.MethodBodies.ResolveApiMethodOverload(
-                    typeName,
+                    typeToken,
                     memberName,
                     options.OverloadIndex is { } overloadIndex
                         ? overloadIndex - 1
@@ -59,7 +68,7 @@ public partial class ApiCommand
                 ?.MetadataToken;
             selected ??= ResolveDeclaredTypeMethod(
                 session,
-                typeName,
+                typeToken,
                 memberName,
                 options);
             if (selected is not { } token)
@@ -79,14 +88,14 @@ public partial class ApiCommand
     // it applies no public-scope hidden or obsolete admission.
     static int? ResolveMetadataOnlyMethod(
         AssemblyInspectionSession session,
-        string typeName,
+        int typeToken,
         string memberName,
         MemberOptions options)
     {
         MethodBodySelection? method =
             options.OverloadIndex is null or 1
                 ? session.MethodBodies.ResolveUniqueMethod(
-                    typeName,
+                    typeToken,
                     memberName,
                     publicOnly: false)
                 : null;
@@ -94,7 +103,7 @@ public partial class ApiCommand
             && options.OverloadIndex is { } accessorIndex)
         {
             method = session.MethodBodies.ResolveAccessorMethod(
-                typeName,
+                typeToken,
                 memberName,
                 accessorIndex - 1,
                 publicOnly: false);
@@ -110,14 +119,14 @@ public partial class ApiCommand
     // complete route's auto-selection, so both keep the complete route.
     static int? ResolveDeclaredTypeMethod(
         AssemblyInspectionSession session,
-        string typeName,
+        int typeToken,
         string memberName,
         MemberOptions options)
     {
         if (memberName.AsSpan().IndexOfAny('*', '?') >= 0
             || session.MethodBodies.DeclaresExtensionMethod(memberName)
             || session.MethodBodies.ExtractDeclaredType(
-                typeName,
+                typeToken,
                 options.IncludeAll) is not { } declared)
         {
             return null;

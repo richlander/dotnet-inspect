@@ -258,7 +258,7 @@ This owner settles three points the generation owner's first slice left open:
   the complete API comparison.
 - It does not register map result kinds, the Body shape family, the fact
   stream, or a finding family.
-- It does not route the Type-scoped API diff of
-  [#10221](https://github.com/richlander/dotnet-inspect/issues/10221), planning
-  step 6.
+- It does not serve the Type-scoped API diff of
+  [#10221](https://github.com/richlander/dotnet-inspect/issues/10221), which
+  loads its Types directly (planning step 6, withdrawn).
 - It does not change a host's output.

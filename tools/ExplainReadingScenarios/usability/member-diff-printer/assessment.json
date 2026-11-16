@@ -1,0 +1,708 @@
+{
+  "G-1": {
+    "scenarios": {
+      "S1": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S2": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S3": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S4": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S5": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S6": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      }
+    },
+    "enclosure_misreads": 0,
+    "field_errors": 0,
+    "format_notes": "The `public class Widget` text after `@@` is a hunk heading, not a version-tagged Type declaration. No output states whether a containing Type's own declaration changed."
+  },
+  "G-2": {
+    "scenarios": {
+      "S1": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S2": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S3": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S4": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S5": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S6": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      }
+    },
+    "enclosure_misreads": 0,
+    "field_errors": 0,
+    "format_notes": "Treated hunk-header text as the stated containing Type declaration, not as evidence that the declaration was unchanged. Treated “Member Body” in the S5 heading as a scenario label, not an output classification."
+  },
+  "M-1": {
+    "scenarios": {
+      "S1": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S2": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": false
+      },
+      "S3": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S4": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S5": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S6": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      }
+    },
+    "enclosure_misreads": 5,
+    "field_errors": 11,
+    "format_notes": "Treated · lines as shared context. In S2, “Type added in 2.0.0” labels Gauge, not Read; because Gauge had no baseline declaration, a declaration change cannot be compared."
+  },
+  "M-2": {
+    "scenarios": {
+      "S1": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S2": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S3": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S4": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S5": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S6": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      }
+    },
+    "enclosure_misreads": 5,
+    "field_errors": 10,
+    "format_notes": "I interpreted · as unchanged context for declaration lines; the format does not define that marker. Gauge's declaration also has · despite the explicit 'Type added in 2.0.0' label."
+  },
+  "ML-1": {
+    "scenarios": {
+      "S1": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S2": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": false
+      },
+      "S3": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S4": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S5": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S6": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      }
+    },
+    "enclosure_misreads": 0,
+    "field_errors": 1,
+    "format_notes": "Enclosure lines show location, not a comparison or a confirmed baseline declaration. Gauge was added, so its declaration cannot be compared with a 1.0.0 declaration; its type_changed value is therefore not stated. I treated “allocation removed” as the output's classification of the body change."
+  },
+  "ML-2": {
+    "scenarios": {
+      "S1": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S2": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": false
+      },
+      "S3": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S4": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S5": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S6": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      }
+    },
+    "enclosure_misreads": 0,
+    "field_errors": 1,
+    "format_notes": "Enclosure lines show location, not a compared baseline declaration. The format does not explicitly label classifications; I treated only the 'Breaking:' annotations as classifications."
+  },
+  "MLH-1": {
+    "scenarios": {
+      "S1": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S2": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": false
+      },
+      "S3": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S4": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S5": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S6": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      }
+    },
+    "enclosure_misreads": 0,
+    "field_errors": 1,
+    "format_notes": "Enclosure lines show location, not a comparison, so they do not establish an earlier type declaration or whether it changed. S2 establishes that Gauge was added, but there was no earlier declaration to compare."
+  },
+  "MLH-2": {
+    "scenarios": {
+      "S1": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S2": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": false
+      },
+      "S3": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S4": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S5": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S6": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      }
+    },
+    "enclosure_misreads": 0,
+    "field_errors": 1,
+    "format_notes": "Enclosure lines show location, not a compared baseline declaration or evidence that Widget's declaration was unchanged. Gauge's addition does not establish a change to an earlier declaration. I treated “allocation removed” as S5's classification; the output does not explicitly label it as such."
+  },
+  "U-1": {
+    "scenarios": {
+      "S1": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S2": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": false
+      },
+      "S3": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S4": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S5": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S6": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      }
+    },
+    "enclosure_misreads": 5,
+    "field_errors": 11,
+    "format_notes": "Treated unchanged context lines as present in both versions. In S2, \"Type added in 2.0.0\" describes the containing type, not a classification of the Member's change; a declaration that did not previously exist cannot be assessed as changed or unchanged."
+  },
+  "U-2": {
+    "scenarios": {
+      "S1": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S2": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": false,
+        "type_declaration": true,
+        "type_changed": true
+      },
+      "S3": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S4": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S5": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      },
+      "S6": {
+        "changed": true,
+        "classification": true,
+        "enclosure_misread": true,
+        "type_declaration": false,
+        "type_changed": false
+      }
+    },
+    "enclosure_misreads": 5,
+    "field_errors": 10,
+    "format_notes": "Treated unmarked type declaration lines as shared by both versions, an added type as changed, and 'allocation removed' as a classification despite its placement on a body line. 'Type added in 2.0.0' describes the type, not the Member."
+  },
+  "sep-bracket-1": {
+    "hunks": {
+      "H1": {
+        "exact": true,
+        "heading": "public void Run(long count)",
+        "label": "moved (1) to +40"
+      },
+      "H2": {
+        "exact": true,
+        "heading": "public int this[int index]",
+        "label": null
+      },
+      "H3": {
+        "exact": true,
+        "heading": "public void Open(FileAccess access = FileAccess.Read | FileAccess.Write)",
+        "label": "whitespace-only: indentation"
+      },
+      "H4": {
+        "exact": true,
+        "heading": "public string Format(string pattern = \"a // b\")",
+        "label": null
+      },
+      "H5": {
+        "exact": true,
+        "heading": null,
+        "label": "moved (1) from -12; whitespace-only: indentation"
+      },
+      "H6": {
+        "exact": true,
+        "heading": "public class Widget",
+        "label": null
+      }
+    },
+    "exact": 6,
+    "format_notes": "Interpreted the backslashes before the indexer brackets in output 2 as formatting escapes, not C# source. Treated the entire bracketed text in output 5 as one label."
+  },
+  "sep-bracket-2": {
+    "hunks": {
+      "H1": {
+        "exact": true,
+        "heading": "public void Run(long count)",
+        "label": "moved (1) to +40"
+      },
+      "H2": {
+        "exact": true,
+        "heading": "public int this[int index]",
+        "label": null
+      },
+      "H3": {
+        "exact": true,
+        "heading": "public void Open(FileAccess access = FileAccess.Read | FileAccess.Write)",
+        "label": "whitespace-only: indentation"
+      },
+      "H4": {
+        "exact": true,
+        "heading": "public string Format(string pattern = \"a // b\")",
+        "label": null
+      },
+      "H5": {
+        "exact": true,
+        "heading": null,
+        "label": "moved (1) from -12; whitespace-only: indentation"
+      },
+      "H6": {
+        "exact": true,
+        "heading": "public class Widget",
+        "label": null
+      }
+    },
+    "exact": 6,
+    "format_notes": "Interpreted the escaped brackets in output 2 as C# brackets; output 5 has a label but no declaration."
+  },
+  "sep-comment-1": {
+    "hunks": {
+      "H1": {
+        "exact": true,
+        "heading": "public void Run(long count)",
+        "label": "moved (1) to +40"
+      },
+      "H2": {
+        "exact": true,
+        "heading": "public int this[int index]",
+        "label": null
+      },
+      "H3": {
+        "exact": true,
+        "heading": "public void Open(FileAccess access = FileAccess.Read | FileAccess.Write)",
+        "label": "whitespace-only: indentation"
+      },
+      "H4": {
+        "exact": false,
+        "heading": "public string Format(string pattern = \"a \\/\\/ b\")",
+        "label": null
+      },
+      "H5": {
+        "exact": true,
+        "heading": null,
+        "label": "moved (1) from -12; whitespace-only: indentation"
+      },
+      "H6": {
+        "exact": true,
+        "heading": "public class Widget",
+        "label": null
+      }
+    },
+    "exact": 5,
+    "format_notes": "Output 4 is transcribed as displayed; whether its backslashes are display escapes rather than C# source text is not stated."
+  },
+  "sep-comment-2": {
+    "hunks": {
+      "H1": {
+        "exact": true,
+        "heading": "public void Run(long count)",
+        "label": "moved (1) to +40"
+      },
+      "H2": {
+        "exact": true,
+        "heading": "public int this[int index]",
+        "label": null
+      },
+      "H3": {
+        "exact": true,
+        "heading": "public void Open(FileAccess access = FileAccess.Read | FileAccess.Write)",
+        "label": "whitespace-only: indentation"
+      },
+      "H4": {
+        "exact": true,
+        "heading": "public string Format(string pattern = \"a // b\")",
+        "label": null
+      },
+      "H5": {
+        "exact": true,
+        "heading": null,
+        "label": "moved (1) from -12; whitespace-only: indentation"
+      },
+      "H6": {
+        "exact": true,
+        "heading": "public class Widget",
+        "label": null
+      }
+    },
+    "exact": 6,
+    "format_notes": "Interpreted the escaped slashes in output 4 as // in the C# source. Output 5 has a label but no declaration heading."
+  },
+  "sep-pipe-1": {
+    "hunks": {
+      "H1": {
+        "exact": true,
+        "heading": "public void Run(long count)",
+        "label": "moved (1) to +40"
+      },
+      "H2": {
+        "exact": true,
+        "heading": "public int this[int index]",
+        "label": null
+      },
+      "H3": {
+        "exact": true,
+        "heading": "public void Open(FileAccess access = FileAccess.Read | FileAccess.Write)",
+        "label": "whitespace-only: indentation"
+      },
+      "H4": {
+        "exact": true,
+        "heading": "public string Format(string pattern = \"a // b\")",
+        "label": null
+      },
+      "H5": {
+        "exact": true,
+        "heading": null,
+        "label": "moved (1) from -12; whitespace-only: indentation"
+      },
+      "H6": {
+        "exact": true,
+        "heading": "public class Widget",
+        "label": null
+      }
+    },
+    "exact": 6,
+    "format_notes": "Interpreted \\| in output 3 as an escaped source-code |; the semicolon in output 5 is part of the label."
+  },
+  "sep-pipe-2": {
+    "hunks": {
+      "H1": {
+        "exact": true,
+        "heading": "public void Run(long count)",
+        "label": "moved (1) to +40"
+      },
+      "H2": {
+        "exact": true,
+        "heading": "public int this[int index]",
+        "label": null
+      },
+      "H3": {
+        "exact": true,
+        "heading": "public void Open(FileAccess access = FileAccess.Read | FileAccess.Write)",
+        "label": "whitespace-only: indentation"
+      },
+      "H4": {
+        "exact": true,
+        "heading": "public string Format(string pattern = \"a // b\")",
+        "label": null
+      },
+      "H5": {
+        "exact": true,
+        "heading": null,
+        "label": "moved (1) from -12; whitespace-only: indentation"
+      },
+      "H6": {
+        "exact": true,
+        "heading": "public class Widget",
+        "label": null
+      }
+    },
+    "exact": 6,
+    "format_notes": "Interpreted \\| in output 3 as an escaped literal | in the C# declaration, not a label separator."
+  }
+}
