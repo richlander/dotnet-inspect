@@ -64,13 +64,23 @@ public sealed class EcosystemFindSearchRequest
 
     public ImmutableArray<EcosystemFindMembership> MembershipsFor(
         ExactLibrarySourceCoordinate source)
+        => MembershipsFor(source, includeUndemandedPrefixes: false);
+
+    public ImmutableArray<EcosystemFindMembership> IndexedMembershipsFor(
+        ExactLibrarySourceCoordinate source)
+        => MembershipsFor(source, includeUndemandedPrefixes: true);
+
+    private ImmutableArray<EcosystemFindMembership> MembershipsFor(
+        ExactLibrarySourceCoordinate source,
+        bool includeUndemandedPrefixes)
     {
         ArgumentNullException.ThrowIfNull(source);
         return source switch
         {
             ExactLibrarySourceCoordinate.Package package =>
                 MembershipsForPackage(
-                    package.PackageCoordinate.PackageId),
+                    package.PackageCoordinate.PackageId,
+                    includeUndemandedPrefixes),
             ExactLibrarySourceCoordinate.Platform platform =>
                 MembershipsForPlatform(platform.Population),
             _ => [],
@@ -78,7 +88,14 @@ public sealed class EcosystemFindSearchRequest
     }
 
     public ImmutableArray<EcosystemFindMembership> MembershipsForPackage(
-        string packageId)
+        string packageId) =>
+        MembershipsForPackage(
+            packageId,
+            includeUndemandedPrefixes: false);
+
+    private ImmutableArray<EcosystemFindMembership> MembershipsForPackage(
+        string packageId,
+        bool includeUndemandedPrefixes)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         var memberships =
@@ -100,7 +117,8 @@ public sealed class EcosystemFindSearchRequest
                 continue;
             }
 
-            if (!PrefixDemand.Contains(layer.Registration.Id))
+            if (!includeUndemandedPrefixes
+                && !PrefixDemand.Contains(layer.Registration.Id))
                 continue;
             WorkspaceEcosystemPopulationDeclaration.PackagePrefix? prefix =
                 layer.Registration.Populations
@@ -330,6 +348,14 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
     public EcosystemFindSearchRequest Request { get; }
 
     public async Task<EcosystemFindBoundedOutcome<T>> RunBoundedAsync(
+        CancellationToken cancellationToken = default) =>
+        await RunBoundedAsync(
+                pauseBeforeCompletion: false,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    public async Task<EcosystemFindBoundedOutcome<T>> RunBoundedAsync(
+        bool pauseBeforeCompletion,
         CancellationToken cancellationToken = default)
     {
         if (_started)
@@ -427,7 +453,7 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
             && !Request.Prefixes.IsEmpty)
             return new(Complete(EcosystemFindCompletion.RowLimitReached,
                 [.. Request.Prefixes.Select(prefix => prefix.Prefix)]), null);
-        if (Request.Prefixes.IsEmpty)
+        if (Request.Prefixes.IsEmpty && !pauseBeforeCompletion)
             return new(Complete(_failures || _incomplete
                 ? EcosystemFindCompletion.Partial
                 : EcosystemFindCompletion.Exhausted, []), null);
@@ -454,6 +480,14 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
             throw new ArgumentOutOfRangeException(nameof(remainingRows));
         if (Interlocked.Exchange(ref continuation.Used, 1) != 0 || _completed)
             throw new InvalidOperationException("Continuation has already been consumed.");
+        if (Request.Prefixes.IsEmpty)
+        {
+            return Complete(
+                _failures || _incomplete
+                    ? EcosystemFindCompletion.Partial
+                    : EcosystemFindCompletion.Exhausted,
+                []);
+        }
         if (remainingRows == 0)
             return Complete(EcosystemFindCompletion.RowLimitReached,
                 [.. Request.Prefixes.Select(prefix => prefix.Prefix)]);
@@ -535,7 +569,11 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                     };
                     if (attributed.RowCount == 0
                         && attributed.Findings.Count == 0)
+                    {
                         Observe(attributed, token);
+                        if (attributed.Failure is not null)
+                            _publish?.Invoke(attributed);
+                    }
                     else
                     {
                         int before = DemandProgress;

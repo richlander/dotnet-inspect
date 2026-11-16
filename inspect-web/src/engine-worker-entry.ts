@@ -35,6 +35,10 @@ import {
   registerEngineWorkerSpotlightTypeFindOperation,
   type EngineWorkerSpotlightTypeFindFacade,
 } from "./engine-worker-spotlight-type-find.ts";
+import {
+  registerEngineWorkerEcosystemTypeFindOperation,
+  type EngineWorkerEcosystemTypeFindFacade,
+} from "./engine-worker-ecosystem-type-find.ts";
 import { registerEngineWorkerStartupOperations } from "./engine-worker-startup.ts";
 import {
   registerEngineWorkerOrdinaryOperations,
@@ -133,6 +137,15 @@ registerEngineWorkerSpotlightTypeFindOperation(operations, () => {
   }
   return spotlightTypeFindFacade;
 });
+let ecosystemTypeFindFacade: EngineWorkerEcosystemTypeFindFacade | undefined;
+registerEngineWorkerEcosystemTypeFindOperation(operations, () => {
+  if (ecosystemTypeFindFacade === undefined) {
+    throw new Error(
+      "Ecosystem Type Find facade is unavailable before Worker readiness.",
+    );
+  }
+  return ecosystemTypeFindFacade;
+});
 let packageQueryFacade: EngineWorkerPackageQueryFacade | undefined;
 registerEngineWorkerPackageQueryOperation(operations, () => {
   if (packageQueryFacade === undefined) {
@@ -203,6 +216,7 @@ const bootstrapWorker = async (value: string): Promise<void> => {
   ]);
   sourceFacade = loadedSourceFacade;
   spotlightTypeFindFacade = catalogFacade;
+  ecosystemTypeFindFacade = catalogFacade;
   packageQueryFacade = packageFacade;
   packageChangesFacade = packageFacade;
   libraryPerformanceFacade = analysisFacade;

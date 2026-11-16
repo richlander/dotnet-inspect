@@ -168,6 +168,8 @@ public static partial class CatalogExports
 internal static partial class BrowserRetainedWorkspaceActivationService
 {
     static readonly BrowserIndexedTypeFindOperation IndexedTypeFind = new();
+    static readonly BrowserIndexedTypeFindOperation EcosystemIndexedTypeFind =
+        new();
 
     internal static async ValueTask<BrowserIndexedTypeFindExecutionResult>
         FindIndexedTypesAsync(
@@ -202,7 +204,57 @@ internal static partial class BrowserRetainedWorkspaceActivationService
             long resultGeneration,
             FindSemanticResultSession? resultSession,
             CancellationToken cancellationToken = default)
+        => await FindIndexedTypesAsync(
+                IndexedTypeFind,
+                owner,
+                retainedDefinitionId,
+                realizationId,
+                artifacts,
+                text,
+                maximumRows,
+                resultGeneration,
+                resultSession,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal static async ValueTask<BrowserIndexedTypeFindExecutionResult>
+        FindEcosystemIndexedTypesAsync(
+            BrowserRetainedWorkspaceActivationOwner owner,
+            string retainedDefinitionId,
+            string realizationId,
+            IReadOnlyList<EcosystemFindIndexArtifact> artifacts,
+            string text,
+            int maximumRows,
+            long resultGeneration,
+            FindSemanticResultSession? resultSession = null,
+            CancellationToken cancellationToken = default)
+        => await FindIndexedTypesAsync(
+                EcosystemIndexedTypeFind,
+                owner,
+                retainedDefinitionId,
+                realizationId,
+                artifacts,
+                text,
+                maximumRows,
+                resultGeneration,
+                resultSession,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    static async ValueTask<BrowserIndexedTypeFindExecutionResult>
+        FindIndexedTypesAsync(
+            BrowserIndexedTypeFindOperation indexedTypeFind,
+            BrowserRetainedWorkspaceActivationOwner owner,
+            string retainedDefinitionId,
+            string realizationId,
+            IReadOnlyList<EcosystemFindIndexArtifact> artifacts,
+            string text,
+            int maximumRows,
+            long resultGeneration,
+            FindSemanticResultSession? resultSession,
+            CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(indexedTypeFind);
         ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
         ArgumentNullException.ThrowIfNull(owner);
@@ -223,7 +275,7 @@ internal static partial class BrowserRetainedWorkspaceActivationService
 
         using WorkspaceRealizationOperationLease operation = admitted.Lease;
         return resultSession is null
-            ? IndexedTypeFind.Execute(
+            ? indexedTypeFind.Execute(
                 operation,
                 artifacts,
                 retainedDefinitionId,
@@ -232,7 +284,7 @@ internal static partial class BrowserRetainedWorkspaceActivationService
                 maximumRows,
                 resultGeneration,
                 cancellationToken)
-            : IndexedTypeFind.Execute(
+            : indexedTypeFind.Execute(
                 operation,
                 artifacts,
                 retainedDefinitionId,
@@ -244,15 +296,25 @@ internal static partial class BrowserRetainedWorkspaceActivationService
                 cancellationToken);
     }
 
-    internal static ValueTask<BrowserTypeFindActivationResult?>
+    internal static async ValueTask<BrowserTypeFindActivationResult?>
         TryActivateIndexedTypeFindActionAsync(
             BrowserRetainedWorkspaceActivationOwner owner,
             string action,
-            CancellationToken cancellationToken = default) =>
-        IndexedTypeFind.TryActivateAsync(
-            owner,
-            action,
-            cancellationToken);
+            CancellationToken cancellationToken = default)
+    {
+        BrowserTypeFindActivationResult? result =
+            await IndexedTypeFind.TryActivateAsync(
+                    owner,
+                    action,
+                    cancellationToken)
+                .ConfigureAwait(false);
+        return result
+            ?? await EcosystemIndexedTypeFind.TryActivateAsync(
+                    owner,
+                    action,
+                    cancellationToken)
+                .ConfigureAwait(false);
+    }
 
     internal static ValueTask<BrowserTypeFindActivationResult?>
         TryActivateIndexedTypeFindActionAsync(
@@ -282,8 +344,11 @@ internal static partial class BrowserRetainedWorkspaceActivationService
             resultGeneration,
             cancellationToken);
 
-    internal static void ResetIndexedTypeFindForTests() =>
+    internal static void ResetIndexedTypeFindForTests()
+    {
         IndexedTypeFind.Reset();
+        EcosystemIndexedTypeFind.Reset();
+    }
 }
 
 [JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase)]
