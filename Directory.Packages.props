@@ -15,7 +15,7 @@
     <PackageVersion Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="4.0.0" />
     <PackageVersion Include="NuGet.Frameworks" Version="8.0.0" />
     <PackageVersion Include="NuGet.Packaging" Version="7.9.0" />
-    <PackageVersion Include="NuGet.Versioning" Version="7.9.0" />
+    <PackageVersion Include="NuGet.Versioning" Version="8.0.0" />
     <PackageVersion Include="ShellComplete" Version="0.1.0" />
     <PackageVersion Include="System.CommandLine" Version="3.0.0-rc.3.26522.148" />
     <PackageVersion Include="System.IO.Hashing" Version="10.0.14" />
