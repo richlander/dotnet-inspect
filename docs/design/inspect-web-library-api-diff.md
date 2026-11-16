@@ -191,6 +191,29 @@ The Browser's request-associated result contains that complete baseline as
 another comparison service nor makes the displayed inventory stand in for
 Content.
 
+The changed-Type view explicitly consumes the shared
+`TypeInventoryDocument` representation from that completed
+`LibraryApiDiffOutcome`. The shared owner supplies selected Types, ordinary
+exclusions, ordering, exact Type-local Member relations, summary and
+outside-ordinary row count. Browser does not repeat those selection or
+aggregation rules, and this demand does not reacquire or compare endpoints.
+The complete generic inspection remains the service baseline: its Content,
+Share and diagnostics are not replaced by the selected inventory.
+
+Browser retains only identity/DTO lowering and its existing transport admission.
+The root coordinate and conservative Type-text budget still use complete
+evidence for the owner-selected exact Type identifiers, including excluded
+Member text; adoption does not loosen that admission bound. Baseline admission
+still precedes richer inventory construction. Wire schema version 4, request
+association, retained comparison memo, and typed non-success arms are unchanged.
+
+The real adoption asset is `System.Text.Json@9.0.0..10.0.0`, `net8.0`:
+`JsonSerializerOptions.Strict` and `AllowDuplicateProperties` require exact
+changed-Member identity for drill-down. The real-package envelope parity gate
+also checks the selected inventory and Member identities against this shared
+Document. Deterministic fixtures retain moved-Member roles, empty/non-success
+cases and the existing all-or-nothing budget boundaries.
+
 Content crosses the Browser JSON boundary through
 `DiffAnalysisInspectionJsonContext`. The transport uses
 `InspectionEnvelope<JsonElement>`: Content retains the complete generic Diff
