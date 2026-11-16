@@ -95,41 +95,47 @@ internal static class MemberSearchService
                 options.Tfm,
                 allowLatestStable: options.Limit is null))
         {
-            await using ConfiguredPackageSearchWorkspace? configured =
-                await ConfiguredPackageSearchWorkspace.OpenAsync(
-                    httpClient,
-                    request,
-                    options.Tfm!,
-                    logger.Log,
-                    cancellationToken,
-                    FindSourceCollector.CreateWorkspacePlan(options),
-                    allowLatestStable: options.Limit is null);
-            MemberCollection configuredResult =
-                configured is null
-                ? new([], 0)
-                : await CollectMembersAsync(
-                    options,
-                    question,
-                    logger,
-                    configured,
-                    MarkFailure,
-                    cancellationToken,
-                    semanticMatches);
-            if (configured is null)
-                MarkFailure();
-            return new(configuredResult.Rows, hasFailures)
+            ConfiguredPackageSearchWorkspaceOpenResult configuredOpen =
+                await ConfiguredPackageSearchWorkspace.OpenForFindAsync(
+                        httpClient,
+                        request,
+                        options.Tfm!,
+                        logger.Log,
+                        cancellationToken,
+                        FindSourceCollector.CreateWorkspacePlan(options),
+                        allowLatestStable: options.Limit is null)
+                    .ConfigureAwait(false);
+            if (!configuredOpen.RequiresCompatibility)
             {
-                SourceSelectionIncomplete =
-                    options.PackagePrefixLimitReached,
-                InputRows = CreateAcceptedReceipt(
-                    options,
-                    acceptedRows,
-                    configuredResult.AcceptedCount),
-                ExactRowCount =
-                    options.Count
-                        ? configuredResult.AcceptedCount
-                        : null,
-            };
+                await using ConfiguredPackageSearchWorkspace? configured =
+                    configuredOpen.Workspace;
+                MemberCollection configuredResult =
+                    configured is null
+                    ? new([], 0)
+                    : await CollectMembersAsync(
+                        options,
+                        question,
+                        logger,
+                        configured,
+                        MarkFailure,
+                        cancellationToken,
+                        semanticMatches);
+                if (configured is null)
+                    MarkFailure();
+                return new(configuredResult.Rows, hasFailures)
+                {
+                    SourceSelectionIncomplete =
+                        options.PackagePrefixLimitReached,
+                    InputRows = CreateAcceptedReceipt(
+                        options,
+                        acceptedRows,
+                        configuredResult.AcceptedCount),
+                    ExactRowCount =
+                        options.Count
+                            ? configuredResult.AcceptedCount
+                            : null,
+                };
+            }
         }
 
         if (explicitWorkspace is not null)

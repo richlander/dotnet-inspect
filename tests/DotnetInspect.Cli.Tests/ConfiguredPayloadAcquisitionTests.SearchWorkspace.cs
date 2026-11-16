@@ -514,6 +514,148 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task Find_BarePackageWithAdditionalReferenceAssemblyUsesCompatibility()
+    {
+        string id =
+            $"Workspace.Search.MixedLayout.Bare.{Guid.NewGuid():N}";
+        byte[] libraryAssembly = await File.ReadAllBytesAsync(
+            FixtureCatalog.DiffV1.AssemblyPath(),
+            TestContext.Current.CancellationToken);
+        byte[] referenceAssembly = await File.ReadAllBytesAsync(
+            FixtureCatalog.DiffV2.AssemblyPath(),
+            TestContext.Current.CancellationToken);
+        byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
+            ($"{id}.nuspec", "<package />"u8.ToArray()),
+            ("lib/net11.0/Mixed.dll", libraryAssembly),
+            ("ref/net11.0/Mixed.dll", referenceAssembly));
+        var requests = new ConcurrentQueue<string>();
+        ConfigureCommandFeed(id, package, requests);
+        CoreHttpClientFactory.SetAuthenticationDecorator(
+            _ => new SelectionFeedHandler(
+                FirstFeed,
+                id,
+                [Version],
+                _ => package,
+                requests));
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => new SelectionFeedHandler(
+                source,
+                id,
+                [Version],
+                _ => package,
+                requests));
+
+        var result = await RunCommandAsync(
+            [
+                "find",
+                "DiffFixtureSample.GenericOverloadSample",
+                "--package", id,
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+            ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Empty(result.Error);
+        using System.Text.Json.JsonDocument document =
+            System.Text.Json.JsonDocument.Parse(result.Output);
+        Assert.Equal(
+            2,
+            document.RootElement
+                .GetProperty("rows")
+                .EnumerateArray()
+                .Count(
+                    static row =>
+                        row.GetProperty("match").GetString() == "Exact"));
+    }
+
+    [Fact]
+    public async Task Find_BarePackageAcquiresFromVersionReportingSource()
+    {
+        string id = $"Workspace.Search.SelectedAuthority.{Guid.NewGuid():N}";
+        byte[] v1 = await File.ReadAllBytesAsync(
+            FixtureCatalog.DiffV1.AssemblyPath(),
+            TestContext.Current.CancellationToken);
+        byte[] v2 = await File.ReadAllBytesAsync(
+            FixtureCatalog.DiffV2.AssemblyPath(),
+            TestContext.Current.CancellationToken);
+        byte[] nonreporterPinnedPackage = CreatePackage(
+            id,
+            "nonreporting cached payload",
+            version: "2.0.0",
+            library: v1,
+            libraryName: "Fixture.dll");
+        byte[] nonreporterListedPackage = CreatePackage(
+            id,
+            "nonreporting listed payload",
+            version: "1.0.0",
+            library: v1,
+            libraryName: "Fixture.dll");
+        byte[] reporterPackage = CreatePackage(
+            id,
+            "version-reporting payload",
+            version: "2.0.0",
+            library: v2,
+            libraryName: "Fixture.dll");
+        var nonreporterRequests = new ConcurrentQueue<string>();
+        var reporterRequests = new ConcurrentQueue<string>();
+        CoreHttpClientFactory.SetPackageSourceHandlerForTesting(
+            source => source == FirstFeed
+                ? new SelectionFeedHandler(
+                    source,
+                    id,
+                    ["1.0.0"],
+                    version => version == "2.0.0"
+                        ? nonreporterPinnedPackage
+                        : nonreporterListedPackage,
+                    nonreporterRequests)
+                : new SelectionFeedHandler(
+                    source,
+                    id,
+                    ["2.0.0"],
+                    _ => reporterPackage,
+                    reporterRequests));
+
+        var warmed = await RunCommandAsync(
+            [
+                "find",
+                ".Removed",
+                "--package", $"{id}@2.0.0",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--jsonl",
+            ]);
+
+        Assert.Equal(0, warmed.Exit);
+        Assert.Equal(2, warmed.Output.Split(
+            '\n',
+            StringSplitOptions.RemoveEmptyEntries).Length);
+        Assert.Empty(warmed.Error);
+
+        nonreporterRequests.Clear();
+        reporterRequests.Clear();
+        var selected = await RunCommandAsync(
+            [
+                "find",
+                ".Removed",
+                "--package", id,
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--source", SecondFeed,
+                "--jsonl",
+            ]);
+
+        Assert.Equal(0, selected.Exit);
+        Assert.Empty(selected.Output);
+        Assert.Contains(
+            reporterRequests,
+            request => request.EndsWith(".nupkg", StringComparison.Ordinal));
+        Assert.DoesNotContain(
+            nonreporterRequests,
+            request => request.EndsWith(".nupkg", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task Find_LocatorPreservesCallerPackageOrderAcrossDistinctSources()
     {
         const string FirstVersion = "1.0.1";
