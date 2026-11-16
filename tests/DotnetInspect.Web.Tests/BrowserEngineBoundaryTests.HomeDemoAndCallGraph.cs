@@ -778,7 +778,7 @@ public sealed partial class BrowserEngineBoundaryTests
         }
 
         PackageDependencyMemberCallGraphPlatformPruning pruning =
-            CurrentRuntimePruningFromCatalog();
+            RetainedRuntimePruningFromCatalog();
         InspectionEnvelope<
             PackageDependencyMemberCallGraphInspectionOutcome> envelope =
             await BrowserPackageWorkspace
@@ -1313,16 +1313,8 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     static PackageDependencyMemberCallGraphPlatformPruning
-        CurrentRuntimePruningFromCatalog()
+        RetainedRuntimePruningFromCatalog()
     {
-        Assert.True(
-            BrowserPackageDependencyMemberCallGraphContinuationSource
-                .TryCreateCurrentRuntimeTarget(
-                    PlatformFamily.DotNetRuntime,
-                    "net11.0",
-                    RuntimeInformation.FrameworkDescription,
-                    out PlatformFamilyTarget? currentRuntime));
-        string runtimeVersion = currentRuntime!.Version.Value;
         using JsonDocument document = JsonDocument.Parse(
             File.ReadAllText(
                 Path.Combine(
@@ -1336,9 +1328,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 .EnumerateArray(),
             candidate =>
                 candidate.GetProperty("tfm").GetString()
-                    == "net11.0"
-                && candidate.GetProperty("version").GetString()
-                    == runtimeVersion);
+                    == "net11.0");
+        string runtimeVersion = Assert.IsType<string>(
+            target.GetProperty("version").GetString());
         string[] packageOverrides =
         [
             .. target.GetProperty("supplies")
@@ -1350,13 +1342,19 @@ public sealed partial class BrowserEngineBoundaryTests
                     $"{supply.GetProperty("package").GetString()}"
                     + $"|{supply.GetProperty("version").GetString()}"),
         ];
-        return Assert.IsType<
-            PackageDependencyMemberCallGraphPlatformPruning>(
-            BrowserPackageDependencyMemberCallGraphContinuationSource
-                .CreateCurrentRuntimePruning(
-                    "net11.0",
-                    runtimeVersion,
-                    packageOverrides));
+        PlatformPruneInventory inventory =
+            PlatformPruneInventory.FromExactFamily(
+                "Microsoft.NETCore.App",
+                "net11.0",
+                runtimeVersion,
+                packageOverrides);
+        Assert.True(
+            PackageDependencyMemberCallGraphPlatformPruning
+                .TryCreateDotNetRuntime(
+                    inventory,
+                    out PackageDependencyMemberCallGraphPlatformPruning?
+                        pruning));
+        return pruning!;
     }
 
     static string CallGraphRepositoryRoot()
