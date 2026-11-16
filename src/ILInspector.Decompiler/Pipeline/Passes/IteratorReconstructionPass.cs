@@ -24,9 +24,11 @@ namespace ILInspector.Decompiler.Pipeline;
 /// loop or a <c>using</c>, whose disposal lowers to finally frames),
 /// <see cref="SwitchIteratorReconstruction"/> (a <c>switch</c> with a yield in
 /// each section), <see cref="YieldBreakLoopIteratorReconstruction"/> (a
-/// <c>while (true)</c> loop left by a conditional <c>yield break</c>), and
-/// <see cref="TryReconstructStateless"/> (a single-state machine that yields
-/// nothing and has no state dispatch for the inverse to fold). A machine no
+/// <c>while (true)</c> loop left by a conditional <c>yield break</c>),
+/// <see cref="ReducibleIteratorReconstruction"/> (a body with a raised lambda,
+/// which the inverse declines), and <see cref="TryReconstructStateless"/> (a
+/// single-state machine that yields nothing and has no state dispatch for the
+/// inverse to fold). A machine no
 /// one reconstructs keeps its kickoff and is acknowledged with the inverse's
 /// decline reason. A no-op when the seam is absent (stage dumps, the
 /// lowered/annotated views).</para>
@@ -214,8 +216,16 @@ public sealed class IteratorReconstructionPass : IIrPass
         if (rawYieldBreakLoop is not null && YieldBreakLoopIteratorReconstruction.IsCandidate(rawYieldBreakLoop))
             return;  // exact yield-break-loop shape with unowned code: leave for honest acknowledgment
 
+        if (ReducibleIteratorReconstruction.TryReconstruct(raw, function, handoff, context, out var reducibleBody))
+        {
+            Transplant(function, raw, reducibleBody, handoff, context,
+                $"reconstruct irreducible iterator '{IteratorShapes.MetadataName(handoff.Constructor.DeclaringType)}'");
+            return;
+        }
+
         // A foreach-delegation iterator carries the enumerator's disposal as a
-        // fault region; strip that idiom and recover the foreach.
+        // fault region, so the reducible path declines; strip that idiom too
+        // and recover the foreach.
         var rawForeach = context.ImportMethodBody(moveNextMethod);
         if (rawForeach is not null
             && ForeachIteratorReconstruction.TryReconstruct(rawForeach, function, handoff, context, out var foreachBody))

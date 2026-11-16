@@ -14,8 +14,8 @@ namespace ILInspector.Decompiler.Pipeline;
 /// <c>&lt;&gt;m__Finally1()</c> call on the normal-completion path — which is neither a
 /// reducible graph nor the <c>try/finally</c> the <see cref="UsingStatementPass"/> expects.
 ///
-/// <para>This is a <em>transform-then-restructure</em> path extended for the
-/// enumerator loop. On the
+/// <para>This is the <em>transform-then-restructure</em> path (the sibling of
+/// <see cref="ReducibleIteratorReconstruction"/>) extended for the enumerator loop. On the
 /// flat raw blocks it:</para>
 /// <list type="number">
 /// <item>drops the leading state dispatch and the "no state matched" default exit;</item>
