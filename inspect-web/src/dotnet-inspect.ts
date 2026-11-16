@@ -6168,7 +6168,8 @@ function filteredTypes() {
       && (!state.typeTraitFilter
         || item.traitFacetIds.includes(state.typeTraitFilter))
       && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
-      && state.accessibilityFilter.has(item.accessibilityId);
+      && state.accessibilityFilter.has(item.accessibilityId)
+      && !isListedAsForwarder(item);
   });
 }
 
@@ -6379,9 +6380,68 @@ function currentPlatformForwarderView() {
     : null;
 }
 
-function selectedForwarder() {
-  return currentPlatformForwarderView()?.forwarders.find(
-    row => row.id === state.selectedTypeId) ?? null;
+function selectedForwarder(): BrowserPlatformForwarderRow | null {
+  const row = currentPlatformForwarderView()?.forwarders.find(
+    candidate => candidate.id === state.selectedTypeId);
+  if (row) return row;
+  // Until the forwarder inventory supplies its row and action, a forwarded
+  // reference Type is still a forwarder, never an ordinary Type.
+  const type = state.package?.types.find(
+    candidate => candidate.id === state.selectedTypeId);
+  return type && isForwardedDefinition(type) ? provisionalForwarderRow(type) : null;
+}
+
+// A marked reference Type's forwarder row before the inventory supplies it:
+// it lists and selects as a forwarder, but has no destination or action yet.
+function provisionalForwarderRow(type: AppTypeSurface): BrowserPlatformForwarderRow {
+  return {
+    id: type.id,
+    name: type.namespace ? `${type.namespace}.${type.displayName}` : type.displayName,
+    namespace: type.namespace,
+    targetAssembly: "",
+    action: "",
+  };
+}
+
+// The Library's forwarder rows: the inventory's, plus a provisional row for
+// each marked reference Type in scope that the inventory has not supplied, so
+// a forwarded Type lists and counts as its forwarder from the first render.
+function listedForwarderRows(): readonly BrowserPlatformForwarderRow[] {
+  const inventory = currentPlatformForwarderView()?.forwarders ?? [];
+  const pkg = state.package;
+  if (!pkg) return inventory;
+  const supplied = inventoryForwarderIds();
+  const provisional = pkg.types
+    .filter(type => isForwardedDefinition(type)
+      && (!state.libraryScope || state.libraryScope.has(libraryKey(type)))
+      && !supplied.has(type.id))
+    .map(provisionalForwarderRow);
+  return provisional.length === 0 ? inventory : [...inventory, ...provisional];
+}
+
+function isForwardedDefinition(item: AppTypeSurface) {
+  return "forwarded" in item && item.forwarded === true;
+}
+
+const forwarderRowIds = new WeakMap<object, ReadonlySet<string>>();
+
+// A facade's reference surface declares the Types its runtime assembly
+// forwards; the server marks them, and their forwarder rows share their ids.
+// Such a Type lists and counts only as its forwarder row, which keeps the
+// forwarder's Overview, so it never appears as an ordinary Type.
+function isListedAsForwarder(item: AppTypeSurface) {
+  return isForwardedDefinition(item) || inventoryForwarderIds().has(item.id);
+}
+
+function inventoryForwarderIds(): ReadonlySet<string> {
+  const view = currentPlatformForwarderView();
+  if (!view) return new Set();
+  let ids = forwarderRowIds.get(view);
+  if (!ids) {
+    ids = new Set(view.forwarders.map(row => row.id));
+    forwarderRowIds.set(view, ids);
+  }
+  return ids;
 }
 
 function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow> {
@@ -6390,7 +6450,7 @@ function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow>
   const forwarders = !state.typeTraitFilter
     && typeAccessibilityIncludesForwarders()
     ? filterForwardedTypes(
-      currentPlatformForwarderView()?.forwarders ?? [],
+      listedForwarderRows(),
       {
         text: state.typeFilter,
         namespace: exactNamespace ?? "",
@@ -7482,8 +7542,9 @@ function typeFilterSummary() {
 
 function typeSelectorDefinitions() {
   const definitions = state.package?.types.filter(item =>
-    !state.libraryScope || state.libraryScope.has(libraryKey(item))) ?? [];
-  const forwarders = currentPlatformForwarderView()?.forwarders ?? [];
+    (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
+    && !isListedAsForwarder(item)) ?? [];
+  const forwarders = listedForwarderRows();
   return { definitions, forwarders };
 }
 
@@ -14713,7 +14774,8 @@ function renderLibraryCompositionOverview(
   const nsCounts = new Map<string, number>();
   for (const type of pkg.types) {
     if (!isDefaultAccessibility(type)
-      || (library && libraryKey(type) !== library.id)) {
+      || (library && libraryKey(type) !== library.id)
+      || isListedAsForwarder(type)) {
       continue;
     }
     kinds.set(
@@ -14722,7 +14784,7 @@ function renderLibraryCompositionOverview(
     const ns = type.namespace || "global";
     nsCounts.set(ns, (nsCounts.get(ns) || 0) + 1);
   }
-  const forwarders = currentPlatformForwarderView()?.forwarders ?? [];
+  const forwarders = listedForwarderRows();
   for (const row of forwarders) {
     const ns = row.namespace || "global";
     nsCounts.set(ns, (nsCounts.get(ns) ?? 0) + 1);
@@ -14819,7 +14881,12 @@ function libraryNavigateTypeCount(
   const presentation = platformForwarderPresentation;
   if (!presentation?.ready
     || presentation.key !== selectedPlatformForwarderKey()) return null;
-  return definitions + (presentation.view?.forwarders.length ?? 0);
+  // A forwarder of a Type the reference surface counts is counted already.
+  const declared = new Set(pkg.types
+    .filter(type => isDefaultAccessibility(type))
+    .map(type => type.id));
+  return definitions + (presentation.view?.forwarders
+    .filter(row => !declared.has(row.id)).length ?? 0);
 }
 
 function renderLibraryOverview() {
@@ -14990,15 +15057,29 @@ function renderLens(item: AppTypeSurface | null | undefined) {
   if (state.atPackageRoot) return renderPackageView();
   if (state.atLibraryRoot) return renderLibraryView();
   const forwarder = selectedForwarder();
-  if (forwarder) return platformForwarderInventoryStatus() + renderForwardedTypeOverview(
-    forwarder,
-    currentPlatformForwarderView()!.assembly,
-    {
-      pending: platformForwarderPresentation!.activating,
-      error: platformForwarderPresentation!.ready ? platformForwarderPresentation!.error : "",
-      available: platformForwarderPresentation!.ready,
-    },
-    escapeHtml);
+  if (forwarder) {
+    // A forwarded reference Type selected before its inventory row exists
+    // renders from its own row; its destination follows the inventory.
+    const presentation = platformForwarderPresentation?.key === selectedPlatformForwarderKey()
+      ? platformForwarderPresentation
+      : null;
+    return platformForwarderInventoryStatus() + renderForwardedTypeOverview(
+      forwarder,
+      currentPlatformForwarderView()?.assembly
+        ?? state.package?.types.find(type => type.id === forwarder.id)?.assemblyName
+        ?? "",
+      {
+        pending: presentation?.activating ?? false,
+        error: presentation?.ready ? presentation.error : "",
+        available: presentation?.ready ?? false,
+        destination: forwarder.targetAssembly
+          ? undefined
+          : presentation?.loading
+            ? "Loading…"
+            : presentation?.error ? "Unavailable" : "Not loaded",
+      },
+      escapeHtml);
+  }
   if (!item) return "";
   switch (state.lens) {
     case "source":
@@ -15781,7 +15862,16 @@ const libraryControlActions: LibraryControlBindingActions = {
         reconcilePlatformForwarderView(true);
         forwarders = selectedPlatformForwarderPresentation(pkg);
       }
-      if (forwarders?.loading) await forwarders.loading;
+      // A Library that already lists a Type under the active accessibility,
+      // including a marked forwarded reference Type, is not empty, so it
+      // opens without the inventory; Navigate keeps that accessibility.
+      const listsType =
+        (typeAccessibilityIncludesForwarders() && listedForwarderRows().length > 0)
+        || pkg.types.some(type =>
+          libraryKey(type) === library.id
+          && state.accessibilityFilter.has(type.accessibilityId)
+          && !isListedAsForwarder(type));
+      if (forwarders?.loading && !listsType) await forwarders.loading;
       if (state.package !== pkg
         || selectedLibrary()?.id !== library.id
         || !navigationSequence.isCurrent(navigationSeq)) return;

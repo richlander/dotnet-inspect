@@ -1,8 +1,10 @@
+using System.Collections.Immutable;
 using System.Runtime.Versioning;
 using DotnetInspector.Libraries;
 using DotnetInspector.Queries;
 using DotnetInspector.Queries.Definitions;
 using DotnetInspector.Sections;
+using ILInspector.Metadata;
 
 namespace DotnetInspect.Web;
 
@@ -159,7 +161,10 @@ internal static class BrowserPlatformSurfaceProjection
         {
             BrowserPlatformSurfaceProjectionResult.Projected projected =>
                 new BrowserPlatformProjectionInfo(
-                    projected.Projection.Surface,
+                    MarkForwardedTypes(
+                        scope,
+                        participant,
+                        projected.Projection.Surface),
                     PortableIdentityProjection.FromWorkspaceContextMember(
                         participant),
                     participant,
@@ -171,6 +176,54 @@ internal static class BrowserPlatformSurfaceProjection
                         ?? "The workspace reported no failure.")),
             _ => throw new InvalidOperationException(
                 "Platform surface projection returned an unknown result."),
+        };
+    }
+
+    // A reference Type that the runtime assembly forwards is presented as
+    // that forwarder, so its row says so from the first projection rather
+    // than after the separate forwarder inventory settles. A self-surface
+    // lists only Types the runtime assembly defines, so nothing is marked.
+    static BrowserPackageSurfaceInfo MarkForwardedTypes(
+        BrowserPlatformScope scope,
+        WorkspaceContextMember participant,
+        BrowserPackageSurfaceInfo surface)
+    {
+        if (!scope.HasReferenceSurface(participant))
+            return surface;
+        AssemblyContextEntry<ImmutableArray<MetadataTypeDefinitionName>> forwarders =
+            scope.UseParticipant(
+                participant,
+                static (group, selected) =>
+                    AssemblyContextTypeForwarderQuery.ExecuteParticipant(
+                        group,
+                        selected,
+                        BrowserApiSurfacePolicy.MaxTypes
+                            + BrowserApiSurfacePolicy.MaxTypeForwarders,
+                        BrowserApiSurfacePolicy.MaxRetainedTextCharacters));
+        HashSet<string> forwarded = forwarders switch
+        {
+            AssemblyContextEntry<ImmutableArray<MetadataTypeDefinitionName>>.Available available =>
+                [.. available.Value.Select(static name => name.ToEscapedFullName())],
+            AssemblyContextEntry<ImmutableArray<MetadataTypeDefinitionName>>.Rejected rejected =>
+                throw new InvalidOperationException(
+                    $"Platform assembly '{participant.Participant.Assembly.Identity.Name}' type forwarders could not be read: {rejected.Failure.Kind} ({rejected.Failure.Detail})."),
+            AssemblyContextEntry<ImmutableArray<MetadataTypeDefinitionName>>.Failed failed =>
+                throw new InvalidOperationException(
+                    $"Platform assembly '{participant.Participant.Assembly.Identity.Name}' type forwarders could not be read: {failed.Error.Message}",
+                    failed.Error),
+            _ => throw new InvalidOperationException("Unknown type forwarder outcome."),
+        };
+        if (forwarded.Count == 0)
+            return surface;
+        return surface with
+        {
+            Types =
+            [
+                .. surface.Types.Select(type =>
+                    forwarded.Contains(type.DefinitionId)
+                        ? type with { Forwarded = true }
+                        : type),
+            ],
         };
     }
 

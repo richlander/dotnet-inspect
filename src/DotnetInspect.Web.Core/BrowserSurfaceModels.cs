@@ -64,7 +64,8 @@ internal sealed record BrowserTypeSurfaceInfo(
     int? Members,
     string Signature,
     BrowserMemberSurfaceInfo[] Api,
-    string? PlatformPack);
+    string? PlatformPack,
+    bool Forwarded = false);
 
 // API inventory carries the documentation identity only. Documentation content is acquired
 // separately for an exact Member and belongs in the application model after that request settles.

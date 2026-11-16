@@ -320,7 +320,9 @@ public sealed record BrowserAssemblySurface(
 /// delimited by <c>+</c>). <see cref="Assembly"/> is the selected package asset used for engine
 /// requests, <see cref="AssemblyId"/> joins that asset to its descriptor, and
 /// <see cref="AssemblyName"/> is its metadata identity. They are separate because none is
-/// interchangeable with another or with display text.
+/// interchangeable with another or with display text. <see cref="Forwarded"/> marks a Platform
+/// reference Type that the Library's runtime assembly forwards through <c>ExportedType</c>; a host
+/// presents it as that forwarder.
 /// </summary>
 public sealed record BrowserTypeSurface(
     string Id,
@@ -341,7 +343,9 @@ public sealed record BrowserTypeSurface(
     int? Members,
     string Signature,
     BrowserMemberSurface[] Api,
-    string? PlatformPack);
+    string? PlatformPack,
+    [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    bool Forwarded = false);
 
 /// <summary>
 /// One member overload. <see cref="StableSelector"/>, <see cref="AnchorDigest"/>,

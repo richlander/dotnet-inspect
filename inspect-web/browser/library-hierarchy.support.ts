@@ -328,6 +328,10 @@ const historicalPlatformTarget: PlatformCatalogTarget = {
 };
 interface PlatformFixture {
   forwarders?: boolean;
+  // System.Xml's reference surface declares the XmlReader its runtime
+  // assembly forwards, and the runtime also forwards XmlConvert, which the
+  // reference omits.
+  forwarderReferenceSurface?: boolean;
   forwarderInternalType?: boolean;
   forwarderFailure?: boolean;
   forwarderPending?: boolean;
@@ -897,6 +901,17 @@ async function installFacades(
             name: "XmlReader", displayName: "XmlReader", namespace: "System.Xml",
           } : {}),
         }] : [];
+        if (platformOptions.forwarderReferenceSurface && assembly.name === "System.Xml") {
+          types.push({
+            ...surfaces[0].types[0],
+            id: assembly.id + ":System.Xml.XmlReader",
+            definitionId: "System.Xml.XmlReader",
+            name: "XmlReader", displayName: "XmlReader", namespace: "System.Xml",
+            assembly: file, assemblyName: assembly.name, assemblyId: assembly.id, platformPack: pack,
+            forwarded: true,
+          });
+          assembly.publicTypes = 1;
+        }
         if (platformOptions.forwarderInternalType && assembly.name === "System.Xml") {
           types.push({
             ...surfaces[0].types[0],
@@ -969,7 +984,10 @@ async function installFacades(
           forwarders: target ? [{
             id: assembly.name + ":System.Xml.XmlReader", name: "System.Xml.XmlReader",
             namespace: "System.Xml", targetAssembly: target, action: id + ":XmlReader",
-          }] : [],
+          }, ...(platformOptions.forwarderReferenceSurface && assembly.name === "System.Xml" ? [{
+            id: assembly.name + ":System.Xml.XmlConvert", name: "System.Xml.XmlConvert",
+            namespace: "System.Xml", targetAssembly: target, action: id + ":XmlConvert",
+          }] : [])] : [],
           selectedTypeId: null,
         };
         document.documentElement.dataset.forwarderView = id;

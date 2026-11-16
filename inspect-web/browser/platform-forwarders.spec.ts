@@ -265,3 +265,123 @@ test("leaving and returning does not revive a superseded forwarding action", asy
   await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
   await expect(page.locator("[data-platform-forwarder]")).toBeEnabled();
 });
+
+// A facade's reference surface declares the Types its runtime assembly
+// forwards, under the forwarders' ids: each lists and counts once, as its
+// forwarder, and keeps the Overview-only forwarder experience.
+test("a reference-declared forwarded Type lists once as its forwarder", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "ready", {
+    forwarders: true, forwarderReferenceSurface: true,
+  });
+  await openInstalledPlatform(page);
+  await page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Xml", { exact: true }),
+  }).click();
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+  await expect(page.locator("[data-library-types]")).toHaveText("2 types");
+  const reader = page.locator('[data-type="System.Xml:System.Xml.XmlReader"]');
+  await expect(reader).toHaveCount(1);
+  await expect(reader).toContainText("Forwarded");
+  await expect(page.locator('[data-type="System.Xml:System.Xml.XmlConvert"]'))
+    .toContainText("Forwarded");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
+  await page.locator("[data-type-filter-disclosure] > summary").click();
+  await expect(page.getByRole("combobox", { name: "Filter by namespace" })
+    .locator('option[value="System.Xml"]')).toHaveText("System.Xml · 2");
+  await expect(page.getByRole("combobox", { name: "Type kind" })
+    .locator('option[value="forwarded"]')).toHaveText("forwarded · 2");
+
+  await reader.click();
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+  await expect(page.locator('[data-inspector-tab][data-lens="overview"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-lens="api"]')).toHaveCount(0);
+  await expect(page.locator('[data-inspector-tab][data-lens="source"]')).toHaveCount(0);
+  await page.locator("[data-platform-forwarder]").click();
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
+});
+
+// The server marks a forwarded reference Type, so it never lists or opens as
+// an ordinary Type while its Library's forwarder inventory is unresolved.
+test("a forwarded reference Type stays a forwarder while its inventory loads", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "ready", {
+    forwarders: true, forwarderReferenceSurface: true, forwarderViewPendingAfterFirst: true,
+  });
+  await openInstalledPlatform(page);
+  const xml = page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Xml", { exact: true }),
+  });
+  await xml.click();
+  const reader = page.locator('[data-type="System.Xml:System.Xml.XmlReader"]');
+  await reader.click();
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+
+  await chooseSubject(page, "platform", "Platform");
+  await page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Text.Json", { exact: true }),
+  }).click();
+  await releaseFacade(page, "finish-forwarder-view");
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Text.Json");
+  await page.keyboard.press("Control+k");
+  await page.locator("#spotlight-input").fill("type XmlReader");
+  await expect(page.locator("#spotlight-results")).toContainText("type XmlReader");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#spotlight-input")).toHaveCount(0);
+  await expect(page.locator(".inspected-target")).toContainText("XmlReader");
+  // While the inventory is held, the retained reference Type lists and opens
+  // as its forwarder, never as an ordinary Type, and cannot yet activate.
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+  await expect(page.locator(".forwarder-destination-status")).toHaveText("Loading…");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
+  await expect(page.locator('[data-inspector-tab][data-lens="api"]')).toHaveCount(0);
+  await expect(page.locator('[data-inspector-tab][data-lens="source"]')).toHaveCount(0);
+  await expect(reader).toHaveCount(1);
+  await expect(reader).toContainText("Forwarded");
+  // The Library already lists that Type, so Navigate opens it without
+  // waiting for the held inventory.
+  await chooseSubject(page, "library", "Library");
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+  await page.locator("[data-library-types]").click();
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+  await expect(reader).toHaveAttribute("aria-selected", "true");
+
+  await releaseFacade(page, "finish-forwarder-view");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
+  await expect(reader).toHaveCount(1);
+});
+
+// A Type the active accessibility hides does not make a Library listable, so
+// Navigate still settles a pending inventory before opening its forwarders.
+test("Navigate waits for forwarders when only a hidden Type is defined", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "ready", {
+    forwarders: true, forwarderInternalType: true, forwarderViewPendingAfterFirst: true,
+  });
+  await openInstalledPlatform(page);
+  await page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Xml", { exact: true }),
+  }).click();
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+
+  await chooseSubject(page, "platform", "Platform");
+  await page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Text.Json", { exact: true }),
+  }).click();
+  await releaseFacade(page, "finish-forwarder-view");
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Text.Json");
+  await page.keyboard.press("Control+k");
+  await page.locator("#spotlight-input").fill("type InternalType");
+  await expect(page.locator("#spotlight-results")).toContainText("type InternalType");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".inspected-target")).toContainText("InternalType");
+
+  await chooseSubject(page, "library", "Library");
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+  await page.locator("[data-type-filter-disclosure] > summary").click();
+  await page.getByRole("combobox", { name: "Type accessibility" }).selectOption("public");
+  await page.locator("[data-library-types]").click();
+  await releaseFacade(page, "finish-forwarder-view");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+  await expect(page.locator('[data-type="System.Xml:System.Xml.XmlReader"]'))
+    .toHaveAttribute("aria-selected", "true");
+});

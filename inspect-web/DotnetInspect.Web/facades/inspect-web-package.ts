@@ -1325,6 +1325,7 @@ export interface BrowserTypeSurface {
   readonly signature: string;
   readonly api: ReadonlyArray<BrowserMemberSurface>;
   readonly platformPack: string | null;
+  readonly forwarded?: boolean;
 }
 
 export interface BrowserWorkspacePackage {
