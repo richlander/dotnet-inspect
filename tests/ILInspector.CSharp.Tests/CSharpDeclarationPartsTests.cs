@@ -27,21 +27,17 @@ public sealed class CSharpDeclarationPartsTests
         using var stream = File.OpenRead(path);
         using var peReader = new PEReader(stream);
         ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
-        var options = comparable
-            // The options CSharpMemberDeclaration.RenderComparablePair uses.
-            ? new CSharpDeclarationOptions
-            {
-                IncludeCustomAttributes = true,
-                TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
-                TerminateMemberDeclaration = true,
-            }
-            : new CSharpDeclarationOptions();
+        var defaultOptions = new CSharpDeclarationOptions();
 
         int identified = 0;
         var unidentified = new Dictionary<string, int>(StringComparer.Ordinal);
         var disagreements = new List<string>();
         foreach (ApiType type in surface.Types)
         {
+            // The options CSharpMemberDeclaration.RenderComparablePair uses for this Type.
+            var options = comparable
+                ? CSharpMemberDeclaration.ComparableOptions(type, type)
+                : defaultOptions;
             foreach (ApiMember member in type.Members)
             {
                 string printed;
@@ -79,6 +75,27 @@ public sealed class CSharpDeclarationPartsTests
         Assert.True(
             disagreements.Count == 0,
             $"{disagreements.Count} disagreement(s):\n" + string.Join("\n", disagreements.Take(25)));
+    }
+
+    [Theory]
+    [InlineData("Example", "Example", "Example")]
+    [InlineData("Example", null, "Example")]
+    [InlineData(null, "Example", "Example")]
+    [InlineData("Example", "Example.Extensions", null)]
+    public void ComparableOptions_ShortenAgainstTheDeclaringNamespaceOnlyWhenShared(
+        string? baselineNamespace,
+        string? currentNamespace,
+        string? expected)
+    {
+        ApiType? baseline = baselineNamespace is null ? null : new ApiType { Namespace = baselineNamespace, Name = "A" };
+        ApiType? current = currentNamespace is null ? null : new ApiType { Namespace = currentNamespace, Name = "B" };
+
+        CSharpDeclarationOptions options = CSharpMemberDeclaration.ComparableOptions(baseline, current);
+
+        Assert.Equal(expected, options.ContainingNamespace);
+        Assert.True(options.IncludeCustomAttributes);
+        Assert.True(options.TerminateMemberDeclaration);
+        Assert.Equal(CSharpTypeNameMode.ShortWithUsings, options.TypeNameMode);
     }
 
     [Fact]

@@ -28,7 +28,27 @@ public static class CSharpMemberDeclaration
             baselineMember,
             currentType,
             currentMember,
-            ComparableOptions);
+            ComparableOptions(baselineType, currentType));
+
+    /// <summary>
+    /// The comparison options for a pair: custom attributes included, Type
+    /// names shortened with usings, declarations terminated, and names in the
+    /// declaring namespace shortened against it when both sides share it, as
+    /// the namespace line that encloses them states. A pair across namespaces
+    /// shortens against neither, so one side is never read in the other's.
+    /// </summary>
+    internal static CSharpDeclarationOptions ComparableOptions(ApiType? baselineType, ApiType? currentType)
+    {
+        string? baselineNamespace = baselineType?.Namespace;
+        string? currentNamespace = currentType?.Namespace;
+        bool shared = baselineType is null
+            || currentType is null
+            || string.Equals(baselineNamespace, currentNamespace, StringComparison.Ordinal);
+        return ComparableBase with
+        {
+            ContainingNamespace = shared ? (currentType ?? baselineType)?.Namespace : null,
+        };
+    }
 
     /// <summary>
     /// A Type's declaration line as it encloses a member in a listing: a
@@ -37,7 +57,7 @@ public static class CSharpMemberDeclaration
     public static string RenderEnclosingTypeDeclaration(ApiType type)
         => CSharpStructuredTypePlanProducer.RenderEnclosingTypeDeclaration(type);
 
-    static readonly CSharpDeclarationOptions ComparableOptions = new()
+    static readonly CSharpDeclarationOptions ComparableBase = new()
     {
         IncludeCustomAttributes = true,
         TypeNameMode = CSharpTypeNameMode.ShortWithUsings,

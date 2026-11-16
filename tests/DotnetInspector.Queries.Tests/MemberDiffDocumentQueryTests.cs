@@ -22,6 +22,7 @@ public sealed class MemberDiffDocumentQueryTests
             {
                 public void Run(int count) { }
                 public string Name => "";
+                public Widget Clone() => this;
                 public virtual void Reset() { }
                 public int Size { get; }
                 [Category("old")]
@@ -52,6 +53,7 @@ public sealed class MemberDiffDocumentQueryTests
             {
                 public void Run(long count) { }
                 public string Name => "";
+                public Widget Clone() => this;
                 public void Reset() { }
                 public int Size { get; set; }
                 [Description("text")]
@@ -188,6 +190,15 @@ public sealed class MemberDiffDocumentQueryTests
             (note.Side, note.Line, note.Note.Kind, note.Note.Version));
         Assert.Empty(document.Carets);
         Assert.Empty(document.ChangeNotes);
+    }
+
+    [Fact]
+    public async Task TypeInTheDeclaringNamespace_IsShortenedAsTheNamespaceLineStates()
+    {
+        MemberDiffDocument document = await Single("Example.Widget", "Clone");
+
+        Assert.Equal("public Widget Clone();", Assert.Single(document.Current!.Lines));
+        Assert.Equal("namespace Example;", document.CurrentEnclosure[0].Text);
     }
 
     [Fact]
