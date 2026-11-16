@@ -179,6 +179,11 @@ internal sealed record BrowserRetainedWorkspacePlatformPresentation(
 [SupportedOSPlatform("browser")]
 internal sealed class BrowserRetainedNavigationPreparation
 {
+    readonly object _gate = new();
+    readonly Dictionary<
+        WorkspacePackageOccurrence,
+        NavigationPackageEvaluation> _packageScopeEvaluations =
+            new(ReferenceEqualityComparer.Instance);
     readonly NavigationFacetAvailabilityProvider _availability;
     readonly ApiSurfaceProjectionLimits _surfaceLimits;
 
@@ -200,6 +205,25 @@ internal sealed class BrowserRetainedNavigationPreparation
     }
 
     internal ApiSurfaceProjectionLimits SurfaceLimits => _surfaceLimits;
+
+    internal void RetainPackageScopeEvaluation(
+        WorkspacePackageOccurrence occurrence,
+        NavigationPackageEvaluation evaluation)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        ArgumentNullException.ThrowIfNull(evaluation);
+        if (!ReferenceEquals(
+                evaluation.Occurrence.Occurrence,
+                occurrence))
+        {
+            throw new ArgumentException(
+                "The retained Package evaluation must belong to the exact occurrence.",
+                nameof(evaluation));
+        }
+
+        lock (_gate)
+            _packageScopeEvaluations[occurrence] = evaluation;
+    }
 
     internal ValueTask<NavigationPreparation> PrepareAsync(
         WorkspaceRealizationOperationLease operation,
@@ -225,6 +249,27 @@ internal sealed class BrowserRetainedNavigationPreparation
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        NavigationPackageEvaluation? retainedPackage;
+        lock (_gate)
+        {
+            _packageScopeEvaluations.TryGetValue(
+                request.Occurrence,
+                out retainedPackage);
+        }
+        if (retainedPackage is not null
+            && operation.Scope.Packages.Any(package =>
+                ReferenceEquals(
+                    package.Occurrence,
+                    request.Occurrence)))
+        {
+            return ValueTask.FromResult<NavigationPreparation>(
+                new NavigationPreparation.Ready(
+                    new(
+                        operation.Scope,
+                        retainedPackage,
+                        _availability)));
+        }
+
         var sources = ImmutableArray.CreateBuilder<Source>();
         foreach (WorkspaceDeclarationContext context
             in operation.Workspace.GetDeclarationContextsSnapshot())
@@ -1841,6 +1886,9 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                 navigationPosting,
                 completed.Result);
         }
+        navigationPosting.NavigationPreparation.RetainPackageScopeEvaluation(
+            occurrence.Occurrence,
+            available.Value);
 
         string navigationId = consumerPackages[0].Subject.Id;
         int contextIndex = navigationPosting.Packages

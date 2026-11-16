@@ -5,9 +5,6 @@ import type {
 import type {
   InertString as PackageInertString,
 } from "../src/facades/inspect-web-package.d.ts";
-import type {
-  InertString as CatalogInertString,
-} from "../src/facades/inspect-web-catalog.d.ts";
 
 function isInertStringWireValue(value: unknown): value is InertString {
   return typeof value === "string";
@@ -32,22 +29,6 @@ export function metadataInertStringFixture(
 ): MetadataInertString {
   const parsed: unknown = JSON.parse(JSON.stringify(value));
   if (!isMetadataInertStringWireValue(parsed)) {
-    throw new TypeError("The inert-string fixture must remain a JSON string.");
-  }
-  return parsed;
-}
-
-function isCatalogInertStringWireValue(
-  value: unknown,
-): value is CatalogInertString {
-  return typeof value === "string";
-}
-
-export function catalogInertStringFixture(
-  value: string,
-): CatalogInertString {
-  const parsed: unknown = JSON.parse(JSON.stringify(value));
-  if (!isCatalogInertStringWireValue(parsed)) {
     throw new TypeError("The inert-string fixture must remain a JSON string.");
   }
   return parsed;
