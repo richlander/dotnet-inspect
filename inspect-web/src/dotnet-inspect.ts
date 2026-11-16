@@ -15862,11 +15862,15 @@ const libraryControlActions: LibraryControlBindingActions = {
         reconcilePlatformForwarderView(true);
         forwarders = selectedPlatformForwarderPresentation(pkg);
       }
-      // A Library that already lists a Type, including a marked forwarded
-      // reference Type, is not empty, so it opens without the inventory.
-      const listsType = listedForwarderRows().length > 0
+      // A Library that already lists a Type under the active accessibility,
+      // including a marked forwarded reference Type, is not empty, so it
+      // opens without the inventory; Navigate keeps that accessibility.
+      const listsType =
+        (typeAccessibilityIncludesForwarders() && listedForwarderRows().length > 0)
         || pkg.types.some(type =>
-          libraryKey(type) === library.id && !isListedAsForwarder(type));
+          libraryKey(type) === library.id
+          && state.accessibilityFilter.has(type.accessibilityId)
+          && !isListedAsForwarder(type));
       if (forwarders?.loading && !listsType) await forwarders.loading;
       if (state.package !== pkg
         || selectedLibrary()?.id !== library.id

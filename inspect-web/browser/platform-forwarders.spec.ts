@@ -350,3 +350,38 @@ test("a forwarded reference Type stays a forwarder while its inventory loads", a
   await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
   await expect(reader).toHaveCount(1);
 });
+
+// A Type the active accessibility hides does not make a Library listable, so
+// Navigate still settles a pending inventory before opening its forwarders.
+test("Navigate waits for forwarders when only a hidden Type is defined", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "ready", {
+    forwarders: true, forwarderInternalType: true, forwarderViewPendingAfterFirst: true,
+  });
+  await openInstalledPlatform(page);
+  await page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Xml", { exact: true }),
+  }).click();
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+
+  await chooseSubject(page, "platform", "Platform");
+  await page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Text.Json", { exact: true }),
+  }).click();
+  await releaseFacade(page, "finish-forwarder-view");
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Text.Json");
+  await page.keyboard.press("Control+k");
+  await page.locator("#spotlight-input").fill("type InternalType");
+  await expect(page.locator("#spotlight-results")).toContainText("type InternalType");
+  await page.keyboard.press("Enter");
+  await expect(page.locator(".inspected-target")).toContainText("InternalType");
+
+  await chooseSubject(page, "library", "Library");
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+  await page.locator("[data-type-filter-disclosure] > summary").click();
+  await page.getByRole("combobox", { name: "Type accessibility" }).selectOption("public");
+  await page.locator("[data-library-types]").click();
+  await releaseFacade(page, "finish-forwarder-view");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+  await expect(page.locator('[data-type="System.Xml:System.Xml.XmlReader"]'))
+    .toHaveAttribute("aria-selected", "true");
+});
