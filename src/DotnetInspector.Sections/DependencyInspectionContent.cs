@@ -425,6 +425,8 @@ public sealed record DependencyInspectionSummary(
     bool IsPrefixRootSet,
     PackageDependencyEvidencePackagePrefixCompletion? PackagePrefix)
 {
+    public DependencyHierarchyPruning? HierarchyPruning { get; init; }
+
     public DependencyInspectionLicenseSummary Licenses { get; init; } =
         DependencyInspectionLicenseSummary.NotRequested;
 

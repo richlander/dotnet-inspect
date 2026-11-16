@@ -1395,7 +1395,11 @@ public sealed record BrowserPackageHierarchy(
     string Completion,
     BrowserPackageHierarchyRow[] Rows,
     string[] Failures,
-    BrowserDependencyEcosystemComposition EcosystemComposition);
+    BrowserDependencyEcosystemComposition EcosystemComposition)
+{
+    public DotnetInspector.Sections.DependencyHierarchyPruning? Pruning
+    { get; init; }
+}
 
 public sealed record BrowserDependencyEcosystemComposition(
     int PackageVersions,
@@ -1577,6 +1581,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageCacheStats))]
 [JsonSerializable(typeof(BrowserEcosystemPackageCandidate[]))]
 [JsonSerializable(typeof(BrowserEcosystemPackageInventory))]
+[JsonSerializable(typeof(BrowserEcosystemPackageInventory[]))]
 [JsonSerializable(typeof(BrowserEcosystemPackageClassification[]))]
 [JsonSerializable(typeof(BrowserEcosystemAssemblyName[]))]
 [JsonSerializable(typeof(BrowserEcosystemAssemblyNameClaim[]))]

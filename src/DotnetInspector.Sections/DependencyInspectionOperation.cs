@@ -111,6 +111,8 @@ public sealed record DependencyInspectionOperationRequest
 
     public DependencyInspectionPruningSummary PruningSummary { get; }
 
+    public DependencyHierarchyPruning? HierarchyPruning { get; init; }
+
     public ImmutableArray<DependencyInspectionLicense> Licenses { get; init; } =
         [];
 
@@ -747,6 +749,9 @@ public static class DependencyInspectionOperation
             request.IsPrefixRootSet,
             evidence.Summary.PackagePrefix)
         {
+            HierarchyPruning = request.Plan.Traversal
+                ? request.HierarchyPruning
+                : null,
             Licenses = request.Plan.Licenses
                 ? request.LicenseSummary
                 : DependencyInspectionLicenseSummary.NotRequested,

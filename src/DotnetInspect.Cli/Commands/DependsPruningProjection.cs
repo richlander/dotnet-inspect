@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Sections;
+using DotnetInspector.Ecosystems;
 using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
@@ -14,6 +15,50 @@ namespace DotnetInspect.Cli.Commands;
 
 public partial class DependsCommand
 {
+    private static PackageDependencyTraversalPlatformPruning CreateHierarchyPruning(
+        DependsOptions options,
+        TraversalTargetFrameworkPolicy targetPolicy,
+        Func<string, InstalledPlatformPruneSource.Result> readInventory)
+    {
+        WorkspacePlan selected = EcosystemPackCatalog.CreateWorkspacePlan(
+            [options.PruningPlatformFamily?.Equals(
+                "aspnetcore", StringComparison.OrdinalIgnoreCase) == true
+                ? EcosystemPackIds.AspNetCore
+                : EcosystemPackIds.Runtime]);
+        var plan = new WorkspacePlan(
+            targetPolicy, selected.Registrations, selected.Contexts);
+        string framework = targetPolicy.TargetFramework;
+        if (!PlatformTargetFramework.TryParse(
+                framework.ToLowerInvariant(), out _))
+        {
+            return new(plan, [],
+                $"No installed Platform inventory can describe '{framework}'.");
+        }
+
+        var inventories = new List<PlatformPruneInventory>();
+        var errors = new List<string>();
+        foreach (string family in
+                 PackageDependencyTraversalPlatformPruning.GetSelectedFamilies(plan))
+        {
+            string selector = family switch
+            {
+                "Microsoft.NETCore.App" => "runtime",
+                "Microsoft.AspNetCore.App" => "aspnetcore",
+                _ => throw new InvalidOperationException(
+                    "Unknown Hierarchy pruning family."),
+            };
+            InstalledPlatformPruneSource.Result result =
+                readInventory(CreateFrameworkSpec(selector, framework));
+            if (result.Inventory is { } inventory)
+                inventories.Add(inventory);
+            else
+                errors.Add(result.Error ?? $"No exact inventory for {family}.");
+        }
+        return new(
+            plan, inventories,
+            errors.Count == 0 ? null : string.Join(" ", errors));
+    }
+
     private static async Task<DependsPruningProjectionResult>
         AcquirePruningProjectionAsync(
             DependsOptions options,

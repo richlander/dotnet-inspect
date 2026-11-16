@@ -68,6 +68,14 @@ public sealed class DependsAssetView
         init => field = DependencyEvidenceViewText.Field(value).ToString();
     }
 
+    [MarkoutPropertyName("Hierarchy Pruning")]
+    [MarkoutSkipNull]
+    public string? HierarchyPruning
+    {
+        get => field;
+        init => field = DependencyEvidenceViewText.Optional(value)?.ToString();
+    }
+
     [MarkoutPropertyName("License Inventory")]
     public required string LicenseInventory
     {
@@ -218,12 +226,13 @@ public sealed class DependsAssetView
     { get; init; }
 }
 
-[MarkoutSerializable]
+[MarkoutSerializable(DescriptionProperty = nameof(Description))]
 public sealed class DependsAssetMarkdownView
 {
     internal static DependsAssetMarkdownView From(DependsAssetView view) =>
         new()
         {
+            Description = view.HierarchyPruning,
             EcosystemComposition = view.EcosystemComposition,
             DependencyHierarchy = view.DependencyHierarchy,
             Roots = view.Roots,
@@ -235,6 +244,9 @@ public sealed class DependsAssetMarkdownView
             DependencyGroups = view.DependencyGroups,
             RestoredPackages = view.RestoredPackages,
         };
+
+    [MarkoutIgnore]
+    public string? Description { get; init; }
 
     [MarkoutPropertyName("Ecosystem Composition")]
     [MarkoutSkipNull]

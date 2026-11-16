@@ -18,6 +18,8 @@ public sealed record PlatformSupply(
     string? Family,
     NuGetVersion? SuppliedVersion)
 {
+    public string? NormalizedSuppliedVersion => SuppliedVersion?.ToNormalizedString();
+
     /// <summary>Whether a consumer should resolve this identity to the platform.</summary>
     /// <remarks>
     /// True only for <see cref="PlatformSubsumption.Subsumed"/>. Both

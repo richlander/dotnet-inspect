@@ -195,6 +195,8 @@ function posting(
       navigationId: "platform-navigation",
       contextIndex: 1,
       family: "Microsoft.NETCore.App",
+      version: "10.0.12",
+      framework: "net10.0",
       runtimeIdentifier: "linux-x64",
       nativeSelection: null,
       summary: {

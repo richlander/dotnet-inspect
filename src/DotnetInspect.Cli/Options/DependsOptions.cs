@@ -76,6 +76,9 @@ public record DependsOptions : IAssemblySourceOptions, IProjectionOptions
     /// </summary>
     public string? PruningPlatformFamily { get; init; }
 
+    /// <summary>Retain platform-supplied package routes in Hierarchy.</summary>
+    public bool UnprunedHierarchy { get; init; }
+
     /// <summary>
     /// Output as JSON.
     /// </summary>
