@@ -1662,8 +1662,10 @@ export async function queryPlatformOpportunities(targetFramework: string, platfo
   return $parsed as BrowserPackageOpportunities;
 }
 
-export async function queryPlatformPerformance(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<string> {
-  return await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformPerformance.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
+export async function queryPlatformPerformance(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserPackagePerformance> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Analysis"]["AnalysisExports"]["QueryPlatformPerformance.1579276339"](targetFramework, platformVersion, assemblyFileName, pack);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserPackagePerformance;
 }
 
 export async function queryPlatformResourceTriage(targetFramework: string, platformVersion: string, assemblyFileName: string, pack: string): Promise<BrowserResourceTriage> {

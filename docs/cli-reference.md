@@ -2388,6 +2388,11 @@ dotnet-inspect type System.Text.Json.JsonSerializer \
 dotnet-inspect type System.Text.Json.JsonSerializer \
   --workspace "$schema4_packet" \
   --share packet
+
+dotnet-inspect member 'System.Collections.Generic.IEnumerable`1' \
+  --workspace "$schema4_packet" \
+  -S "Extension Methods" \
+  -n 40
 ```
 
 `type --workspace` requires one exact Type and one canonical Base64URL
@@ -2401,6 +2406,11 @@ source declarations emits schema 3; one with source declarations emits schema
 5. Schema 3 remains a valid inspection input but cannot encode the derived Type
 scenario; requesting Share from that input fails visibly without discarding
 the Type output.
+
+`member --workspace` accepts the same packet as the sole location source and
+requires one exact Type selector. Selecting `Extension Methods` adds bounded
+extension candidates from every participant in the retained selected context;
+`-n` overrides the default 20 rows per participant.
 
 #### Inspect async source and compiled lowering
 

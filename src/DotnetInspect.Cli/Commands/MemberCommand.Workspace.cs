@@ -32,7 +32,8 @@ public static partial class MemberCommand
         ApiServices.LoadedApiSurface? loaded = null,
         Func<ApiType, ShareProjectionPlan, InspectionShare>? project = null,
         bool allowImplicitDocumentation = true,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        WorkspaceExtensionCandidatePopulation? workspaceExtensionCandidates = null)
     {
         if (options.ShareFormat is null)
         {
@@ -44,7 +45,9 @@ public static partial class MemberCommand
                     allowImplicitDocumentation:
                         allowImplicitDocumentation,
                     cancellationToken:
-                        cancellationToken)
+                        cancellationToken,
+                    workspaceExtensionCandidates:
+                        workspaceExtensionCandidates)
                 .ConfigureAwait(false);
         }
 
@@ -71,7 +74,9 @@ public static partial class MemberCommand
             allowImplicitDocumentation:
                 allowImplicitDocumentation,
             cancellationToken:
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+            workspaceExtensionCandidates:
+                workspaceExtensionCandidates).ConfigureAwait(false);
         if (options.ShareFormat is not { } format)
             return exitCode;
         // Failure cannot produce a successful-looking navigation scalar.
@@ -83,7 +88,8 @@ public static partial class MemberCommand
     static async Task<int> ExecuteWorkspaceAsync(
         MemberOptions options,
         ResolvedMemberInspectionPlan plan,
-        WorkspaceContextLoadOptions capabilities)
+        WorkspaceContextLoadOptions capabilities,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(options.TypeName)
             || options.TypeName.IndexOfAny(['*', '?']) >= 0)
@@ -93,7 +99,7 @@ public static partial class MemberCommand
         }
         WorkspacePacketRestorationResult result =
             await WorkspacePacketRestoration.RestoreAsync(
-                options.WorkspacePacket!, capabilities, CancellationToken.None)
+                options.WorkspacePacket!, capabilities, cancellationToken)
                 .ConfigureAwait(false);
         if (result is WorkspacePacketRestorationResult.Failed failed)
         {
@@ -129,6 +135,16 @@ public static partial class MemberCommand
                 ?? throw new InvalidOperationException(
                     "An available Workspace Type requires a live target.");
             var selectedContext = active.Activation.SelectedContext!;
+            WorkspaceExtensionCandidatePopulation? candidates = null;
+            if (WorkspaceExtensionCandidateQuery.IsExplicitlyRequested(options))
+            {
+                var group = selectedContext.Group
+                    ?? throw new InvalidOperationException(
+                        "An available Workspace Type requires a selected context group.");
+                candidates = WorkspaceExtensionCandidateQuery.ExecuteIfRequested(
+                    group, selectedTarget.Type, selectedTarget.Assembly,
+                    options, cancellationToken);
+            }
             WorkspaceDeclarationMember member = selectedContext.Receipt.Members
                 .Single(candidate => Equals(candidate.Occurrence, defining.Occurrence));
             TypeCommand.WriteInspectionDiagnostics(envelope.Diagnostics);
@@ -161,8 +177,13 @@ public static partial class MemberCommand
                         string encoded = WorkspaceSharePacketCodec.Encode(projection.Packet!);
                         return new InspectionShare.Available(
                             WorkspaceShareUrl.Create(encoded), encoded);
-                    })).ConfigureAwait(false);
-            return outputExitCode != 0 || !envelope.Content.Inspection.IsComplete ? 1 : 0;
+                    },
+                    cancellationToken: cancellationToken,
+                    workspaceExtensionCandidates: candidates)).ConfigureAwait(false);
+            return outputExitCode != 0
+                || !envelope.Content.Inspection.IsComplete
+                || !WorkspaceExtensionCandidateQuery.IsComplete(candidates)
+                ? 1 : 0;
         }).ConfigureAwait(false);
     }
 
