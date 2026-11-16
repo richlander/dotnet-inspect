@@ -590,8 +590,11 @@ internal static class BrowserPlatformWorkspace
                     operationTimeout,
                     cancellationToken)
                 .ConfigureAwait(false);
+        // Documentation ships beside the surface: request the reference
+        // assembly by its own identity, which may differ from the runtime
+        // identity because roles pair by name.
         AssemblyReferenceIdentity assemblyIdentity =
-            resolution.Participant.Participant.Assembly.Identity;
+            resolution.SurfaceParticipant.Participant.Assembly.Identity;
         PlatformFamily family = resolution.Coordinate.Family switch
         {
             RuntimeFamily => PlatformFamily.DotNetRuntime,
@@ -644,8 +647,11 @@ internal static class BrowserPlatformWorkspace
                     operationTimeout,
                     cancellationToken)
                 .ConfigureAwait(false);
+        // Documentation ships beside the surface: request the reference
+        // assembly by its own identity, which may differ from the runtime
+        // identity because roles pair by name.
         AssemblyReferenceIdentity assemblyIdentity =
-            resolution.Participant.Participant.Assembly.Identity;
+            resolution.SurfaceParticipant.Participant.Assembly.Identity;
         PlatformFamily family = resolution.Coordinate.Family switch
         {
             RuntimeFamily => PlatformFamily.DotNetRuntime,

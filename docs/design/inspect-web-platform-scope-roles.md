@@ -127,7 +127,9 @@ selection uses, acquires both roles.
   - the Type list;
   - Type overview and member population;
   - member groups, member documents, and member declarations;
-  - API declarations.
+  - API declarations;
+  - member XML documentation, requested by the reference assembly's own
+    identity, which may differ from the runtime identity.
 - **Declarations.** A member declaration reads the surface when the reference
   assembly declares the member, and the implementation only when the reference
   omits it. A surface projection that exceeds its bounds fails visibly rather

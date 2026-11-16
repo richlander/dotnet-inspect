@@ -33,6 +33,7 @@ public sealed partial class BrowserEngineBoundaryTests
         {
             public static class Shared
             {
+                /// <summary>Reads a value from the reference surface.</summary>
                 public static unsafe int Read(int value) => throw null!;
             }
             public sealed class ReferenceOnly { }
@@ -75,10 +76,12 @@ public sealed partial class BrowserEngineBoundaryTests
         byte[] implementation = CompilePlatformRoleFixture(
             PlatformRoleAssembly,
             PlatformRoleImplementation);
+        using var referenceDocumentation = new MemoryStream();
         byte[] reference = CompilePlatformRoleFixture(
             PlatformRoleAssembly,
             PlatformRoleReference,
-            updatedMemorySafetyRules: true);
+            updatedMemorySafetyRules: true,
+            documentation: referenceDocumentation);
         byte[] privateImplementation = CompilePlatformRoleFixture(
             PlatformRolePrivateAssembly,
             PlatformRolePrivate);
@@ -90,7 +93,9 @@ public sealed partial class BrowserEngineBoundaryTests
                     (assemblyFile, implementation),
                     (privateFile, privateImplementation)),
                 ["microsoft.netcore.app.ref"] = PackageEntries(
-                    ($"ref/{framework}/{assemblyFile}", reference)),
+                    ($"ref/{framework}/{assemblyFile}", reference),
+                    ($"ref/{framework}/{PlatformRoleAssembly}.xml",
+                        referenceDocumentation.ToArray())),
             });
         using IPackageSourceClient packageClient =
             BrowserPackageWorkspace.CreateGallerySource(
@@ -158,6 +163,24 @@ public sealed partial class BrowserEngineBoundaryTests
                 (await Declaration(sharedImplementation, runtimeOnly)).Text);
             Assert.Contains("RuntimeOnly", runtimeOnlyText, StringComparison.Ordinal);
             Assert.DoesNotContain("unsafe", runtimeOnlyText, StringComparison.Ordinal);
+
+            // Documentation comes from the surface, requested by the reference
+            // identity even though it differs from the runtime identity.
+            var documentation = Assert.IsType<DotnetInspector.Queries.CompiledDocumentationOutcome.Available>(
+                await BrowserPlatformWorkspace.QueryMemberDocumentationAsync(
+                    framework,
+                    version,
+                    assemblyFile,
+                    pack,
+                    "M:Contoso.PlatformRoles.Shared.Read(System.Int32)",
+                    client,
+                    packageClient,
+                    authorization,
+                    TimeSpan.FromSeconds(30),
+                    TestContext.Current.CancellationToken));
+            Assert.Equal(
+                "Reads a value from the reference surface.",
+                documentation.Documentation.Summary);
 
             // An implementation view accepts the surface row's identity and
             // reference metadata token, and selects the runtime body.
@@ -233,9 +256,14 @@ public sealed partial class BrowserEngineBoundaryTests
     static byte[] CompilePlatformRoleFixture(
         string assemblyName,
         string source,
-        bool updatedMemorySafetyRules = false)
+        bool updatedMemorySafetyRules = false,
+        Stream? documentation = null)
     {
-        CSharpParseOptions parse = new CSharpParseOptions(LanguageVersion.Preview)
+        CSharpParseOptions parse = new CSharpParseOptions(
+                LanguageVersion.Preview,
+                documentation is null
+                    ? DocumentationMode.None
+                    : DocumentationMode.Diagnose)
             .WithFeatures(updatedMemorySafetyRules
                 ? [new("updated-memory-safety-rules", "")]
                 : []);
@@ -248,7 +276,9 @@ public sealed partial class BrowserEngineBoundaryTests
                 nullableContextOptions: NullableContextOptions.Enable,
                 allowUnsafe: true));
         using var image = new MemoryStream();
-        EmitResult result = compilation.Emit(image);
+        EmitResult result = compilation.Emit(
+            image,
+            xmlDocumentationStream: documentation);
         Assert.True(
             result.Success,
             string.Join(
