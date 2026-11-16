@@ -19,6 +19,23 @@ namespace DotnetInspect.Cli.Tests;
 public sealed class LayeringTests
 {
     [Fact]
+    public void SelectedBodyFastPathsConsumeSharedTypeSelection()
+    {
+        string root = CommandErrorOwnershipTests.RepositoryRoot();
+        foreach (string file in new[] { "MemberCommand.cs", "ApiCommand.CallSiteCount.cs" })
+        {
+            string source = File.ReadAllText(Path.Combine(root, "src", "DotnetInspect.Cli", "Commands", file));
+            Assert.Contains("ExactTypeInspectionOperation.SelectDeclarations(", source);
+            Assert.DoesNotContain("FindUniqueLookupTypeToken", source);
+        }
+        string body = File.ReadAllText(Path.Combine(root, "src", "ILInspector.Metadata", "MethodBodySource.cs"));
+        Assert.Contains("MetadataTypeLookup.Definition(", body);
+        Assert.DoesNotContain("TypeMatcher.MatchesExactTypeName(", body);
+        Assert.DoesNotContain("AttributeReader.HasHiddenAttribute(", body);
+        Assert.DoesNotContain("FindUniqueLookupTypeToken", body);
+    }
+
+    [Fact]
     public void CompactTypeOverviewDelegatesSelectionToSharedOperation()
     {
         string source = File.ReadAllText(Path.Combine(

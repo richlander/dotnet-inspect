@@ -1,0 +1,20 @@
+Fixed before dispatch. Two independent fresh GPT-6 Sol participants per arm, no tools, rendering embedded in the prompt. Main arms: G (git lowering with headings), U (inspect printer, unmarked enclosure), M (enclosure marked "·"), ML (M plus a one-line legend), MLH (ML plus "@@" hunk headers). Separator arms: pipe ("heading | label"), bracket ("heading [label]"), comment ("heading // label"); each escapes its own separator inside a heading.
+
+Ground truth (scenarios.json "facts"): Widget was `public class Widget` in 1.0.0 and is `public sealed class Widget` in 2.0.0; Gauge is new in 2.0.0.
+- S1 changed: parameter count int -> long. Classification: "Breaking: parameter type changed" (G: none).
+- S2 changed: Read added. Classification: none. Type: Gauge added (inspect arms: type_changed "changed", type_declaration_1_0_0 "did not exist"; G: "not stated" for both).
+- S3 changed: nothing. Classification: none ("Unchanged since 1.0.0" is a status, accepted if quoted).
+- S4 changed: Tag attribute argument "a" -> "b". Classification: none.
+- S5 changed: body allocation `new byte[count]` -> `ArrayPool<byte>.Shared.Rent((int)count)`; declaration unchanged. Classification: none ("allocation removed" accepted if quoted).
+- S6 changed: Reset removed. Classification: "Breaking: member removed" (G: none).
+- Widget scenarios (S1, S3-S6), type_declaration_1_0_0: inspect arms "not stated"; G "public class Widget" or "not stated". type_changed: "not stated" in every arm.
+
+Primary measure, enclosure misread: in a Widget scenario, type_declaration_1_0_0 = "public sealed class Widget", or type_changed = "unchanged" (also "changed" without a stated basis). Secondary: changed and classification correctness, and format_notes.
+
+Decisions:
+1. Enclosure marking: among U, M, ML, the arm with the fewest enclosure misreads; ties go to the shorter output (U, then M, then ML).
+2. Caret and note placement (constant across inspect arms): accepted when no inspect-arm participant misattributes a note or caret in S1, S4, S5, or S6; otherwise reopened.
+3. "@@" headers in the inspect printer: adopted only if MLH has fewer misreads or errors than ML.
+4. Heading/label separator: the variant with the most exact heading-and-label recoveries over 12 headers (2 participants x 6); a tie goes to the operator with the results.
+G is the conventional baseline; it shows what the inspect printer adds, and it does not compete.
+No causal or population inference: two participants per arm is diagnostic.

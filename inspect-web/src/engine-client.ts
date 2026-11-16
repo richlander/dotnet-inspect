@@ -153,7 +153,8 @@ type SourceOperations =
 type CallGraphOperations =
   | "expandPlatformCallGraph"
   | "queryDirectUseClusters"
-  | "queryMemberCallGraph";
+  | "queryMemberCallGraph"
+  | "queryRetainedMemberCallGraph";
 
 type CatalogOperations =
   | "canUpgradeLegacyPlatformWorkspace"

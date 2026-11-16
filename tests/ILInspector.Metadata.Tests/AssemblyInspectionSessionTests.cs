@@ -440,27 +440,27 @@ public class AssemblyInspectionSessionTests
 
         Assert.NotNull(
             session.MethodBodies.ResolveUniqueMethod(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.Echo),
                 publicOnly: true));
         Assert.Null(
             session.MethodBodies.ResolveUniqueMethod(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.Overloaded),
                 publicOnly: true));
         Assert.Null(
             session.MethodBodies.ResolveUniqueMethod(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.Pick),
                 publicOnly: true));
         Assert.Null(
             session.MethodBodies.ResolveUniqueMethod(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.pick),
                 publicOnly: true));
         Assert.Null(
             session.MethodBodies.ResolveUniqueMethod(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.PickField),
                 publicOnly: true));
     }
@@ -484,7 +484,7 @@ public class AssemblyInspectionSessionTests
 
         MethodBodySelection? selected =
             session.MethodBodies.ResolveApiMethodOverload(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 methodName,
                 overloadIndex - 1,
                 includeAll: false);
@@ -524,25 +524,25 @@ public class AssemblyInspectionSessionTests
 
         Assert.Null(
             session.MethodBodies.ResolveApiMethodOverload(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.Overloaded),
                 overloadIndex: null,
                 includeAll: false));
         Assert.Null(
             session.MethodBodies.ResolveApiMethodOverload(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.PickField),
                 overloadIndex: 0,
                 includeAll: true));
         Assert.Null(
             session.MethodBodies.ResolveApiMethodOverload(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.Internal),
                 overloadIndex: 0,
                 includeAll: false));
         Assert.NotNull(
             session.MethodBodies.ResolveApiMethodOverload(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.Internal),
                 overloadIndex: 0,
                 includeAll: true));
@@ -559,13 +559,13 @@ public class AssemblyInspectionSessionTests
 
         var getter =
             session.MethodBodies.ResolveAccessorMethod(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.Value),
                 accessorIndex: 0,
                 publicOnly: true);
         var setter =
             session.MethodBodies.ResolveAccessorMethod(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.Value),
                 accessorIndex: 1,
                 publicOnly: true);
@@ -578,7 +578,7 @@ public class AssemblyInspectionSessionTests
 
         var writeOnly =
             session.MethodBodies.ResolveAccessorMethod(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.SetterOnly),
                 accessorIndex: 0,
                 publicOnly: true);
@@ -586,13 +586,13 @@ public class AssemblyInspectionSessionTests
         Assert.NotNull(writeOnly);
         Assert.Null(
             session.MethodBodies.ResolveAccessorMethod(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.SetterOnly),
                 accessorIndex: 1,
                 publicOnly: true));
         Assert.Null(
             session.MethodBodies.ResolveAccessorMethod(
-                declaringType,
+                typeof(MethodBodyFixture).MetadataToken,
                 nameof(MethodBodyFixture.ValueField),
                 accessorIndex: 0,
                 publicOnly: true));
