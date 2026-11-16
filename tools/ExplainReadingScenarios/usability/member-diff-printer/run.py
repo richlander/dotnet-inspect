@@ -20,7 +20,7 @@ REPLICATES = 2
 MAIN_ARMS = ['G', 'U', 'M', 'ML', 'MLH']
 SEPARATOR_ARMS = ['sep-pipe', 'sep-bracket', 'sep-comment']
 INPUTS = ['scenarios.json', 'generate.py', 'run.py', 'participant.txt', 'task-main.txt',
-          'task-separator.txt', 'criteria.txt'] + [f'arms/{a}.md' for a in MAIN_ARMS + SEPARATOR_ARMS]
+          'task-separator.txt', 'criteria.txt'] + [f'arms/{a}.txt' for a in MAIN_ARMS + SEPARATOR_ARMS]
 
 
 def sha(path):
@@ -30,7 +30,7 @@ def sha(path):
 def prompt(arm):
     task = 'task-separator.txt' if arm.startswith('sep-') else 'task-main.txt'
     return '\n\n'.join([(ROOT / 'participant.txt').read_text().strip(),
-                        (ROOT / 'arms' / f'{arm}.md').read_text().strip(),
+                        (ROOT / 'arms' / f'{arm}.txt').read_text().strip(),
                         (ROOT / task).read_text().strip()]) + '\n'
 
 
@@ -46,7 +46,7 @@ def run_one(arm, replicate):
         return f'{arm}-{replicate}: kept'
     out.mkdir(parents=True, exist_ok=True)
     text = prompt(arm)
-    (out / 'prompt.md').write_text(text)
+    (out / 'prompt.txt').write_text(text)
     with tempfile.TemporaryDirectory() as empty:
         started = time.time()
         result = subprocess.run(
@@ -81,6 +81,11 @@ def main():
         print('frozen')
     elif action == 'dispatch':
         frozen = json.loads((ROOT / 'dispatch.json').read_text())['inputs']
+        # After dispatch, renderings moved from .md to .txt so repository Markdown lint does not
+        # apply to participant text; their bytes are unchanged. The frozen run.py and generate.py
+        # are at 0079192d8; only their rendering paths changed since.
+        frozen = {name.removesuffix('.md') + '.txt' if name.startswith('arms/') else name: digest
+                  for name, digest in frozen.items() if name not in ('run.py', 'generate.py')}
         changed = [name for name, digest in frozen.items() if sha(name) != digest]
         if changed:
             sys.exit(f'inputs changed since freeze: {changed}')

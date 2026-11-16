@@ -45,6 +45,12 @@ one containing `"a // b"`, so each form meets one heading that it must escape.
 rendered [arms](arms/) are hashed in [dispatch.json](dispatch.json) before
 dispatch. [`run.py`](run.py) refuses to dispatch if any input changed.
 
+After dispatch, the renderings and recorded prompts were renamed from `.md` to
+`.txt`, because repository Markdown lint applies to every `.md` file and these
+are participants' raw text. Their bytes are unchanged and still match
+`dispatch.json`. Only the rendering paths in `generate.py` and `run.py`
+changed; the frozen versions of both are at `0079192d8`.
+
 Each participant is a fresh GPT-6 Sol agent at high reasoning, with two per
 arm. It runs in an empty directory with no custom instructions and no tools,
 and its rendering is embedded in the prompt. It answers in JSON. There are

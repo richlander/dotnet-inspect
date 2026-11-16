@@ -96,9 +96,9 @@ def main():
     arms.mkdir(exist_ok=True)
     for name, render in ARMS.items():
         blocks = [f"Scenario {s['id']}: {s['member']}\n```text\n{render(s)}\n```" for s in SPEC['scenarios']]
-        (arms / f'{name}.md').write_text(INTRO + '\n' + '\n\n'.join(blocks) + '\n')
+        (arms / f'{name}.txt').write_text(INTRO + '\n' + '\n\n'.join(blocks) + '\n')
     for separator in ('pipe', 'bracket', 'comment'):
-        (arms / f'sep-{separator}.md').write_text(separator_arm(separator))
+        (arms / f'sep-{separator}.txt').write_text(separator_arm(separator))
 
 
 if __name__ == '__main__':
