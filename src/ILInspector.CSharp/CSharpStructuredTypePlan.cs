@@ -322,8 +322,15 @@ public static class CSharpStructuredTypePlanProducer
         ArgumentNullException.ThrowIfNull(type);
         bool nested = type.DefinitionName is { Segments.Length: > 1 };
         ApiType declared = PrepareTypeForDeclaration(type, nested, []);
-        return CreateFormatter(declared, omitPropertyAccessors: false, namespaces: [])
-            .FormatTypeDeclaration(declared);
+        CSharpFormatter formatter = CreateFormatter(declared, omitPropertyAccessors: false, namespaces: []);
+        if (type.Kind != "delegate")
+            return formatter.FormatTypeDeclaration(declared);
+
+        // A delegate is declared by its Invoke signature, as a listing prints it.
+        ApiMember invoke = type.Members.SingleOrDefault(static member => member is { Kind: "method", Name: "Invoke" })
+            ?? throw new InvalidOperationException(
+                $"Delegate '{type.FullName}' has no Invoke member to declare it.");
+        return formatter.FormatDelegate(declared, invoke);
     }
 
     static ApiType PrepareTypeForDeclaration(

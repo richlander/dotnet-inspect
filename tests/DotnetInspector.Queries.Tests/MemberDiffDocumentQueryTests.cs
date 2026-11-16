@@ -32,6 +32,9 @@ public sealed class MemberDiffDocumentQueryTests
                 public void Retire() { }
                 public class Inner { public void Ping() { } }
             }
+            public delegate void Callback(int input);
+            public class Mover { public void Shift(int x) { } }
+            public class Legacy { public void Old() { } }
         }
         """;
 
@@ -57,6 +60,9 @@ public sealed class MemberDiffDocumentQueryTests
                 public void Retire() { }
                 public class Inner { public void Ping() { } }
             }
+            public delegate void Callback(int input);
+            public class Mover { }
+            public static class MoverExtensions { public static void Shift(this Mover mover, int x) { } }
             public sealed class Gauge
             {
                 public double Read(TimeSpan window) => 0;
@@ -239,6 +245,40 @@ public sealed class MemberDiffDocumentQueryTests
                 (MemberDiffEnclosureKind.Type, "Inner", "public class Inner"),
             ],
             document.CurrentEnclosure.Select(static value => (value.Kind, value.Name, value.Text)));
+    }
+
+    [Fact]
+    public async Task DelegateMember_IsEnclosedByTheDelegateSignature()
+    {
+        MemberDiffDocument document = await Single("Example.Callback", "Invoke");
+
+        Assert.Equal("public delegate void Callback(int input);", document.CurrentEnclosure[^1].Text);
+        Assert.Equal(document.BaselineEnclosure[^1].Text, document.CurrentEnclosure[^1].Text);
+    }
+
+    [Fact]
+    public async Task MemberMovedAcrossTypes_PrintsBothEnclosuresBaselineFirst()
+    {
+        MemberDiffDocument document = await Single("Example.Mover", "Shift");
+
+        Assert.Equal(MemberDiffStatus.Changed, document.Status);
+        Assert.Equal([MemberDiffSideKind.Baseline, MemberDiffSideKind.Current], document.PrintedEnclosure);
+        Assert.Equal("public class Mover", document.BaselineEnclosure[^1].Text);
+        Assert.Equal("public static class MoverExtensions", document.CurrentEnclosure[^1].Text);
+        // Mover lost Shift, so its remaining members are all other members.
+        Assert.Equal(1, document.BaselineEnclosure[^1].OtherMembers);
+    }
+
+    [Fact]
+    public async Task MemberOfARemovedType_PrintsTheBaselineTypeNotedRemoved()
+    {
+        MemberDiffDocument document = await Single("Example.Legacy", "Old");
+
+        Assert.Equal(MemberDiffStatus.Removed, document.Status);
+        Assert.Empty(document.CurrentEnclosure);
+        Assert.Equal([MemberDiffSideKind.Baseline], document.PrintedEnclosure);
+        MemberDiffStatusNote note = Assert.Single(document.BaselineEnclosure[^1].Notes);
+        Assert.Equal((MemberDiffStatusNoteKind.TypeRemoved, "2.0.0"), (note.Kind, note.Version));
     }
 
     [Fact]
