@@ -143,8 +143,10 @@ internal static class BrowserSurfaceProjection
             admittedTypes.AddRange(available.Value.Surface.Types);
             BrowserTypeSurfaceInfo[] publicTypes =
             [
-                .. assemblyTypes.Where(type =>
-                    IsDefaultBucket(surfaces, type)),
+                .. DefaultTypes(
+                    available.Value.Surface,
+                    assemblyTypes,
+                    surfaces.Accessibility),
             ];
             AssemblyReferenceIdentity identity =
                 available.Subject.Identity;
@@ -188,9 +190,8 @@ internal static class BrowserSurfaceProjection
             [.. inventory.KindFacets.Select(Descriptor)],
             [.. inventory.TraitFacets.Select(Descriptor)],
             [.. surfaces.Accessibility.Select(Descriptor)],
-            identified
-                .Where(type => IsDefaultBucket(surfaces, type))
-                .Sum(type => type.Members.GetValueOrDefault()),
+            assemblies.Sum(assembly =>
+                assembly.PublicMembers.GetValueOrDefault()),
             noticeEntries,
             notice,
             truncation is not null);
@@ -314,7 +315,7 @@ internal static class BrowserSurfaceProjection
             });
         BrowserTypeSurfaceInfo[] publicTypes =
         [
-            .. identified.Where(type => IsDefaultBucket(accessibility, type)),
+            .. DefaultTypes(surface, types, accessibility),
         ];
         string[] inspectionErrors = inspectionFailureCount == 0
             ? []
@@ -471,10 +472,15 @@ internal static class BrowserSurfaceProjection
                     type.AccessibilityId,
                     StringComparison.Ordinal));
 
-    static bool IsDefaultBucket(
-        AssemblyContextApiSurfaceResult surfaces,
-        BrowserTypeSurfaceInfo type) =>
-        IsDefaultBucket(surfaces.Accessibility, type);
+    static IEnumerable<BrowserTypeSurfaceInfo> DefaultTypes(
+        ApiSurface surface,
+        BrowserTypeSurfaceInfo[] types,
+        ImmutableArray<ApiAccessibilityBucket> accessibility) =>
+        types.Zip(surface.Types)
+            .Where(entry =>
+                entry.Second.EnclosingTypesOrdinary is not false
+                && IsDefaultBucket(accessibility, entry.First))
+            .Select(entry => entry.First);
 
     readonly record struct TypeCollisionKey(
         MetadataTypeDefinitionName? DefinitionName,
