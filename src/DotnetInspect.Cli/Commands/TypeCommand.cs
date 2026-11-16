@@ -258,7 +258,9 @@ public static partial class TypeCommand
         bool requireTypeSelector = false,
         Action<Action<IBufferWriter<byte>>>? writeUtf8 = null,
         ApiTypeLookupResult? resolvedLookup = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        WorkspaceExtensionCandidatePopulation?
+            workspaceExtensionCandidates = null)
     {
         if (plan.Intent.Surface != InspectionSurface.Type)
             throw new ArgumentException(
@@ -1110,7 +1112,9 @@ public static partial class TypeCommand
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                             acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sw, sourceAssembly,
                             sourceClient: context.HttpClient,
-                            inspectionCompletion: inspectionCompletion);
+                            inspectionCompletion: inspectionCompletion,
+                            workspaceExtensionCandidates:
+                                workspaceExtensionCandidates);
                         if (writeExitCode != 0)
                             return writeExitCode;
                         var rendered = sw.ToString();
@@ -1122,7 +1126,9 @@ public static partial class TypeCommand
                             apiType, acquisition.FoundIn, acquisition.PackageName, acquisition.PackageVersion,
                             acquisition.ApiSource, acquisition.SelectedTfm, effectiveOptions, sourceAssembly: sourceAssembly,
                             sourceClient: context.HttpClient,
-                            inspectionCompletion: inspectionCompletion);
+                            inspectionCompletion: inspectionCompletion,
+                            workspaceExtensionCandidates:
+                                workspaceExtensionCandidates);
                         if (writeExitCode != 0)
                             return writeExitCode;
                     }
@@ -1956,6 +1962,26 @@ public static partial class TypeCommand
                     WriteHierarchyDiagnostics(relations);
             }
 
+            SelectedContextExactTypeLiveTarget target =
+                liveTarget
+                ?? throw new InvalidOperationException(
+                    "An available Workspace Type result requires a "
+                        + "live inspection target.");
+            WorkspaceExtensionCandidatePopulation? workspaceExtensionCandidates = null;
+            if (WorkspaceExtensionCandidateQuery.IsExplicitlyRequested(options))
+            {
+                WorkspaceDeclarationContext selectedContext =
+                    activeRestoration.Activation.SelectedContext
+                    ?? throw new InvalidOperationException(
+                        "An available Workspace Type result requires a selected context.");
+                AssemblyContextGroup group = selectedContext.Group
+                    ?? throw new InvalidOperationException(
+                        "An available Workspace Type result requires a selected context group.");
+                workspaceExtensionCandidates =
+                    WorkspaceExtensionCandidateQuery.ExecuteIfRequested(
+                        group, target.Type, target.Assembly,
+                        options, cancellationToken);
+            }
             int outputExitCode =
                 await ExecuteWorkspaceExactTypeResultAsync(
                     effectiveOptions,
@@ -1963,10 +1989,9 @@ public static partial class TypeCommand
                     inspection,
                     envelope.Diagnostics,
                     renderSource,
-                    liveTarget
-                        ?? throw new InvalidOperationException(
-                            "An available Workspace Type result requires a "
-                                + "live inspection target."))
+                    target,
+                    workspaceExtensionCandidates:
+                        workspaceExtensionCandidates)
                     .ConfigureAwait(false);
             int shareExitCode = options.ShareFormat is { } shareFormat
                 ? WorkspaceShareOutput.Write(
@@ -1993,7 +2018,8 @@ public static partial class TypeCommand
         }).ConfigureAwait(false);
     }
 
-    static SelectedContextExactTypeSource AssertSingleDefiningSource(
+    internal static SelectedContextExactTypeSource
+        AssertSingleDefiningSource(
         SelectedContextExactTypeInspectionResult result) =>
         result.DefiningSources.Length == 1
             ? result.DefiningSources[0]
@@ -2009,7 +2035,8 @@ public static partial class TypeCommand
         ExactTypeRenderSource renderSource,
         SelectedContextExactTypeLiveTarget target,
         string? packageExtractPathOverride = null,
-        bool requiresLocalAssemblyPath = true)
+        bool requiresLocalAssemblyPath = true,
+        WorkspaceExtensionCandidatePopulation? workspaceExtensionCandidates = null)
     {
         WriteInspectionDiagnostics(diagnostics);
 
@@ -2018,14 +2045,18 @@ public static partial class TypeCommand
             renderSource,
             target,
             (source, loaded) => ExecuteCoreAsync(
-                options, plan, source, loaded, preselectedType: target.Type),
+                options, plan, source, loaded, preselectedType: target.Type,
+                workspaceExtensionCandidates: workspaceExtensionCandidates),
             packageExtractPathOverride,
             requiresLocalAssemblyPath).ConfigureAwait(false);
-        return exitCode != 0 || !result.IsComplete ? 1 : 0;
+        return exitCode != 0
+            || !result.IsComplete
+            || !WorkspaceExtensionCandidateQuery.IsComplete(workspaceExtensionCandidates)
+            ? 1 : 0;
     }
 
-    static WorkspaceContextLoadOptions CreateWorkspaceContextLoadOptions(
-        TypeOptions options) =>
+    internal static WorkspaceContextLoadOptions
+        CreateWorkspaceContextLoadOptions(ApiOptions options) =>
         new()
         {
             HttpClient = HttpClientFactory.Shared,

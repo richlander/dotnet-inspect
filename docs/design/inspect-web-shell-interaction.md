@@ -412,7 +412,10 @@ Spotlight is a fused presentation over owner-issued Workspace Find and package
 discovery results. It does not own another Type matcher, Member matcher,
 Ecosystem classifier, package query, or cross-source relevance score.
 
-Ordinary `All`, `Types`, and `Members` scopes use this phase order:
+When an ordinary `All` or `Types` request admits Type results, Spotlight first
+consumes the bounded checked-in index for active package-prefix
+registrations. After that indexed phase settles, the remaining work in those
+scopes, and ordinary `Members` work, uses this phase order:
 
 1. exact Libraries already admitted to the active Workspace;
 2. registered Ecosystem populations, in the Find owner's dependency-aware
@@ -525,9 +528,13 @@ their own owners instead of being hidden inside a global symbol rank.
 focused adoption sequence. The shared Find result and Ecosystem-block owners
 land before Browser operation adoption, including the staged continuation in
 [#9172](https://github.com/richlander/dotnet-inspect/pull/9172); Spotlight then
-adopts their typed blocks and the Ecosystem control; Home receives the
-configured search authority; and duplicate local matching, static framework
-search, and Spotlight-owned ranking retire after parity.
+adopts their typed blocks and the Ecosystem control. The indexed Type phase in
+[#10778](https://github.com/richlander/dotnet-inspect/issues/10778) is the
+first implemented phase composition: it precedes resident Workspace Type
+Find, uses one managed stable identity across both phases, and retains the
+selected logical result as resident rows arrive. Home receives the configured
+search authority; duplicate local matching, static framework search, and
+Spotlight-owned ranking retire after parity.
 
 Spotlight reacts to every supported way its input value changes, including
 typing, paste, drag and drop of text, autofill where applicable, and input

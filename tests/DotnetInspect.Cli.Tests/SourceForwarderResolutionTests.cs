@@ -147,6 +147,49 @@ public class SourceForwarderResolutionTests
         }
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ResolutionSession_VersionedAspNetCoreFrameworkBindsFamilyConstraints(
+        bool versioned)
+    {
+        var (referencePath, version, _) =
+            PlatformResolver.ResolveFramework("aspnetcore");
+        Assert.SkipUnless(
+            referencePath is not null,
+            "ASP.NET Core reference pack is not available.");
+        string rootPath = Path.Combine(
+            referencePath!,
+            "Microsoft.AspNetCore.Http.Results.dll");
+
+        using var resolution = new TypeDefinitionResolutionSession(
+            rootPath,
+            isPlatformAssembly: true,
+            projectAssetsPath: null,
+            targetFramework: null,
+            platformFramework: versioned
+                ? $"aspnetcore@{version}"
+                : "aspnetcore");
+        ApiSurface surface = Assert.IsType<ApiSurface>(
+            resolution.ExtractApiSurface());
+
+        Assert.DoesNotContain(
+            surface.InspectionFailures,
+            failure => failure.Operation
+                == ApiSurfaceInspectionFailure
+                    .GenericParameterConstraintResolutionOperation);
+        ApiType results = Assert.Single(
+            surface.Types,
+            type => type.Namespace == "Microsoft.AspNetCore.Http.HttpResults"
+                && type.Name.StartsWith("Results", StringComparison.Ordinal)
+                && type.TypeParameters.Count == 2);
+        Assert.All(
+            results.TypeParameters,
+            parameter => Assert.Equal(
+                TypeParameterTypeKind.NeitherReferenceNorValue,
+                parameter.TypeKind));
+    }
+
     [Fact]
     public void ResolutionSession_RejectsSourceChangedAfterInventory()
     {

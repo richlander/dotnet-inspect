@@ -156,6 +156,134 @@ public class IteratorReconstructionPassTests
                         yield return (Kind)i;
                 }
             }
+
+            public class InstanceIterators
+            {
+                int fld;
+
+                public IEnumerable<int> BreakInBranch(int n)
+                {
+                    yield return 1;
+                    if (n > 0) { Console.WriteLine("a"); yield break; } else { Console.WriteLine("b"); }
+                }
+
+                public IEnumerable<int> FieldYield() { yield return fld; }
+
+                public IEnumerable<int> FieldAccumulate(int n)
+                {
+                    for (int i = 0; i < n; i++) { yield return i; fld += i; }
+                }
+
+                public IEnumerable<int> ParameterCountdown(int n)
+                {
+                    do { yield return n; n--; } while (n > 0);
+                }
+            }
+
+            public static class CapturingIterators
+            {
+                public static IEnumerable<int> CopyOfParameter(int n)
+                {
+                    int c = n;
+                    Func<int> f = () => c * 2;
+                    n += 5;
+                    yield return f();
+                    yield return n;
+                }
+
+                public static IEnumerable<int> PerIteration(int n)
+                {
+                    var fs = new List<Func<int>>();
+                    for (int i = 0; i < n; i++)
+                    {
+                        int c = i;
+                        fs.Add(() => c * 2);
+                        yield return i;
+                    }
+                    for (int k = fs.Count - 1; k >= 0; k--)
+                        yield return fs[k]();
+                }
+
+                public static IEnumerable<int> VoidLambda(int n)
+                {
+                    int c = n;
+                    Action bump = () => c++;
+                    n += 5;
+                    bump();
+                    yield return c;
+                    yield return n;
+                }
+
+                public static IEnumerable<int> LocalFunction(int n)
+                {
+                    int c = n;
+                    int Twice() => c * 2;
+                    n += 5;
+                    yield return Twice();
+                    yield return n;
+                }
+
+                public static int Seen;
+
+                public static void See(int value) => Seen = value;
+
+                // The lambda returns nothing and writes no capture, so the
+                // pipeline raises it and no other validation objects: the
+                // raised-callable decline is the only barrier.
+                public static IEnumerable<int> VoidReadOfCopy(int n)
+                {
+                    int c = n;
+                    Action a = () => See(c * 2);
+                    n += 5;
+                    a();
+                    yield return n;
+                }
+
+                public static IEnumerable<int> VoidReadOfCopyAfterYield(int n)
+                {
+                    yield return 1;
+                    int c = n;
+                    Action a = () => See(c);
+                    n = 4;
+                    a();
+                    yield return n;
+                }
+            }
+
+            public static class SwitchBeforeYield
+            {
+                public static int G;
+
+                public static IEnumerable<int> WithDefault(int n)
+                {
+                    int k;
+                    switch (n) { case 0: k = 5; break; case 1: k = 7; break; case 2: k = 9; break; default: k = 1; break; }
+                    yield return k;
+                }
+
+                public static IEnumerable<int> TwoYields(int n)
+                {
+                    int k;
+                    switch (n) { case 0: k = 5; break; case 1: k = 7; break; case 2: k = 9; break; default: k = 1; break; }
+                    yield return k;
+                    yield return n;
+                }
+
+                public static IEnumerable<int> NoDefault(int n)
+                {
+                    switch (n) { case 0: G = 5; break; case 1: G = 7; break; case 2: G = 9; break; }
+                    yield return n;
+                }
+
+                public static IEnumerable<int> InLoop(int n)
+                {
+                    for (int i = 0; i < n; i++)
+                    {
+                        switch (i) { case 0: G = 5; break; case 1: G = 7; break; case 2: G = 9; break; default: G = 0; break; }
+                        yield return G;
+                    }
+                }
+            }
             """;
 
         var directory = Path.Combine(AppContext.BaseDirectory, "Issue2868GeneratedFixtures");
@@ -304,6 +432,30 @@ public class IteratorReconstructionPassTests
                 new PrinterOptions { ApproximatePdbLocalNames = true }).Output);
     }
 
+    // A loop body and an if-join are branch targets in MoveNext: the
+    // structurer moves their labels and retains the original offsets, which
+    // are another method's coordinates and must not reach the kickoff.
+    [Theory]
+    [InlineData(nameof(CfgSampleClass.YieldRange))]
+    [InlineData(nameof(CfgSampleClass.YieldIf))]
+    [InlineData(nameof(CfgSampleClass.YieldGrid))]
+    [InlineData(nameof(CfgSampleClass.YieldTwo))]
+    public void ReconstructedIterator_CitesOnlyTheHandoff(string methodName)
+    {
+        int handoff;
+        using (var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location))
+        {
+            var kickoff = IrImporter.Import(source, typeof(CfgSampleClass).FullName!, methodName);
+            handoff = Assert.Single(kickoff!.Descendants.OfType<NewObject>()).SourceOffset;
+        }
+        var function = Raised(methodName);
+
+        Assert.NotEmpty(function.Descendants.OfType<YieldReturn>());
+        var cited = function.Body.Descendants.SelectMany(static node => node.ProvenanceOffsets).ToList();
+        Assert.NotEmpty(cited);
+        Assert.All(cited, offset => Assert.Equal(handoff, offset));
+    }
+
     [Fact]
     public void LinearConstantIterator_ReconstructsYieldSequence()
     {
@@ -313,9 +465,11 @@ public class IteratorReconstructionPassTests
         Assert.Equal(2, yields.Count);
         Assert.Equal(1, Assert.IsType<Constant>(yields[0].Value).Value);
         Assert.Equal(2, Assert.IsType<Constant>(yields[1].Value).Value);
-        Assert.All(
-            yields.SelectMany(static yield => yield.Descendants.Prepend(yield)),
-            node => Assert.Equal(-1, node.SourceOffset));
+        // No MoveNext offset survives: each yield is anchored at the kickoff's
+        // handoff and its operands carry no offset.
+        Assert.All(yields.SelectMany(static yield => yield.Descendants), node => Assert.Equal(-1, node.SourceOffset));
+        int anchor = Assert.Single(yields.Select(static yield => yield.SourceOffset).Distinct());
+        Assert.True(anchor >= 0);
 
         // The misleading state-machine handoff and acknowledgment marker are gone.
         Assert.Empty(function.Descendants.OfType<NewObject>());
@@ -339,15 +493,15 @@ public class IteratorReconstructionPassTests
     }
 
     [Fact]
-    public void CountingLoopIterator_ReconstructsWhileLoop()
+    public void CountingLoopIterator_ReconstructsForLoop()
     {
         var function = Raised(nameof(CfgSampleClass.YieldRange));
 
-        // The `for (int i = 0; i < n; i++) yield return i;` shape comes back as a
-        // structured loop with a single yield — not the acknowledgment fallback.
+        // The `for (int i = 0; i < n; i++) yield return i;` shape comes back as the
+        // `for` loop with a single yield — not the acknowledgment fallback.
         var yield = Assert.Single(function.Descendants.OfType<YieldReturn>());
         Assert.IsType<LoadLocal>(yield.Value);
-        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<ForLoop>());
         Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
@@ -357,10 +511,7 @@ public class IteratorReconstructionPassTests
     {
         var output = Print(nameof(CfgSampleClass.YieldRange));
 
-        Assert.Contains("int i = 0;", output);
-        Assert.Contains("while (i < n)", output);
-        Assert.Contains("yield return i;", output);
-        Assert.DoesNotContain("not reconstructed", output);
+        Assert.Equal("for (int i = 0; i < n; i++)\n{\n    yield return i;\n}", output.Trim());
     }
 
     [Fact]
@@ -370,7 +521,7 @@ public class IteratorReconstructionPassTests
         // self-contained remap (hoisted loop field -> local) without a parameter.
         var output = Print(nameof(CfgSampleClass.YieldSquares));
 
-        Assert.Contains("while (i < 4)", output);
+        Assert.Contains("for (int i = 0; i < 4; i++)", output);
         Assert.Contains("yield return i * i;", output);
     }
 
@@ -636,7 +787,7 @@ public class IteratorReconstructionPassTests
         // `for (int i = 0; i < n; i++) { yield return i; yield return -i; }` —
         // two yields per iteration — keeps the loop and both yields.
         Assert.Equal(2, function.Descendants.OfType<YieldReturn>().Count());
-        Assert.Single(function.Descendants.OfType<WhileLoop>());
+        Assert.Single(function.Descendants.OfType<ForLoop>());
         Assert.DoesNotContain(function.Descendants.OfType<UnsupportedNode>(), u => u.Opcode == "iterator");
         Assert.Equal(DecompilationFidelity.Full, function.Fidelity);
     }
@@ -646,22 +797,18 @@ public class IteratorReconstructionPassTests
     {
         var output = Print(nameof(CfgSampleClass.YieldPairs));
 
-        Assert.Contains("int i = 0;", output);
-        Assert.Contains("while (i < n)", output);
-        Assert.Contains("yield return i;", output);
-        Assert.Contains("yield return -i;", output);
-        Assert.DoesNotContain("not reconstructed", output);
+        Assert.Equal("for (int i = 0; i < n; i++)\n{\n    yield return i;\n    yield return -i;\n}", output.Trim());
     }
 
     [Fact]
     public void MultiYieldLoopIterator_FoldsRebuiltIncrementToOperator()
     {
-        // Reconstruction rebuilds the hoisted loop variable's increment through a
-        // spill slot (`V_1 = i; i = V_1 + 1;`); the post-reconstruction
-        // IncrementDecrementPass run folds that dead-temp shape back into `i++`.
+        // The machine advances the hoisted loop variable through a spill slot
+        // (`V_1 = i; i = V_1 + 1;`); the pipeline the inverse re-runs folds that
+        // dead-temp shape back into the `for` header's `i++`.
         var output = Print(nameof(CfgSampleClass.YieldPairs));
 
-        Assert.Contains("i++;", output);
+        Assert.Contains("i++)", output);
         Assert.DoesNotContain("= V_1 + 1", output);
         Assert.DoesNotContain("V_1 = i;", output);
     }
@@ -790,6 +937,90 @@ public class IteratorReconstructionPassTests
         int advance = result.Output.IndexOf("i++;", StringComparison.Ordinal);
         Assert.True(yield >= 0 && effect > yield && advance > effect, result.Output);
         Assert.Contains("yield break;", result.Output);
+    }
+
+    // Each shape was accepted by a shape matcher that emitted a wrong body:
+    // the early `yield break` was dropped, the receiver's field was read
+    // through a defaulted machine local, or the parameter was stored through
+    // `this`. The general inverse runs first and owns them.
+    [Theory]
+    [InlineData("BreakInBranch", "yield return 1;\nif (n > 0)\n{\n    Console.WriteLine(\"a\");\n    yield break;\n}\nConsole.WriteLine(\"b\");")]
+    [InlineData("FieldYield", "yield return fld;")]
+    [InlineData("FieldAccumulate", "for (int i = 0; i < n; i++)\n{\n    yield return i;\n    fld += i;\n}")]
+    [InlineData("ParameterCountdown", "do\n{\n    yield return n;\n    n--;\n}\nwhile (n > 0);")]
+    public void ReceiverAndBranchShapes_ReconstructThroughTheGeneralInverse(string methodName, string expected)
+    {
+        using var compiled = CompileComplexIteratorFixture(OptimizationLevel.Release);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.InstanceIterators", methodName);
+
+        Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
+        Assert.Equal(expected, result.Output.Trim());
+    }
+
+    // The IL `switch` falls through to its `default` arm (or past the cases
+    // when there is none). The inverse's reachability prune must keep that
+    // successor: dropping it folded `default` onto `case 0` at `Full`.
+    [Theory]
+    [InlineData(OptimizationLevel.Release, "WithDefault", "default:", 4)]
+    [InlineData(OptimizationLevel.Debug, "WithDefault", "default:", 4)]
+    [InlineData(OptimizationLevel.Release, "TwoYields", "default:", 4)]
+    [InlineData(OptimizationLevel.Debug, "TwoYields", "default:", 4)]
+    [InlineData(OptimizationLevel.Release, "NoDefault", null, 3)]
+    [InlineData(OptimizationLevel.Debug, "NoDefault", null, 3)]
+    [InlineData(OptimizationLevel.Release, "InLoop", "default:", 4)]
+    [InlineData(OptimizationLevel.Debug, "InLoop", "default:", 4)]
+    public void SwitchBeforeAYield_KeepsItsDefaultArm(
+        OptimizationLevel optimization, string methodName, string? defaultLabel, int expectedSections)
+    {
+        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.SwitchBeforeYield", methodName);
+
+        Assert.DoesNotContain("not reconstructed", result.Output);
+        Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
+        var section = Assert.Single(result.Function.Descendants.OfType<Switch>());
+        Assert.Equal(expectedSections, section.Sections.Count);
+        // No section carries both a case label and the default.
+        Assert.All(section.Sections, static s => Assert.True(!s.IsDefault || s.Labels.Length == 0));
+        Assert.Equal(defaultLabel is not null, section.Sections.Any(static s => s.IsDefault));
+        if (defaultLabel is not null)
+            Assert.Contains(defaultLabel, result.Output);
+        else
+            Assert.DoesNotContain("default:", result.Output);
+    }
+
+    // A lambda raised into the body names its captures, and closure raising
+    // can name the wrong one: `c = n` captured by `() => c` came back as
+    // `() => n` at `Full`. Until that is proven, the inverse declines every
+    // body that raises a lambda or local function (#11208).
+    [Theory]
+    [InlineData(OptimizationLevel.Release, "CopyOfParameter")]
+    [InlineData(OptimizationLevel.Debug, "CopyOfParameter")]
+    [InlineData(OptimizationLevel.Release, "PerIteration")]
+    [InlineData(OptimizationLevel.Debug, "PerIteration")]
+    [InlineData(OptimizationLevel.Release, "VoidLambda")]
+    [InlineData(OptimizationLevel.Debug, "VoidLambda")]
+    [InlineData(OptimizationLevel.Release, "LocalFunction")]
+    [InlineData(OptimizationLevel.Debug, "LocalFunction")]
+    [InlineData(OptimizationLevel.Release, "VoidReadOfCopy")]
+    [InlineData(OptimizationLevel.Debug, "VoidReadOfCopy")]
+    [InlineData(OptimizationLevel.Release, "VoidReadOfCopyAfterYield")]
+    [InlineData(OptimizationLevel.Debug, "VoidReadOfCopyAfterYield")]
+    public void IteratorThatCapturesIntoALambda_IsNotGradedFull(OptimizationLevel optimization, string methodName)
+    {
+        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.CapturingIterators", methodName);
+
+        // Below `Full` the text is not a claim: a closure left lowered is
+        // honest, and the shape matcher that accepts Release `VoidReadOfCopy`
+        // after the inverse declines renders its lambda as the pipeline
+        // raised it, with a cause.
+        Assert.NotEqual(DecompilationFidelity.Full, result.Function.Fidelity);
     }
 
     [Fact]

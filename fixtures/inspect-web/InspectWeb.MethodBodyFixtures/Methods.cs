@@ -17,3 +17,5 @@ public interface IBodyless
 {
     int WithoutBody(int value);
 }
+
+public delegate int PayloadClassifier(int value);

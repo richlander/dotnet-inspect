@@ -143,6 +143,140 @@ public sealed class ExactTypeWorkspaceRouteTests
     }
 
     [Fact]
+    public async Task MemberWorkspaceRouteUsesSelectedContextAndExtensionQuery()
+    {
+        const string extensionPackageId = "workspace.extension.candidates";
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            await File.ReadAllBytesAsync(
+                typeof(ApiType).Assembly.Location,
+                TestContext.Current.CancellationToken));
+        await AddPackageAsync(
+            store,
+            extensionPackageId,
+            await File.ReadAllBytesAsync(
+                typeof(WorkspaceExtensionFixture).Assembly.Location,
+                TestContext.Current.CancellationToken));
+        string packet = EncodePacket(
+            format: 4,
+            tabs:
+            [
+                (PackageId, Version, Framework),
+                (extensionPackageId, Version, Framework),
+            ],
+            contexts: [[0, 1]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new MemberOptions
+        {
+            WorkspacePacket = packet,
+            TypeName = typeof(ApiType).FullName,
+            IncludeSections = new(
+                [SectionNames.ExtensionMethods],
+                StringComparer.OrdinalIgnoreCase),
+            Format = OutputFormat.Markdown,
+            MarkdownExplicitlySet = true,
+            FormatExplicitlySet = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(
+                    options,
+                    LoadOptions(client, store)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "Workspace Extension Candidates",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(WorkspaceExtensionFixture.FirstCandidate),
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(WorkspaceExtensionFixture.SecondCandidate),
+            output,
+            StringComparison.Ordinal);
+
+        var boundedOptions = options with { Limit = 1 };
+        (int boundedExitCode, string boundedOutput, string boundedError) =
+            await ConsoleCapture.RunAsync(
+                () => MemberCommand.ExecuteAsync(
+                    boundedOptions,
+                    LoadOptions(client, store)));
+
+        Assert.Equal(0, boundedExitCode);
+        Assert.Contains(
+            nameof(WorkspaceExtensionFixture.FirstCandidate),
+            boundedOutput,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            nameof(WorkspaceExtensionFixture.SecondCandidate),
+            boundedOutput,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task TypeWorkspaceRouteAddsExtensionCandidates()
+    {
+        const string extensionPackageId = "workspace.extension.candidates";
+        var store = new InMemoryPackageStore();
+        await AddPackageAsync(
+            store,
+            PackageId,
+            await File.ReadAllBytesAsync(
+                typeof(ApiType).Assembly.Location,
+                TestContext.Current.CancellationToken));
+        await AddPackageAsync(
+            store,
+            extensionPackageId,
+            await File.ReadAllBytesAsync(
+                typeof(WorkspaceExtensionFixture).Assembly.Location,
+                TestContext.Current.CancellationToken));
+        string packet = EncodePacket(
+            format: 4,
+            tabs:
+            [
+                (PackageId, Version, Framework),
+                (extensionPackageId, Version, Framework),
+            ],
+            contexts: [[0, 1]],
+            focusedTab: 0,
+            selectedContext: 0);
+        using var client = new HttpClient(new FailingHandler());
+        var options = new TypeOptions
+        {
+            WorkspacePacket = packet,
+            TypeName = typeof(ApiType).FullName,
+            Select = [SectionNames.ExtensionMethods],
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => TypeCommand.ExecuteAsync(
+                    options,
+                    ResolvedMemberInspectionPlan
+                        .FromCompatibilityOptions(options),
+                    LoadOptions(client, store)));
+
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            nameof(WorkspaceExtensionFixture.FirstCandidate),
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            nameof(WorkspaceExtensionFixture.SecondCandidate),
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task WorkspaceRouteUsesSelectedContextAndEmitsDerivedShare()
     {
         const string otherPackageId = "unrelated.package";
@@ -4590,4 +4724,11 @@ public sealed class ExactTypeWorkspaceRouteTests
                     RequestMessage = request,
                 });
     }
+}
+
+public static class WorkspaceExtensionFixture
+{
+    public static ApiType FirstCandidate(this ApiType type) => type;
+
+    public static ApiType SecondCandidate(this ApiType type) => type;
 }

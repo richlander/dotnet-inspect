@@ -304,6 +304,45 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     [Fact]
+    public async Task Find_MemberPackageWithEmptyCompileGroupReturnsStableEmptyResultArray()
+    {
+        string id =
+            $"Workspace.Search.EmptyGroup.{Guid.NewGuid():N}";
+        byte[] fallbackAssembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] package = SnupkgPdbReaderTests.MakeSnupkg(
+            ($"{id}.nuspec", "<package />"u8.ToArray()),
+            ("ref/net11.0/_._", []),
+            ("lib/net8.0/Fallback.dll", fallbackAssembly));
+        ConfigureCommandFeed(id, package);
+
+        var result = await RunCommandAsync(
+            [
+                "find", ".NoSuchMember",
+                "--package", $"{id}@{Version}",
+                "--tfm", "net11.0",
+                "--source", FirstFeed,
+                "--json",
+                "--verbose",
+            ]);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains(
+            "Using committed package Root for search:",
+            result.Error,
+            StringComparison.Ordinal);
+        using System.Text.Json.JsonDocument document =
+            System.Text.Json.JsonDocument.Parse(result.Output);
+        Assert.Empty(document.RootElement.GetProperty("rows").EnumerateArray());
+        Assert.False(document.RootElement.GetProperty("is_incomplete").GetBoolean());
+        Assert.DoesNotContain(
+            "PackageAssetUnavailable",
+            result.Output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Find_PackageRootPreparationFailureReturnsStableEmptyResultArray()
     {
         string id =

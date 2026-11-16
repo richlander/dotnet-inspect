@@ -3881,15 +3881,18 @@ public class CSharpStructuralComparisonTests
         Assert.DoesNotContain("IL_", comparison.After.Text, StringComparison.Ordinal);
     }
 
-    [Fact]
+    [Theory]
     [Trait("Speed", "Slow")]
-    public void RealIteratorDocument_DoesNotTrustCompanionMethodOffsets()
+    [InlineData(nameof(CfgSampleClass.YieldTwo))]
+    [InlineData(nameof(CfgSampleClass.YieldRange))]
+    [InlineData(nameof(CfgSampleClass.YieldIf))]
+    public void RealIteratorDocument_DoesNotTrustCompanionMethodOffsets(string methodName)
     {
         using var source = MetadataSource.Open(typeof(CfgSampleClass).Assembly.Location);
         var reader = source.Reader;
         var method = reader.MethodDefinitions.Single(handle =>
             reader.GetString(reader.GetMethodDefinition(handle).Name)
-                == nameof(CfgSampleClass.YieldTwo));
+                == methodName);
         var definition = reader.GetMethodDefinition(method);
         var instructions = MethodInstructions.Decode(
             source.Pe.GetMethodBody(definition.RelativeVirtualAddress));
@@ -3902,16 +3905,27 @@ public class CSharpStructuralComparisonTests
             new MemberProjectionRequest(
                 source,
                 typeof(CfgSampleClass).FullName!,
-                nameof(CfgSampleClass.YieldTwo),
+                methodName,
                 MethodToken: MetadataTokens.GetToken(method),
                 SourceDocument: true)).SourceDocument!;
 
-        var yieldNodes = document.Nodes
-            .Where(node => node.Medium == SourceLineKind.CSharp
-                && node.Kind == "YieldReturnStatement")
+        var csharpNodes = document.Nodes
+            .Where(node => node.Medium == SourceLineKind.CSharp)
             .ToArray();
-        Assert.NotEmpty(yieldNodes);
-        Assert.All(yieldNodes, node => Assert.Null(node.Provenance));
+        Assert.Contains(csharpNodes, static node => node.Kind == "YieldReturnStatement");
+        // The body came from MoveNext, so the only kickoff instruction a C#
+        // node may cite is the state-machine allocation that stands for the
+        // whole body, and each top-level statement does cite it. A MoveNext
+        // offset that happens to equal a kickoff boundary is still foreign.
+        int handoff = instructions.Instructions
+            .Single(static instruction => instruction.OpCode == ILOpCode.Newobj)
+            .Offset;
+        var cited = csharpNodes
+            .Where(static node => node.Provenance is not null)
+            .Select(static node => node.Provenance!.IlOffsets)
+            .ToArray();
+        Assert.NotEmpty(cited);
+        Assert.All(cited, offsets => Assert.Equal([handoff], offsets));
         Assert.All(
             document.Nodes.Where(node => node.Provenance is not null),
             node => Assert.All(

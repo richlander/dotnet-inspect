@@ -16,7 +16,7 @@ function isAssetModule(value: unknown): value is AssetModule {
 
 async function loadModule(testName: string): Promise<AssetModule> {
   const moduleUrl = new URL(
-    `../DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js?${testName}`,
+    `../src/ecosystem-find-index-assets.ts?${testName}`,
     import.meta.url,
   ).href;
   const loaded: unknown = await import(moduleUrl);

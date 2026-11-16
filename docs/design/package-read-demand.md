@@ -567,10 +567,14 @@ vocabularies:
 | `diff --history`, Metadata cells (API findings) | `Surface` | directory-first, with complete acquisition at or below the cut |
 | `diff --history`, Analysis cells (IL-body findings) | `SurfaceAndImplementation` | directory-first, with complete acquisition at or below the cut |
 
-At this head, callers still carry transitional ranged or complete access
-choices. [#8994](https://github.com/richlander/dotnet-inspect/issues/8994)
-removes those choices one adopter at a time. The table records semantic need,
-not transfer policy; new callers must not copy the transitional access split.
+Configured exact package search now issues a semantic `CompileLibraries`
+`Surface` request to PackageHouse and adapts that settlement to its Root; the
+caller no longer selects ranged or complete access or retries. Roots loaded
+from the offline cache are also admitted as surface-only. Other callers still
+carry transitional ranged or complete access choices.
+[#8994](https://github.com/richlander/dotnet-inspect/issues/8994) removes those
+choices one adopter at a time. The table records semantic need, not transfer
+policy; new callers must not copy the transitional access split.
 
 ## Pathological cases and gates
 
@@ -578,7 +582,7 @@ All gates run in Release.
 
 | Case | Expected | Gate |
 | --- | --- | --- |
-| 1. Surface search of an archive whose surface and implementation folders are both large | only the surface folder is read | `ConfiguredPayloadAcquisitionTests.SearchCommand_RangedRead_RealAvaloniaArchive`: `Avalonia` 12.1.2, 22 of 121 entries, every span inside `ref/net10.0`, under 2.5 MB |
+| 1. Surface search of an archive whose surface and implementation folders are both large | only the surface folder is read | `ConfiguredPayloadAcquisitionTests.SearchCommand_RangedRead_RealAvaloniaArchive`: `Avalonia` 12.1.2, library spans inside `ref/net10.0`, under 2.5 MB |
 | 2. A folder whose assemblies have documentation files | the whole folder, documentation included | `PackageRangedRealizationTests`: `PCLStorage` 1.0.2 for net45 reads its two assemblies and two documentation files |
 | 3. A surface-only Root | no implementation role; admission succeeds | case 1's gate, whose search admits a Root realized from the surface folder alone |
 | 4. The same search twice from a credential-free HTTP feed | the second makes no package request and returns the same output | `ConfiguredPayloadAcquisitionTests.SearchCommand_RangedRead_TransfersOnlyTheSelectedAssembly` |

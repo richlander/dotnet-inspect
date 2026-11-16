@@ -207,8 +207,14 @@ A key present on one side of a pair is not absent: it joins as one-sided.
   complete API comparison when the Type is admitted on both sides, and its
   own body identities and Body-placed declaration facts, such as
   `beforefieldinit` or a static constructor, through Body equality.
-- **Count and Exists:** from the shape comparison only. Exists stops at the
-  first shape transition. No fact stream or finding is read.
+- **Count:** from the complete per-side shape contributions only. No fact
+  stream or finding is read.
+- **Exists:** its shape comparison can stop at the first transition, but this
+  document's current completed-results input has already executed each side's
+  complete contribution. Map Diff Exists therefore remains unresolved and
+  must not register until terminal-native pair evidence under
+  [#11166](https://github.com/richlander/dotnet-inspect/issues/11166) can stop
+  producer work too. It reads no fact stream or finding.
 - **Rows:** a key, or the Type, is listed exactly when it has a shape
   transition or an unsettled shape comparison, which includes a requested key
   present on no side, as [Absent keys](#absent-keys) states. For each listed
@@ -274,9 +280,10 @@ and none throws merely because it is not successful.
   mismatched-side contribution fails as a contract exception, and two
   families sharing one adapter settle from that adapter's one contribution.
 - **Settled kinds:** each result kind reads only its row of the result-kind
-  table; a map-diff Count or Exists settles with no fact-stream or finding
-  contribution present, and map-diff Rows reads finding entries only for
-  listed rows' annotation outcomes.
+  table; map-diff Count settles with no fact-stream or finding contribution,
+  map-diff Rows reads finding entries only for listed rows' annotation
+  outcomes, and map-diff Exists remains unsupported here until #11166 defines
+  its terminal-native pair result.
 - **Settled outcomes:** an entry with no applicable input is settled; an
   unchanged abstract or interface Member the surface admits is not listed in
   either form.
@@ -317,14 +324,20 @@ and none throws merely because it is not successful.
       and `AnnotatedTypeMapGeneration.cs` in `DotnetInspector.Sections`
       implement it, gated by `AnnotatedTypeMapGenerationTests`. This is what
       planning step 4's first consumer reads.
-   2. Map and map-diff settlement for every result kind: listing, Count and
-      Exists, Placement, the Type's own entries, and the fact comparison.
+   2. Map and map-diff settlement for Rows and Count: listing, Placement, the
+      Type's own entries, and the fact comparison. Exists joins after #11166
+      defines its terminal-native pair result.
 3. Planning step 4 registers the API shape-fact family over
    `ApiSurfaceExtractor` and routes Finding Diff Any's API census settlement
    through a family contribution request, settled here, as
    [Annotated Type Map API shape family](annotated-type-map-api-family.md)
    owns. It precedes slice 2, whose fact comparison waits on the fact-stream
    content of the map's adoption step 3.
+4. Planning step 5 registers the Body shape-fact family and adds complete
+   Rows and Count settlement, as
+   [Annotated Type Map Body-shape family](annotated-type-map-body-family.md)
+   owns. Exists joins only after #11166 supplies terminal-native pair evidence;
+   complete per-side contributions do not satisfy its least-work claim.
 
 ## Non-claims
 

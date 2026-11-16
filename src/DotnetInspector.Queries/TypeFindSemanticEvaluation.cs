@@ -393,6 +393,25 @@ public sealed record TypeFindCandidateEvaluation(
 /// </summary>
 public static class TypeFindCandidateEvaluator
 {
+    internal static bool MatchesAny(
+        TypeFindQuestion question,
+        MetadataTypeDefinitionName name,
+        AssemblyTypeDeclarationKind declarationKind,
+        bool? isPublicSurface,
+        TypeDeclarationDiscoveryAttributes? discoveryAttributes)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        ArgumentNullException.ThrowIfNull(name);
+        return IsVisible(
+                name,
+                declarationKind,
+                isPublicSurface,
+                discoveryAttributes,
+                question.Visibility)
+            && question.Patterns.Any(
+                pattern => Classify(pattern, name) is not null);
+    }
+
     public static TypeFindCandidateEvaluation Evaluate(
         TypeFindQuestion question,
         TypeFindPattern pattern,
@@ -462,12 +481,32 @@ public static class TypeFindCandidateEvaluator
             }
 
             evaluated.Add(candidate.DeclarationOrder);
-            if (!IsVisible(candidate, question.Visibility))
+            if (!IsVisible(
+                    candidate.Name,
+                    candidate.DeclarationKind,
+                    candidate.IsPublicSurface,
+                    candidate.DiscoveryAttributes,
+                    question.Visibility))
                 continue;
-            TypeFindSemanticMatch? match =
-                Classify(pattern, source, candidate);
-            if (match is not null)
-                matches.Add(match);
+            CandidateClassification? classification =
+                Classify(pattern, candidate.Name);
+            if (classification is not null)
+            {
+                matches.Add(
+                    new(
+                        pattern,
+                        classification.EffectivePattern,
+                        classification.Match,
+                        classification.Similarity,
+                        new(
+                            source,
+                            candidate.Name,
+                            candidate.ModuleVersionId,
+                            candidate.DeclarationOrder),
+                        candidate.DeclarationKind,
+                        candidate.DefinitionKind,
+                        candidate.DiscoveryAttributes));
+            }
         }
 
         return new(
@@ -477,13 +516,15 @@ public static class TypeFindCandidateEvaluator
     }
 
     private static bool IsVisible(
-        TypeFindSemanticCandidate candidate,
+        MetadataTypeDefinitionName name,
+        AssemblyTypeDeclarationKind declarationKind,
+        bool? isPublicSurface,
+        TypeDeclarationDiscoveryAttributes? discoveryAttributes,
         FindVisibility visibility)
     {
-        if (candidate.DeclarationKind
-                is not AssemblyTypeDeclarationKind.Definition
+        if (declarationKind is not AssemblyTypeDeclarationKind.Definition
             || TypeFilters.IsCompilerGenerated(
-                candidate.Name.Segments[^1]))
+                name.Segments[^1]))
         {
             return false;
         }
@@ -491,29 +532,28 @@ public static class TypeFindCandidateEvaluator
         if (visibility is FindVisibility.All)
             return true;
 
-        return candidate.IsPublicSurface is true
-            && candidate.DiscoveryAttributes
+        return isPublicSurface is true
+            && discoveryAttributes
                 is not { IsEditorBrowsableNever: true }
                 and not { IsObsolete: true };
     }
 
-    private static TypeFindSemanticMatch? Classify(
+    private static CandidateClassification? Classify(
         TypeFindPattern pattern,
-        FindSourceIdentity source,
-        TypeFindSemanticCandidate candidate)
+        MetadataTypeDefinitionName name)
     {
         string typeName =
-            candidate.Name.Segments.Length == 1
-                ? candidate.Name.Segments[0]
-                : string.Join(".", candidate.Name.Segments);
-        string fullName = candidate.Name.ToMetadataFullName();
+            name.Segments.Length == 1
+                ? name.Segments[0]
+                : string.Join(".", name.Segments);
+        string fullName = name.ToMetadataFullName();
         TypeFindSemanticMatchKind match;
         double similarity = 1.0;
         string effectivePattern = pattern.Text;
 
         if (pattern is TypeFindPattern.Namespace namespacePattern)
         {
-            if (!candidate.Name.IsInNamespace(
+            if (!name.IsInNamespace(
                     namespacePattern.NamespaceName,
                     namespacePattern.Match))
             {
@@ -545,7 +585,7 @@ public static class TypeFindCandidateEvaluator
         {
             ExactNamespaceFallback: { } @namespace,
         }
-            && candidate.Name.IsInNamespace(
+            && name.IsInNamespace(
                 @namespace,
                 MetadataNamespaceMatch.Exact))
         {
@@ -582,19 +622,15 @@ public static class TypeFindCandidateEvaluator
         }
 
         return new(
-            pattern,
             effectivePattern,
             match,
-            similarity,
-            new(
-                source,
-                candidate.Name,
-                candidate.ModuleVersionId,
-                candidate.DeclarationOrder),
-            candidate.DeclarationKind,
-            candidate.DefinitionKind,
-            candidate.DiscoveryAttributes);
+            similarity);
     }
+
+    private sealed record CandidateClassification(
+        string EffectivePattern,
+        TypeFindSemanticMatchKind Match,
+        double Similarity);
 
     private static bool LooksLikeNamespacePrefix(string pattern) =>
         pattern.Contains('.')
@@ -833,10 +869,37 @@ public static class TypeFindSourceEvaluator
 {
     public static TypeFindSemanticPopulation EvaluateLocatorCensus(
         TypeFindQuestion question,
-        TypeDeclarationLocatorResult result)
+        TypeDeclarationLocatorResult result) =>
+        EvaluateLocator(
+            question,
+            result,
+            static request =>
+                request is TypeDeclarationLocatorRequest.Pattern
+                {
+                    Text: "*",
+                },
+            "Type Find source evaluation requires one all-declarations locator census.");
+
+    public static TypeFindSemanticPopulation EvaluateLocatorMatches(
+        TypeFindQuestion question,
+        TypeDeclarationLocatorResult result) =>
+        EvaluateLocator(
+            question,
+            result,
+            request =>
+                request is TypeDeclarationLocatorRequest.Semantic semantic
+                && ReferenceEquals(semantic.Question, question),
+            "Type Find source evaluation requires one locator answer for the exact semantic question.");
+
+    private static TypeFindSemanticPopulation EvaluateLocator(
+        TypeFindQuestion question,
+        TypeDeclarationLocatorResult result,
+        Func<TypeDeclarationLocatorRequest, bool> acceptsRequest,
+        string invalidResultMessage)
     {
         ArgumentNullException.ThrowIfNull(question);
         ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(acceptsRequest);
         if (result is TypeDeclarationLocatorResult.Rejected rejected)
         {
             string detail = rejected.PopulationFailure is { } failure
@@ -857,14 +920,10 @@ public static class TypeFindSourceEvaluator
 
         var evaluated = (TypeDeclarationLocatorResult.Evaluated)result;
         if (evaluated.Answers.Length != 1
-            || evaluated.Answers[0].Request
-                is not TypeDeclarationLocatorRequest.Pattern
-                {
-                    Text: "*",
-                })
+            || !acceptsRequest(evaluated.Answers[0].Request))
         {
             throw new ArgumentException(
-                "Type Find source evaluation requires one all-declarations locator census.",
+                invalidResultMessage,
                 nameof(result));
         }
 

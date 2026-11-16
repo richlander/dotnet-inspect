@@ -1276,4 +1276,16 @@ public class PlatformResolverTests
     {
         Assert.Null(PlatformPackService.PackRequestFor(frameworkSpec));
     }
+
+    [Theory]
+    [InlineData("aspnetcore@11.0.0", "aspnetcore")]
+    [InlineData("aspnetcore", "aspnetcore")]
+    [InlineData("runtime@10.0.1", "runtime")]
+    [InlineData("@11.0.0", "@11.0.0")]
+    public void GetFrameworkFamily_DropsOnlyTheVersionSuffix(
+        string frameworkSpec,
+        string expectedFamily) =>
+        Assert.Equal(
+            expectedFamily,
+            PlatformResolver.GetFrameworkFamily(frameworkSpec));
 }
