@@ -381,10 +381,13 @@ interface DiagnosticsFixture {
 interface PackageLoadingFixture {
   deferInitial?: boolean;
   deferChanges?: boolean;
+  deferPackageQueryLayout?: boolean;
   failFrameworkOnce?: string;
   failVersionOnce?: string;
   versions?: readonly string[];
   activityCatalogFailure?: boolean;
+  deferActivityCatalog?: boolean;
+  deferEcosystemsCatalog?: boolean;
   packageChildren?: BrowserPackageChildrenInspection;
   libraryIdentities?: readonly BrowserPackageLibraryIdentity[];
   unloadedLibraries?: readonly BrowserAssemblySurface[];
@@ -443,6 +446,11 @@ async function installFacades(
   };
   const fixtureChannelName = `inspect-web-library-fixture-${randomUUID()}`;
   await page.addInitScript(channelName => {
+    const setChannelName = () => {
+      if (document.documentElement) {
+        document.documentElement.dataset.fixtureChannelName = channelName;
+      }
+    };
     const channel = new BroadcastChannel(channelName);
     channel.addEventListener("message", event => {
       const message: unknown = event.data;
@@ -454,9 +462,16 @@ async function installFacades(
         || message.kind !== "observe"
         || typeof message.name !== "string"
         || typeof message.value !== "string") return;
-      document.documentElement.dataset[message.name] = message.value;
+      if (document.documentElement) {
+        document.documentElement.dataset[message.name] = message.value;
+      }
     });
-    document.documentElement.dataset.fixtureChannelName = channelName;
+    setChannelName();
+    if (!document.documentElement) {
+      document.addEventListener("DOMContentLoaded", setChannelName, {
+        once: true,
+      });
+    }
   }, fixtureChannelName);
   const common = `
     const fixtureChannel = new BroadcastChannel(${JSON.stringify(fixtureChannelName)});
@@ -1198,7 +1213,17 @@ async function installFacades(
           maxWorkspaceRetainedImageBytes: 67108864,
         };
       }
-      export function listPackageActivityEcosystems() {
+      export async function listPackageActivityEcosystems() {
+        const requestCount = Number(
+          document.documentElement.dataset.activityCatalogRequests ?? "0");
+        document.documentElement.dataset.activityCatalogRequests =
+          String(requestCount + 1);
+        if (packageLoading.deferActivityCatalog) {
+          document.documentElement.dataset.activityCatalogPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-package-activity-catalog", resolve, { once: true }));
+          document.documentElement.dataset.activityCatalogPending = "false";
+        }
         if (packageLoading.activityCatalogFailure) {
           throw new Error("Package Activity catalog offline");
         }
@@ -3467,6 +3492,10 @@ async function installFacades(
         return callGraph;
       }`,
     catalog: `
+      const packageQueryLayoutPending =
+        ${Boolean(packageLoading.deferPackageQueryLayout)};
+      const ecosystemsCatalogPending =
+        ${Boolean(packageLoading.deferEcosystemsCatalog)};
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
       const ecosystemAdmissionOptions = ${JSON.stringify(ecosystemAdmission)};
       const productEcosystems = [{
@@ -4167,7 +4196,13 @@ async function installFacades(
           fixturePlatformSurface: platformSurface,
         };
       }
-      export function inspectVocabulary() {
+      export async function inspectVocabulary() {
+        if (packageQueryLayoutPending) {
+          document.documentElement.dataset.packageQueryLayoutPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-package-query-layout", resolve, { once: true }));
+          document.documentElement.dataset.packageQueryLayoutPending = "false";
+        }
         return {
           content: {
             formatVersion: 1,
@@ -4233,7 +4268,17 @@ async function installFacades(
         }
         document.documentElement.dataset.homeDemoCatalogRemoved = "true";
       });
-      export function listEcosystems() {
+      export async function listEcosystems() {
+        const requestCount = Number(
+          document.documentElement.dataset.ecosystemsCatalogRequests ?? "0");
+        document.documentElement.dataset.ecosystemsCatalogRequests =
+          String(requestCount + 1);
+        if (ecosystemsCatalogPending) {
+          document.documentElement.dataset.ecosystemsCatalogPending = "true";
+          await new Promise(resolve => document.addEventListener(
+            "finish-ecosystems-catalog", resolve, { once: true }));
+          document.documentElement.dataset.ecosystemsCatalogPending = "false";
+        }
         return { ecosystems: productEcosystems };
       }
       export function listPackageViewFacets() {

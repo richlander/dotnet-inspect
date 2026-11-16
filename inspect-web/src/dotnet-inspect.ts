@@ -870,6 +870,7 @@ import {
 import { createBrowserLibraryPerformanceDataSource } from "./library-performance-source.ts";
 import {
   bindPackageChangesView,
+  capturePackageChangesFormDraft,
   patchPackageChangesStream,
   renderPackageChangesView,
 } from "./package-changes-view.ts";
@@ -1179,6 +1180,8 @@ let inspectResolveHomeDemo: EngineClient["catalog"]["resolveHomeDemo"];
 let inspectRunHomeDemo: EngineClient["catalog"]["runHomeDemo"];
 let productHomeDemoCatalogError = "";
 let productEcosystemCatalogError = "";
+let productEcosystemCatalogLoading = false;
+let packageChangesCatalogLoading = false;
 let productEcosystemCatalogAvailable = false;
 
 // The Worker client stays off the first-paint path. It is imported after the
@@ -20739,6 +20742,10 @@ function openProductDemos(): void {
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
   workspaceLocation.push("/demos");
+  observeAsync(
+    Promise.all(loadBootstrapCatalogs(["homeDemos"])),
+    "Loading product demos",
+  );
   render();
   afterCurrentNavigationFrame(() =>
     focusWorkspaceOrHeading());
@@ -20763,6 +20770,10 @@ function openProductEcosystems(): void {
   packageChangesController.cancel("disposed");
   spotlight.reset();
   workspaceLocation.push("/ecosystems");
+  observeAsync(
+    Promise.all(loadBootstrapCatalogs(["ecosystems"])),
+    "Loading Ecosystems",
+  );
   render();
   if (state.engineReady) {
     afterCurrentNavigationFrame(() => focusLevelOneHeading());
@@ -20783,7 +20794,11 @@ function renderProductEcosystemsPage(): void {
       </header>
       <div class="notice-stack">${renderQueryNotice()}</div>
       <main class="detail-scroll ecosystems-content">
-        ${productEcosystemsViewHtml(escapeHtml, productEcosystemCatalogError)}
+        ${productEcosystemsViewHtml(
+          escapeHtml,
+          productEcosystemCatalogError,
+          productEcosystemCatalogLoading,
+        )}
       </main>
       ${dataBarHtml({ buildIdentity: state.buildIdentity }, escapeHtml)}
       ${state.spotlightOpen ? spotlight.modalHtml() : ""}
@@ -21657,6 +21672,10 @@ function goHome(): boolean {
   state.credits = false;
   state.home = true;
   spotlight.reset();
+  observeAsync(
+    Promise.all(loadBootstrapCatalogs(["homeDemos"])),
+    "Loading product demos",
+  );
   render();
   return true;
 }
@@ -21978,6 +21997,10 @@ function replaceDiagnosticsWithHome() {
   state.credits = false;
   state.home = true;
   spotlight.reset();
+  observeAsync(
+    Promise.all(loadBootstrapCatalogs(["homeDemos"])),
+    "Loading product demos",
+  );
   workspaceLocation.replace("/", history.state);
   render();
 }
@@ -23085,6 +23108,10 @@ function openPackageQueryRoute(
   state.packageActivityOpen = false;
   state.credits = false;
   state.home = false;
+  observeAsync(
+    Promise.all(loadBootstrapCatalogs(["packageQuery"])),
+    "Loading Package Query vocabulary",
+  );
   render();
   focusPackageQueryInput();
   return true;
@@ -23142,6 +23169,10 @@ function openPackageActivityRoute(
   state.packageActivityOpen = true;
   state.credits = false;
   state.home = false;
+  observeAsync(
+    Promise.all(loadBootstrapCatalogs(["packageChanges"])),
+    "Loading Package Activity ecosystems",
+  );
   render();
   focusPackageActivityInput();
   return true;
@@ -23368,6 +23399,10 @@ function closePackageQueryRoute() {
   state.credits = false;
   state.home = true;
   spotlight.reset();
+  observeAsync(
+    Promise.all(loadBootstrapCatalogs(["homeDemos"])),
+    "Loading product demos",
+  );
   workspaceLocation.replace("/");
   render();
 }
@@ -23389,6 +23424,10 @@ function closePackageActivityRoute() {
   state.credits = false;
   state.home = true;
   spotlight.reset();
+  observeAsync(
+    Promise.all(loadBootstrapCatalogs(["homeDemos"])),
+    "Loading product demos",
+  );
   workspaceLocation.replace("/");
   render();
 }
@@ -24115,11 +24154,14 @@ function renderPackageActivityPage() {
   const viewport =
     capturePackageChangesViewport(document, packageChangesViewport)
     ?? packageChangesViewport;
+  const formDraft = capturePackageChangesFormDraft(document);
   document.title = "Package Activity · dotnet-inspect";
   replaceChildrenPreservingRenderedInteractions(app, renderPackageChangesView({
     state: state.packageChangesState,
     ecosystems: state.packageChangesEcosystems,
     catalogError: state.packageChangesCatalogError,
+    catalogLoading: packageChangesCatalogLoading,
+    formDraft,
     escapeHtml,
     viewport,
   }));
@@ -27902,6 +27944,12 @@ function openSettings(from: "home" | "workbench" | "source") {
   state.legend = false;
   state.keyboardHelp = false;
   state.settings = true;
+  if (state.engineRuntimeReady) {
+    observeAsync(
+      Promise.all(loadBootstrapCatalogs(["styleCatalog"])),
+      "Loading Settings vocabulary",
+    );
+  }
   render();
 }
 
@@ -29893,6 +29941,10 @@ async function restoreInitialWorkspace() {
     state.loading = false;
     state.home = true;
     state.queryNotice = loc.workspaceNotice || "";
+    observeAsync(
+      Promise.all(loadBootstrapCatalogs(["homeDemos"])),
+      "Loading product demos",
+    );
     render();
     return;
   }
@@ -29973,95 +30025,137 @@ async function loadInitialViewFacetCatalogs(): Promise<void> {
   setPackageViewFacetCatalog(packageFacets.facets);
 }
 
-async function loadBootstrapCatalogs(): Promise<void> {
-  const publish = (operation: Promise<void>) =>
-    operation.finally(() => {
-      if (state.engineReady) render();
-    });
-  const styleCatalog = publish((async () => {
-    try {
-      state.styleCatalog = resolveStyleCatalog(
-        await engineClient.catalog.inspectVocabulary());
-      const reconciledTaste = reconcileStyleTaste(
-        state.taste,
-        state.styleCatalog);
-      if (reconciledTaste.length !== state.taste.length) {
-        state.taste = reconciledTaste;
-        localStorage.setItem("inspect-taste", JSON.stringify(state.taste));
-      }
-    } catch (error) {
-      state.styleCatalog = null;
-      state.styleCatalogError = errorMessage(error);
-    }
-  })());
-  const homeDemos = publish((async () => {
-    try {
-      setProductHomeDemoCatalog(
-        (await engineClient.catalog.listHomeDemos()).demos ?? []);
-      productHomeDemoCatalogError = "";
-    } catch (error) {
-      setProductHomeDemoCatalog([]);
-      productHomeDemoCatalogError =
-        `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
-    }
-  })());
-  const ecosystems = publish((async () => {
-    try {
-      setProductEcosystemCatalog(
-        (await engineClient.catalog.listEcosystems()).ecosystems ?? []);
-      productEcosystemCatalogError = "";
-      productEcosystemCatalogAvailable = true;
-    } catch (error) {
-      setProductEcosystemCatalog([]);
-      productEcosystemCatalogError =
-        `Ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
-      productEcosystemCatalogAvailable = false;
-    }
-  })());
-  const packageChanges = publish((async () => {
-    try {
-      state.packageChangesEcosystems = packageChangesEcosystems(
-        await engineClient.package.listPackageActivityEcosystems());
-      state.packageChangesCatalogError = "";
-    } catch (error) {
-      state.packageChangesEcosystems = [];
-      state.packageChangesCatalogError =
-        `Package Activity ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
-    }
-  })());
-  const packageQuery = publish((async () => {
-    try {
-      const [facetData, durableRowLayout] = await Promise.all([
-        engineClient.package.inspectPackageQueryFacets(),
-        engineClient.package.packageQueryDurableRowLayout(),
-      ]);
-      await ecosystems;
-      const catalog = packageQueryFacets(
-        facetData,
-        {
-          productEcosystems: productEcosystemCatalogAvailable
-            ? productEcosystemCatalog()
-            : null,
-        });
-      state.packageQueryDurableRowLayout = durableRowLayout;
-      state.packageQueryPresets = catalog.presets;
-      state.packageQueryTerms = catalog.terms;
-    } catch (error) {
-      state.packageQueryDurableRowLayout = null;
-      state.packageQueryPresets = [];
-      state.packageQueryTerms = [];
-      state.packageQueryCatalogError =
-        `Package-query vocabulary is unavailable: ${errorMessage(error) || "Unknown error."}`;
-    }
-  })());
+type BootstrapCatalogName =
+  | "styleCatalog"
+  | "homeDemos"
+  | "ecosystems"
+  | "packageChanges"
+  | "packageQuery";
 
-  await Promise.all([
-    styleCatalog,
-    homeDemos,
-    ecosystems,
-    packageChanges,
-    packageQuery,
-  ]);
+const bootstrapCatalogLoads:
+  Partial<Record<BootstrapCatalogName, Promise<void>>> = {};
+
+function loadBootstrapCatalogs(
+  requested: readonly BootstrapCatalogName[],
+): Promise<void>[] {
+  const tasks = new Set<Promise<void>>();
+  const publish = (
+    name: BootstrapCatalogName,
+    operation: () => Promise<void>,
+    shouldRender: () => boolean,
+  ): Promise<void> => {
+    const existing = bootstrapCatalogLoads[name];
+    if (existing !== undefined) {
+      tasks.add(existing);
+      return existing;
+    }
+    const loaded = operation().finally(() => {
+      if (state.engineReady && shouldRender()) render();
+    });
+    bootstrapCatalogLoads[name] = loaded;
+    tasks.add(loaded);
+    return loaded;
+  };
+  if (requested.includes("styleCatalog")) {
+    void publish("styleCatalog", async () => {
+      try {
+        state.styleCatalog = resolveStyleCatalog(
+          await engineClient.catalog.inspectVocabulary());
+        const reconciledTaste = reconcileStyleTaste(
+          state.taste,
+          state.styleCatalog);
+        if (reconciledTaste.length !== state.taste.length) {
+          state.taste = reconciledTaste;
+          localStorage.setItem("inspect-taste", JSON.stringify(state.taste));
+        }
+      } catch (error) {
+        state.styleCatalog = null;
+        state.styleCatalogError = errorMessage(error);
+      }
+    }, () => state.settings);
+  }
+  if (requested.includes("homeDemos")) {
+    void publish("homeDemos", async () => {
+      try {
+        setProductHomeDemoCatalog(
+          (await engineClient.catalog.listHomeDemos()).demos ?? []);
+        productHomeDemoCatalogError = "";
+      } catch (error) {
+        setProductHomeDemoCatalog([]);
+        productHomeDemoCatalogError =
+          `Product demos are unavailable: ${errorMessage(error) || "Unknown error."}`;
+      }
+    }, () => state.home || isProductHomeDemosPath(location.pathname));
+  }
+  let ecosystems: Promise<void> | undefined;
+  if (requested.includes("ecosystems")
+    || requested.includes("packageQuery")) {
+    ecosystems = publish("ecosystems", async () => {
+      productEcosystemCatalogLoading = true;
+      try {
+        setProductEcosystemCatalog(
+          (await engineClient.catalog.listEcosystems()).ecosystems ?? []);
+        productEcosystemCatalogError = "";
+        productEcosystemCatalogAvailable = true;
+      } catch (error) {
+        setProductEcosystemCatalog([]);
+        productEcosystemCatalogError =
+          `Ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
+        productEcosystemCatalogAvailable = false;
+      } finally {
+        productEcosystemCatalogLoading = false;
+      }
+    }, () => isProductEcosystemsPath(location.pathname)
+      || state.packageQueryOpen);
+  }
+  if (requested.includes("packageChanges")) {
+    void publish("packageChanges", async () => {
+      packageChangesCatalogLoading = true;
+      try {
+        state.packageChangesEcosystems = packageChangesEcosystems(
+          await engineClient.package.listPackageActivityEcosystems());
+        state.packageChangesCatalogError = "";
+      } catch (error) {
+        state.packageChangesEcosystems = [];
+        state.packageChangesCatalogError =
+          `Package Activity ecosystems are unavailable: ${errorMessage(error) || "Unknown error."}`;
+      } finally {
+        packageChangesCatalogLoading = false;
+      }
+    }, () => state.packageActivityOpen);
+  }
+  if (requested.includes("packageQuery")) {
+    const ecosystemLoad = ecosystems;
+    if (ecosystemLoad === undefined) {
+      throw new Error("Package Query catalog requires Ecosystems.");
+    }
+    void publish("packageQuery", async () => {
+      try {
+        const [facetData, durableRowLayout] = await Promise.all([
+          engineClient.package.inspectPackageQueryFacets(),
+          engineClient.package.packageQueryDurableRowLayout(),
+        ]);
+        await ecosystemLoad;
+        const catalog = packageQueryFacets(
+          facetData,
+          {
+            productEcosystems: productEcosystemCatalogAvailable
+              ? productEcosystemCatalog()
+              : null,
+          });
+        state.packageQueryDurableRowLayout = durableRowLayout;
+        state.packageQueryPresets = catalog.presets;
+        state.packageQueryTerms = catalog.terms;
+      } catch (error) {
+        state.packageQueryDurableRowLayout = null;
+        state.packageQueryPresets = [];
+        state.packageQueryTerms = [];
+        state.packageQueryCatalogError =
+          `Package-query vocabulary is unavailable: ${errorMessage(error) || "Unknown error."}`;
+      }
+    }, () => state.packageQueryOpen);
+  }
+  return [...tasks];
 }
 
 async function bootstrap() {
@@ -30096,14 +30190,37 @@ async function bootstrap() {
       refreshPackageStats();
     }
     await loadInitialViewFacetCatalogs();
-    const deferBootstrapCatalogs = !state.home
-      && !state.packageQueryOpen
-      && !state.packageActivityOpen
-      && !state.typeExplorerOpen
-      && !isDiagnosticsPath(location.pathname)
-      && !isProductEcosystemsPath(location.pathname)
-      && !isProductHomeDemosPath(location.pathname);
-    if (!deferBootstrapCatalogs) await loadBootstrapCatalogs();
+    const initialCatalogNames: readonly BootstrapCatalogName[] =
+      isDiagnosticsPath(location.pathname)
+        || state.credits
+        || state.typeExplorerOpen
+        ? []
+        : state.home
+          ? ["homeDemos"]
+          : state.packageQueryOpen
+            ? ["packageQuery"]
+            : state.packageActivityOpen
+              ? ["packageChanges"]
+              : isProductEcosystemsPath(location.pathname)
+                ? ["ecosystems"]
+                : isProductHomeDemosPath(location.pathname)
+                  ? ["homeDemos"]
+                  : ["ecosystems"];
+    const requestedCatalogNames: readonly BootstrapCatalogName[] =
+      state.settings
+        ? [...initialCatalogNames, "styleCatalog"]
+        : initialCatalogNames;
+    const initialCatalogs =
+      loadBootstrapCatalogs(requestedCatalogNames);
+    const initialCatalogsReady = Promise.all(initialCatalogs);
+    observeAsync(initialCatalogsReady, "Loading supporting catalogs");
+    if ((state.home && !state.credits)
+      || state.packageQueryOpen
+      || state.packageActivityOpen
+      || isProductEcosystemsPath(location.pathname)
+      || isProductHomeDemosPath(location.pathname)) {
+      await initialCatalogsReady;
+    }
     state.engineReady = true;
     settleLibraryEngineReadyWaiters();
     state.engineStatus = "";
@@ -30161,11 +30278,6 @@ async function bootstrap() {
       return;
     }
     await restoreInitialWorkspace();
-    if (deferBootstrapCatalogs) {
-      observeAsync(
-        loadBootstrapCatalogs(),
-        "Loading supporting catalogs");
-    }
     const tReady = performance.now();
     state.diag = computeDiagnostics(tStart, tEngine, tReady);
     render();
@@ -31232,6 +31344,12 @@ window.addEventListener("popstate", () => {
     state.credits = false;
     state.home = false;
     state.loading = !state.engineReady;
+    if (state.engineRuntimeReady) {
+      observeAsync(
+        Promise.all(loadBootstrapCatalogs(["packageQuery"])),
+        "Loading Package Query vocabulary",
+      );
+    }
     render();
     if (!restoreApplicationActivityReturnFocus() && state.engineReady) {
       focusPackageQueryInput();
@@ -31249,6 +31367,12 @@ window.addEventListener("popstate", () => {
     state.credits = false;
     state.home = false;
     state.loading = !state.engineReady;
+    if (state.engineRuntimeReady) {
+      observeAsync(
+        Promise.all(loadBootstrapCatalogs(["packageChanges"])),
+        "Loading Package Activity ecosystems",
+      );
+    }
     render();
     if (state.engineReady) focusPackageActivityInput();
     return;
@@ -31298,6 +31422,12 @@ window.addEventListener("popstate", () => {
     state.credits = false;
     state.home = false;
     state.loading = !state.engineReady;
+    if (state.engineRuntimeReady) {
+      observeAsync(
+        Promise.all(loadBootstrapCatalogs(["ecosystems"])),
+        "Loading Ecosystems",
+      );
+    }
     render();
     if (state.engineReady) {
       afterCurrentNavigationFrame(() => focusLevelOneHeading());
@@ -31328,6 +31458,12 @@ window.addEventListener("popstate", () => {
     state.queryNoticeRetryAction = null;
     state.credits = false;
     state.home = false;
+    if (state.engineRuntimeReady) {
+      observeAsync(
+        Promise.all(loadBootstrapCatalogs(["homeDemos"])),
+        "Loading product demos",
+      );
+    }
     state.workspaceSubjectOpen = true;
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
@@ -31463,6 +31599,10 @@ window.addEventListener("popstate", () => {
     state.credits = false;
     state.home = true;
     spotlight.reset();
+    observeAsync(
+      Promise.all(loadBootstrapCatalogs(["homeDemos"])),
+      "Loading product demos",
+    );
     clearWorkspaceFeedIdentity();
     render({
       synchronizeUrl: !unavailableWorkspaceAdmissionRejected,

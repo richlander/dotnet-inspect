@@ -21,7 +21,6 @@ import {
 } from "./engine-worker-package-query.ts";
 import {
   resolvePackageQueryDurableRowLayout,
-  type PackageQueryDurableRowLayout,
 } from "./package-query-durable-row.ts";
 import {
   registerEngineWorkerTypeSourceOperation,
@@ -40,12 +39,32 @@ import { WorkerOperationCatalog, WorkerRuntimeRealm } from "./worker-runtime-rea
 
 const operations = new WorkerOperationCatalog();
 let vocabularyInspection:
-  ReturnType<
-    typeof import("/inspect-web-catalog.js")["inspectVocabulary"]
+  Promise<
+    Awaited<
+      ReturnType<
+        typeof import("/inspect-web-catalog.js")["inspectVocabulary"]
+      >
+    >
   > | undefined;
 let packageQueryDurableRowLayout:
-  PackageQueryDurableRowLayout | undefined;
+  ReturnType<typeof resolvePackageQueryDurableRowLayout> | undefined;
 let ordinaryFacades: EngineWorkerOrdinaryFacades | undefined;
+function inspectVocabulary() {
+  return vocabularyInspection ??= import("/inspect-web-catalog.js")
+    .then(catalog => catalog.inspectVocabulary());
+}
+function getPackageQueryDurableRowLayout() {
+  return packageQueryDurableRowLayout ??= (async () => {
+    const [packageFacade, vocabulary] = await Promise.all([
+      import("/inspect-web-package.js"),
+      inspectVocabulary(),
+    ]);
+    return resolvePackageQueryDurableRowLayout(
+      packageFacade.jsonSchemaVocabularyDescriptors,
+      vocabulary,
+    );
+  })();
+}
 registerEngineWorkerOrdinaryOperations(operations, () => {
   if (ordinaryFacades === undefined) {
     throw new Error(
@@ -63,19 +82,10 @@ registerEngineWorkerStartupOperations(operations, {
     return (await import("/inspect-web-host.js")).buildIdentity();
   },
   async inspectVocabulary() {
-    if (vocabularyInspection === undefined) {
-      vocabularyInspection =
-        (await import("/inspect-web-catalog.js")).inspectVocabulary();
-    }
-    return vocabularyInspection;
+    return inspectVocabulary();
   },
   async packageQueryDurableRowLayout() {
-    if (packageQueryDurableRowLayout === undefined) {
-      throw new Error(
-        "Package Query durable-row layout is unavailable before Worker readiness.",
-      );
-    }
-    return packageQueryDurableRowLayout;
+    return getPackageQueryDurableRowLayout();
   },
   async listHomeDemos() {
     return (await import("/inspect-web-catalog.js")).listHomeDemos();
@@ -192,10 +202,6 @@ const bootstrapWorker = async (value: string): Promise<void> => {
   packageQueryFacade = packageFacade;
   packageChangesFacade = packageFacade;
   libraryPerformanceFacade = analysisFacade;
-  vocabularyInspection ??= catalogFacade.inspectVocabulary();
-  packageQueryDurableRowLayout = await resolvePackageQueryDurableRowLayout(
-    packageFacade.jsonSchemaVocabularyDescriptors,
-    vocabularyInspection);
   ordinaryFacades = {
     package: packageFacade,
     library: libraryFacade,

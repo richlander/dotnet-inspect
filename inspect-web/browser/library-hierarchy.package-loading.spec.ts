@@ -8,6 +8,7 @@ import {
   other,
   installFacades,
   releaseFacade,
+  openProductDestination,
   frameworkSurface,
   frameworkRoot,
   type PackageLoadingFixture,
@@ -77,6 +78,79 @@ test("first Library load does not report the deferred package surface as unavail
   await expect(page.locator(".library-overview-surface")).toBeVisible();
   await expect(page.locator(".library-subject-list"))
     .not.toContainText("unavailable");
+});
+
+test("Package Query layout preparation does not delay package acquisition", async ({
+  page,
+}) => {
+  await installPackageLoadingFacades(page, {
+    deferPackageQueryLayout: true,
+  });
+  await page.goto(frameworkRoot);
+
+  const html = page.locator("html");
+  await expect(html).toHaveAttribute(
+    "data-package-query-request",
+    JSON.stringify(["System.Text.Json", "10.0.0", "net10.0"]),
+  );
+  await expect(page.getByRole("heading", {
+    name: "System.Text.Json",
+    exact: true,
+  })).toBeVisible();
+  await expect(html)
+    .not.toHaveAttribute("data-package-query-layout-pending", "true");
+
+  await openProductDestination(page, "query");
+  await expect(html).toHaveAttribute(
+    "data-package-query-layout-pending",
+    "true",
+  );
+  await releaseFacade(page, "finish-package-query-layout");
+  await expect(html).toHaveAttribute(
+    "data-package-query-layout-pending",
+    "false",
+  );
+});
+
+test("Ecosystems catalog loads while initial package restoration is pending", async ({
+  page,
+}) => {
+  await installPackageLoadingFacades(page, {
+    deferInitial: true,
+    deferEcosystemsCatalog: true,
+  });
+  await page.goto(frameworkRoot);
+
+  const html = page.locator("html");
+  await expect(html).toHaveAttribute(
+    "data-package-query-pending",
+    JSON.stringify(["System.Text.Json", "10.0.0", "net10.0"]),
+  );
+  await expect(html)
+    .toHaveAttribute("data-ecosystems-catalog-pending", "true");
+  await expect(html).toHaveAttribute("data-ecosystems-catalog-requests", "1");
+  await page.evaluate(() => {
+    history.pushState(null, "", "/ecosystems");
+    dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page).toHaveURL("/ecosystems");
+  await expect(page.getByRole("heading", {
+    name: "Loading Ecosystems…",
+    exact: true,
+  })).toBeVisible();
+  await expect(html).toHaveAttribute("data-ecosystems-catalog-requests", "1");
+
+  await releaseFacade(page, "finish-ecosystems-catalog");
+  await expect(page.locator(
+    '[data-ecosystem="ecosystem.fixture-platform"]',
+  )).toBeVisible();
+
+  await releaseFacade(page, "finish-package-query");
+  await expect(html).toHaveAttribute(
+    "data-package-query-settled",
+    JSON.stringify(["System.Text.Json", "10.0.0", "net10.0"]),
+  );
+  await expect(page).toHaveURL("/ecosystems");
 });
 
 function packageCoordinateControl(

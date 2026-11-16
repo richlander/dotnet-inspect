@@ -260,6 +260,8 @@ function retainedWorkspaceInstallationHarness(options: {
     render: () => {
       renders += 1;
     },
+    loadBootstrapCatalogs: () => [],
+    observeAsync: () => {},
     afterCurrentNavigationFrame: (action: () => void) => {
       focusSchedules += 1;
       action();

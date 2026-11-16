@@ -388,6 +388,7 @@ async function installHomeDemo(
   section: "Methods" | "Call Graph",
   focusKind: "package" | "platform",
   options?: {
+    holdCatalog?: boolean;
     holdAdmission?: boolean;
     holdPostingRecord?: boolean;
     holdAcknowledgement?: boolean;
@@ -412,6 +413,9 @@ async function installHomeDemo(
         title: `${focusKind} ${section}`,
         summary: "Typed product demo",
       }],
+      ...(options?.holdCatalog === undefined
+        ? {}
+        : { catalogPending: options.holdCatalog }),
       resolutions: {
         [id]: homeDemoResolution(id, section, focusKind),
       },
@@ -1506,6 +1510,92 @@ test("Activity Back restores focus on the Demos route", async ({ page }) => {
   await expect(page).toHaveURL(/\/demos$/);
   await expect(page.getByRole("heading", { name: "Demos", exact: true }))
     .toBeFocused();
+});
+
+test("unrelated Demos catalog completion preserves Activity form edits", async ({
+  page,
+}) => {
+  await installHomeDemo(page, "Methods", "package", { holdCatalog: true });
+  await page.goto(
+    "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg",
+  );
+  await expect(page.getByRole("heading", {
+    name: "Example.Package",
+    exact: true,
+  })).toBeVisible();
+  await openProductDestination(page, "demos");
+  await expect(page).toHaveURL("/demos");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-home-demo-catalog-pending", "true");
+
+  await openProductDestination(page, "activity");
+  await expect(page).toHaveURL("/activity");
+  await page.locator("#package-changes-custom-interval").check();
+  await page.locator("#package-changes-from").fill("2026-03-01T00:00");
+  await page.locator("#package-changes-through").fill("2026-03-15T00:00");
+  await page.locator("#package-changes-security-only").check();
+  await page.locator("#package-changes-limit").fill("23");
+
+  await releaseFacade(page, "finish-home-demo-catalog");
+
+  await expect(page.locator("#package-changes-custom-interval"))
+    .toBeChecked();
+  await expect(page.locator("#package-changes-from"))
+    .toHaveValue("2026-03-01T00:00");
+  await expect(page.locator("#package-changes-through"))
+    .toHaveValue("2026-03-15T00:00");
+  await expect(page.locator("#package-changes-security-only"))
+    .toBeChecked();
+  await expect(page.locator("#package-changes-limit")).toHaveValue("23");
+});
+
+test("Activity catalog completion preserves form edits", async ({ page }) => {
+  await installFacades(
+    page,
+    surface,
+    [],
+    "ready",
+    "ready",
+    undefined,
+    "ready",
+    "ready",
+    undefined,
+    {},
+    { deferActivityCatalog: true },
+  );
+  await page.goto(
+    "/?package=Example.Package&version=1.0.0&framework=net10.0#pkg",
+  );
+  await expect(page.getByRole("heading", {
+    name: "Example.Package",
+    exact: true,
+  })).toBeVisible();
+  await openProductDestination(page, "activity");
+  await expect(page).toHaveURL("/activity");
+  await expect(page.locator("html"))
+    .toHaveAttribute("data-activity-catalog-pending", "true");
+
+  await page.locator("#package-changes-custom-interval").check();
+  await page.locator("#package-changes-from").fill("2026-03-01T00:00");
+  await page.locator("#package-changes-through").fill("2026-03-15T00:00");
+  await page.locator("#package-changes-security-only").check();
+  await page.locator("#package-changes-limit").fill("23");
+
+  await releaseFacade(page, "finish-package-activity-catalog");
+
+  await expect(page.locator("#package-changes-custom-interval"))
+    .toBeChecked();
+  await expect(page.locator("#package-changes-from"))
+    .toHaveValue("2026-03-01T00:00");
+  await expect(page.locator("#package-changes-through"))
+    .toHaveValue("2026-03-15T00:00");
+  await expect(page.locator("#package-changes-security-only"))
+    .toBeChecked();
+  await expect(page.locator("#package-changes-limit")).toHaveValue("23");
+  await expect(page.locator("html")).toHaveAttribute(
+    "data-activity-catalog-requests",
+    "1",
+  );
 });
 
 test("Activity catalog failure focuses the visible route heading", async ({
