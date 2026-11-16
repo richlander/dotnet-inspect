@@ -225,6 +225,116 @@ and it did not measure the cost of the `OpaqueByteRange` and `InertUtf8String`
 contracts. The Symbol Key pilot in the evidence plan must re-establish both time
 and memory findings; this design does not assume the new representation wins.
 
+The contract-level metadata Name pilot under
+[#10376](https://github.com/richlander/dotnet-inspect/issues/10376)
+re-established that result with `OpaqueByteRange`,
+`OpaqueByteRangeBuilder`, `Utf8RangeReader`, and `InertUtf8String`. Across
+CoreLib, `System.Text.Json` 10.0.9, and
+`Microsoft.Extensions.Configuration` 10.0.10, the production-shaped method
+scope found that one backing with one retained range per Name used 44% to 46%
+as much memory as eager `InertString`, made closed matching 39% to 50% faster,
+and made one-result sparse presentation 27% to 43% faster. The current
+one-backing-per-Name shape retained 17% to 22% more memory before presentation
+and about 56% more while every Name was projected; future population adoption
+must not repeat it.
+
+Retaining one population-local slot per Name reduced the stored graph further,
+to 25% to 27% of eager memory, and kept the combined byte-plus-UTF-16 graph 9%
+to 12% smaller during complete display. The existing public composition is
+not the production answer: resolving and validating a range with `Slice(slot)`
+for every candidate made matching and sparse selection about three times
+slower than eager strings. A slot-backed adoption therefore requires
+owner-level closed operations that preserve opacity without materializing a
+retained range for every comparison.
+
+A follow-up descriptor pilot isolated that operation with one shared byte
+population. An owner-fused checked operation over an 8-byte `[offset, length]`
+slot matched the latency of a 16-byte `[array, offset, length]` retained range
+on all three assets, with median ratios from `0.99x` to `1.00x`. NativeAOT code
+inspection showed that the compiler retained the
+`offset + length <= array.Length` branch in both checked kernels. A
+trusted-coordinate diagnostic that omitted the branch ran at `0.68x` to
+`0.73x`, proving both that the check was not eliminated and that the safe
+checked slot still achieved the required range-latency parity. The earlier
+three-times loss therefore came from general range reconstruction, not from
+the 8-byte descriptor.
+
+This result establishes the performance shape, not a public unchecked
+capability. A product adoption may fuse checked closed operations over slots.
+It may omit per-operation validation only behind a stronger
+collection-private invariant that prevents foreign or unvalidated slots from
+reaching the operation. Until that separately reviewed capability exists,
+retained ranges remain the usable match-heavy representation and slots remain
+a demonstrated compact substrate rather than an adoption recommendation.
+
+A declarative-index follow-up tested whether the owner could retain logical
+identity instead of byte coordinates. A validated dense ordinal population
+used one `N+1` 32-bit offset vector and remained within 5% of retained-range
+latency on the complete metadata Name census and repeated method-production
+shape. Five asset/scope cells were statistically inconclusive around parity;
+the complete CoreLib census measured a small 5% loss. Its owned payload was
+54% to 61% of retained ranges, versus 69% to 74% for 8-byte slots. This is the
+best measured payload/latency shape when ordinal position is implicit, the
+owner consumes the population as one ordered sequence, and individual
+identities do not escape.
+
+That result does not generalize to every declarative index. Adding one 4-byte
+handle per occurrence to the offset vector restored essentially the same
+payload as an 8-byte slot and made matching 15% to 43% slower. Interning equal
+Name bytes reduced payload further, to 31% to 47% of retained ranges, at a 12%
+to 19% median match-time cost. It is a candidate for repeated-value
+populations whose retained-space win amortizes construction and indirection,
+not a universal representation.
+
+The metadata source's existing 4-byte `StringHandle` was the smallest borrowed
+descriptor, but resolving it through
+`MetadataReader.GetBlobReader(StringHandle)` repeatedly found the
+null-terminated `#Strings` length and made full-population matching 3.74x to
+4.85x slower. Source handles remain natural while the metadata image lifetime
+and access pattern are acceptable; they are not evidence against a detached
+owner that records boundaries once.
+
+Declarative identity is therefore a semantic improvement only when the owner
+has a matching structural advantage: implicit ordinals, repeated values worth
+interning, fixed-width index arithmetic, or an already-live source heap. A
+one-to-one explicit index over unique variable-length values is neither denser
+nor faster than a checked slot. Arbitrary, overlapping, nested, or
+independently escaping slices still require coordinates or an owner-bound
+range.
+
+The representation recommendation depends on the terminal:
+
+- match-heavy and sparse-presentation paths should retain shared
+  `OpaqueByteRange` values;
+- owner-consumed ordered populations may use a validated dense ordinal design
+  after a separately reviewed product operation establishes that identities do
+  not escape;
+- repeated-value populations may use an interned declarative index only after
+  measuring construction and terminal tradeoffs in the adopting consumer;
+- populations written repeatedly to UTF-8 sinks should retain
+  `InertUtf8String`, paying containment once and writing contained bytes
+  directly;
+- one-shot UTF-8 output may use shared ranges to reduce allocation and peak
+  memory, but the pilot established no end-to-end time win;
+- inventories that always retain every UTF-16 value should remain eager
+  `InertString`; and
+- slots remain a compactness target pending owner-level closed operations.
+
+The added direct-output evidence explains why the contained UTF-8 layer is not
+interchangeable with untreated ranges. Repeatedly containing raw ranges before
+writing was 3.3x to 4.2x slower than re-encoding eager strings. Retained
+`InertUtf8String` made direct byte output 35% to 61% faster on the two assets
+with conclusive timing and retained about 69% to 70% of the eager
+store-plus-output graph. One-shot build-plus-byte-output time was inconclusive
+for every byte-native representation, while allocation and retained memory
+were substantial wins.
+
+Measuring the contained UTF-16 length while building a compact population left
+substantial construction work. Charging contained UTF-8 bytes instead produced
+medians 25% to 38% below eager without establishing a consistent all-asset
+win. That is evidence for a separately owned retained-text budget decision;
+the pilot does not change the existing unit.
+
 ## Representation
 
 ### One backing, many opaque snapshots
