@@ -275,6 +275,28 @@ public sealed class FindingDiffAnyApiShapeTests
         Assert.Equal(api, Assert.Single(result.Types, type => type.FullName == Fixture + typeName).Api);
     }
 
+    // An admitted method's implementation flags and its Intrinsic and
+    // state-machine attributes are Body facts, so they leave the API census
+    // equal and nothing settles. A property accessor's flags decide how the
+    // surface spells its property, so they stay uncertain and settle.
+    [Theory]
+    [InlineData("InliningChanged", false)]
+    [InlineData("IntrinsicGained", false)]
+    [InlineData("TypeIntrinsicGained", false)]
+    [InlineData("StateMachineRenumbered", false)]
+    [InlineData("GetterInliningChanged", true)]
+    public void CompilerEmittedImplementationFacts_AreNotSettled(string typeName, bool settles)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        Compare((before, beforeType, after, afterType, keys) =>
+        {
+            seen.Add(Name(after.Image, afterType));
+            return Settle(before, beforeType, after, afterType, keys);
+        });
+
+        Assert.Equal(settles, seen.Contains(typeName));
+    }
+
     [Fact]
     public void Settler_AgreesWithTheInlineSettlement_ForEveryFixtureType()
     {

@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading.Tasks;
 
 namespace FindingDiffAnyFixture;
@@ -604,3 +605,46 @@ public class MixedUncertainTypeLayout
     public int Field;
     public long Value() => 1;
 }
+
+// An admitted method's implementation flag changes. No API view presents it,
+// so it is a Body fact, not an uncertain API fact.
+public class InliningChanged
+{
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public int Value() => 1;
+}
+
+// A property getter's implementation flags decide whether the surface can
+// spell the property's accessor modifiers, so they stay uncertain API facts.
+public class GetterInliningChanged
+{
+    public int Value { [MethodImpl(MethodImplOptions.AggressiveInlining)] get => 1; }
+}
+
+// An admitted method gains Intrinsic, which the surface never renders: a
+// Body fact.
+public class IntrinsicGained
+{
+    [Intrinsic]
+    public int Value() => 1;
+}
+
+// The Type itself gains Intrinsic: a Body fact.
+[Intrinsic]
+public class TypeIntrinsicGained
+{
+    public int Value() => 1;
+}
+
+// A private async method moves before Value, which renumbers Value's
+// generated state machine, so its state-machine attribute names another Type,
+// as a compiler renumbering does: a Body fact. Nullable annotations are off,
+// so the move does not shift the nullable context either.
+#nullable disable
+public class StateMachineRenumbered
+{
+    private async Task<int> Other() => await Task.FromResult(1);
+
+    public async Task<int> Value() => await Task.FromResult(1);
+}
+#nullable restore

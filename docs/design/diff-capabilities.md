@@ -375,8 +375,8 @@ assigns today's kinds:
 | Renderable attribute added, removed, or changed | Present (already shown) |
 | Hidden subject | Present: the API axis admits hidden subjects, and the API status analysis reports hidden and obsolete status |
 | Nullable rows and context with no annotated value on either side | Promote |
-| Compiler-emitted attributes (`Intrinsic`, state-machine `typeof`, Type-level `Extension`) | Both: promoted away from the API axis, and presented on the Body axis by the declaration view |
-| Implementation flags (inlining, `InternalCall`, `Async`) | Both: promoted away from the API axis, which never presents them, and presented on the Body axis by the declaration view |
+| Compiler-emitted attributes (`Intrinsic`, state-machine `typeof`) | Both: promoted away from the API axis, and presented on the Body axis by the declaration view. A Type's `Extension` and `AsyncIteratorStateMachine` stay uncertain API facts, since the surface reads them |
+| Implementation flags (inlining, `InternalCall`, `Async`) | Both: promoted away from the API axis, which never presents them, and presented on the Body axis by the declaration view. A property accessor's stay uncertain API facts, since they decide how the surface spells its property |
 | Attribute argument the renderer cannot show (generic `typeof`) | Present |
 | Referenced-assembly identity inside an attribute blob | Promote |
 | Flag kinds, `layout`, `field-offset`, `import` | Decided with a fixture; `layout`, `field-offset`, and `import` are expected to be presented |
@@ -495,7 +495,11 @@ Each step is its own focused effort:
    measured, removing every Exists fallback on the six measured pairs. The
    first, renderable attributes, is presented through the owner's rendered
    attribute list in [Finding Diff Any's API census
-   settlement](finding-diff-any.md#api-census-settlement).
+   settlement](finding-diff-any.md#api-census-settlement). Hidden subjects
+   needed no step: step 1 admitted them to the API axis. Implementation flags
+   and the `Intrinsic` and state-machine attributes are Body facts of
+   [Finding Diff Any's axes](finding-diff-any.md#axes), except where the
+   surface reads them.
 3. **Shared Body Exists.** The complete IL diff takes symbolic identity
    ([#9918](https://github.com/richlander/dotnet-inspect/issues/9918)) and a
    lockstep comparison without materialized instructions, then meets the latency

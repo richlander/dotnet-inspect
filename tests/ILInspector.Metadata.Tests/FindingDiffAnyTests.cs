@@ -99,6 +99,14 @@ public sealed class FindingDiffAnyTests
     [InlineData("FindingDiffAnyFixture.TypeBecomesObsolete", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ObsoleteMessageChanged", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.MemberBecomesObsoleteError", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    // An admitted method's implementation flags and its compiler-emitted
+    // implementation attributes, Intrinsic and the state-machine Type, are
+    // Body facts; a property accessor's flags stay API facts.
+    [InlineData("FindingDiffAnyFixture.InliningChanged", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.IntrinsicGained", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.TypeIntrinsicGained", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.StateMachineRenumbered", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Changed)]
+    [InlineData("FindingDiffAnyFixture.GetterInliningChanged", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged)]
     public void TypeStates_SeparateApiAndBodyChanges(
         string fullName,
         FindingDiffAnyState api,

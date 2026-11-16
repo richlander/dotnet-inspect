@@ -247,6 +247,46 @@ public sealed class DeclarationCensusAgreementTests
         }
     }
 
+    // An admitted Member's implementation flag and its compiler-emitted
+    // implementation attributes are Body facts: the Body census holds the
+    // differing fact, led by NonApi, and the API census is equal.
+    [Theory]
+    [InlineData("FindingDiffAnyFixture.InliningChanged", DeclarationFactKind.MethodRow)]
+    [InlineData("FindingDiffAnyFixture.IntrinsicGained", DeclarationFactKind.Attribute)]
+    [InlineData("FindingDiffAnyFixture.TypeIntrinsicGained", DeclarationFactKind.Attribute)]
+    [InlineData("FindingDiffAnyFixture.StateMachineRenumbered", DeclarationFactKind.Attribute)]
+    public void ImplementationFacts_AreBodyDeclarationFacts(string fullName, DeclarationFactKind kind)
+    {
+        FixturePair pair = FixtureCatalog.MetadataFindingDiffAnyPair;
+        using var before = new PEReader(File.OpenRead(pair.OldAssemblyPath()));
+        using var after = new PEReader(File.OpenRead(pair.NewAssemblyPath()));
+        (DeclarationCensusSide oldSide, DeclarationCensusSide newSide) = DeclarationCensusSide.CreatePair(before, after);
+        using (oldSide)
+        using (newSide)
+        {
+            DeclarationCensusType oldType = Assert.Single(oldSide.Types, type => type.FullName == fullName);
+            DeclarationCensusType newType = Assert.Single(newSide.Types, type => type.FullName == fullName);
+            var subject = new FindingSubject(oldType.Identifier, oldType.FullName);
+
+            Assert.Equal(
+                FindingExistsDecision.Unchanged,
+                DeclarationFindings.Exists(oldSide, oldType.Type, newSide, newType.Type, FindingDiffAnyAxis.Api).Decision);
+            var complete = Assert.IsType<FindingComparison<DeclarationFact>.Complete>(DeclarationFindings.Compare(
+                DeclarationFindings.Inspect(oldSide, oldType.Type, FindingDiffAnyAxis.Body, subject, ownerVisible: true),
+                DeclarationFindings.Inspect(newSide, newType.Type, FindingDiffAnyAxis.Body, subject, ownerVisible: true)).Value);
+            Assert.Contains(complete.Pairs, pair => pair.Value switch
+            {
+                PairFinding<DeclarationFact>.Added added => Promoted(added.New.Payload),
+                PairFinding<DeclarationFact>.Removed removed => Promoted(removed.Old.Payload),
+                _ => false,
+            });
+        }
+
+        // A promoted fact leads with NonApi; an added private Member's facts do not.
+        bool Promoted(DeclarationFact fact)
+            => fact.Kind == kind && fact.Text!.StartsWith("NonApi ", StringComparison.Ordinal);
+    }
+
     [Fact]
     public void RealImageAgainstItself_EveryTypeIsUnchangedOnBothAxes()
     {
