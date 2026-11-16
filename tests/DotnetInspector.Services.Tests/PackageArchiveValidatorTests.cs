@@ -283,6 +283,63 @@ public sealed class PackageArchiveValidatorTests
     }
 
     [Fact]
+    public async Task OwnedPublication_RejectsHiddenDirectoryBytesWithoutLeavingStaging()
+    {
+        byte[] bytes = WithZeroedUncompressedSize(
+            ArchiveWithNames(
+                ("lib/", [0x9D, 0x0A, 0xD9, 0x6D]),
+                ("lib/net10.0/Sample.dll", [1]),
+                ("Sample.nuspec", [1])));
+        var valid = Assert.IsType<PackageArchiveValidation.Valid>(
+            PackageArchiveValidator.Validate(
+                bytes,
+                new PackagePayloadLimits { MaxExpandedBytes = 16 },
+                TestContext.Current.CancellationToken));
+        string root = Directory.CreateTempSubdirectory(
+            "inspect-owned-publication-").FullName;
+        try
+        {
+            await Assert.ThrowsAsync<InvalidDataException>(() =>
+                NuGetCache.CommitOwnedArchiveToSlotAsync(
+                    valid.Archive, "sample", "1.0.0", "producer",
+                    Path.Combine(root, "slot"), "publication-test",
+                    useAppCache: false, TestContext.Current.CancellationToken)
+                    .AsTask());
+            Assert.Empty(Directory.EnumerateFileSystemEntries(root));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task OwnedPublication_CancelledArchiveNeverCreatesACacheSlot()
+    {
+        var valid = Assert.IsType<PackageArchiveValidation.Valid>(
+            Validate(TestPackageArchive.Create(
+                "lib/net10.0/Sample.dll", "Sample.nuspec")));
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
+            TestContext.Current.CancellationToken);
+        await cancellation.CancelAsync();
+        string root = Directory.CreateTempSubdirectory(
+            "inspect-owned-publication-").FullName;
+        try
+        {
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+                NuGetCache.CommitOwnedArchiveToSlotAsync(
+                    valid.Archive, "sample", "1.0.0", "producer",
+                    Path.Combine(root, "slot"), "publication-test",
+                    useAppCache: false, cancellation.Token).AsTask());
+            Assert.Empty(Directory.EnumerateFileSystemEntries(root));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void CheckedMaterialization_RejectsContentBeyondTheDeclaredLength()
     {
         byte[] archive = WithZeroedUncompressedSize(

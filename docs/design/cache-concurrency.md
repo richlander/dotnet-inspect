@@ -185,11 +185,38 @@ package id repeats in one redirect chain.
 
 ## Transactional publication
 
+### Owned archive preparation
+
+An admitted `PackageArchivePayload` supplies owned, structurally checked
+archive bytes. Filesystem stores prepare its extracted tree and retained
+archive directly in the unique sibling staging directory. Successful
+publication renames that same tree; it does not copy and then delete a
+second temporary package tree. Borrowed extracted inputs retain the
+copy-based publication API and are never moved or deleted by the cache.
+
+The motivating real asset is nuget.org `Microsoft.CSharp` 4.7.0,
+627,100 bytes, archive SHA256
+`127927bf646c145ebc9443ddadfe4cf81a55d641e82d3551029294c2e93fa63d`.
+The operator-approved investigation on
+[#11064](https://github.com/richlander/dotnet-inspect/pull/11064#issuecomment-6887849850)
+captured temporary-archive deletion blocked in ext4 dirty-page writeback.
+An untraced House/all operation took 247.43 ms with 26.79 ms child CPU;
+a fixed RAM control maximum was 15.63 ms. This motivates eliminating
+redundant writes and successful-path temporary cleanup, not weakening the
+[small-package cache policy](package-cache-policy.md).
+The approved optimization preserves marker, validation, source, cancellation
+and concurrent-winner contracts. Focused synthetic archives gate publication
+and rejection deterministically; the pinned real package supplies guarded,
+exact-build ordinary-disk before/after evidence without adding another
+checked-in package binary.
+
 Package content publication follows this sequence:
 
-1. Download and extract into temporary storage.
-2. Copy the complete result into a unique sibling staging directory under the
-   final directory's parent.
+1. Acquire and structurally admit the archive under the caller's limits.
+2. Extract the admitted archive and retain its exact bytes directly in a
+   unique sibling staging directory under the final directory's parent.
+   Borrowed extracted inputs instead copy their complete result into that
+   owned staging directory.
 3. Validate the extracted package structure.
 4. Write `.dotnet-inspect.complete` inside the staging directory.
 5. Close all files opened by dotnet-inspect.

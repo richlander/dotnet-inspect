@@ -3417,20 +3417,16 @@ public sealed partial class PackageRangedRealizationTests
                     packageName,
                     version,
                     archive,
-                    () => Directory.CreateDirectory(
-                        Path.Combine(
-                            _root,
-                            $"staging-{Guid.NewGuid():N}")).FullName,
-                    (extractedPath, nupkgPath) =>
-                        NuGetCache.CommitPackageToSlotWithDisposition(
-                            extractedPath,
-                            nupkgPath,
+                    (payload, token) =>
+                        NuGetCache.CommitOwnedArchiveToSlotAsync(
+                            payload,
                             packageName,
                             version,
                             sourceKey,
                             Path.Combine(_root, "slot"),
                             "semantic-content-test",
-                            useAppCache: false),
+                            useAppCache: false,
+                            token),
                     cancellationToken);
             _content = prepared.Content;
             return prepared;
