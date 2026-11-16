@@ -9,6 +9,7 @@ using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Inspectors;
 using DotnetInspect.Cli.Options;
+using DotnetInspect.Cli.Output;
 using DotnetInspector.Packages;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
@@ -2311,7 +2312,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
         // The bare request is bound to the product's own prior: no discovery,
         // no warning, and the entry is untouched.
         Assert.True(exit == 0, error);
-        Assert.Contains($"{packageName} 1.0.0", output);
+        Assert.Contains($"{packageName}@1.0.0", output);
         Assert.DoesNotContain("Warning:", error);
         Assert.Equal("1.0.0", await ReadPriorSettlementVersionAsync(packageName, feed));
     }
@@ -2329,7 +2330,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             ["package", packageName, "--source", feed]);
 
         Assert.True(exit == 0, error);
-        Assert.Contains($"{packageName} 2.0.0", output);
+        Assert.Contains($"{packageName}@2.0.0", output);
         Assert.DoesNotContain("Warning:", error);
         Assert.Equal("2.0.0", await ReadPriorSettlementVersionAsync(packageName, feed));
     }
@@ -2374,7 +2375,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             ["package", packageName, "--source", feed]);
 
         Assert.True(second.Exit == 0, second.Error);
-        Assert.Contains($"{packageName} 2.0.0", second.Output);
+        Assert.Contains($"{packageName}@2.0.0", second.Output);
         Assert.DoesNotContain("Warning:", second.Error);
         Assert.Equal("2.0.0", await ReadPriorSettlementVersionAsync(packageName, feed));
     }
@@ -2392,7 +2393,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             ["package", $"{packageName}@latest", "--source", feed]);
 
         Assert.True(exit == 0, error);
-        Assert.Contains($"{packageName} 2.0.0", output);
+        Assert.Contains($"{packageName}@2.0.0", output);
         Assert.DoesNotContain("Warning:", error);
         Assert.Equal("2.0.0", await ReadPriorSettlementVersionAsync(packageName, feed));
     }
@@ -2428,7 +2429,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
             ["package", packageName, "--source", SecondSource]);
 
         Assert.True(exit == 0, error);
-        Assert.Contains($"{packageName} 1.0.0", output);
+        Assert.Contains($"{packageName}@1.0.0", output);
         Assert.Single(
             error.Split('\n', StringSplitOptions.RemoveEmptyEntries),
             line => line.StartsWith("Warning: 1 package was served from a prior version settlement", StringComparison.Ordinal));
@@ -3404,13 +3405,36 @@ public sealed class SourceScopedRoutingTests : IDisposable
         return decisions.Decisions;
     }
 
+    // Mirrors Program.cs: one root command for preprocessing, parsing, and
+    // invocation. Invocation owns parse-error reporting, after row selection
+    // has normalized bare -N (CliRowSelectionCommandRegistry.Prepare), so the
+    // pre-invocation ParseResult is not the authority on unmatched tokens.
     private static Task<(int Exit, string Output, string Error)> RunCommandAsync(string[] args)
         => ConsoleCapture.RunAsync(async () =>
         {
-            args = CommandLineBuilder.PreprocessArgs(args);
-            var parseResult = CommandLineBuilder.CreateRootCommand().Parse(args);
-            Assert.Empty(parseResult.Errors);
-            return await CommandLineBuilder.InvokeAsync(parseResult, args);
+            var root = CommandLineBuilder.CreateRootCommand();
+            if (CommandLineBuilder.TryGetRemovedCommandError(
+                    args,
+                    root,
+                    out string? removedCommandError))
+            {
+                CommandError.Write(removedCommandError!);
+                return 1;
+            }
+
+            if (CommandLineBuilder.TryGetStaleArgumentError(
+                    args,
+                    root,
+                    out string? staleArgumentError))
+            {
+                CommandError.Write(staleArgumentError!);
+                return 1;
+            }
+
+            args = CommandLineBuilder.PreprocessArgs(args, root);
+            return await CommandLineBuilder.InvokeWithLineWindowAsync(
+                root.Parse(args),
+                args);
         });
 
     private static async Task<(

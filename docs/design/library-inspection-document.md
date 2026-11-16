@@ -248,9 +248,12 @@ remains string-valued.
 
 The first Browser adoption selects an exact package or Platform Library the
 Browser already realizes and lowers a plan term for the Enablements fact
-group. The package selector uses the implementation-preferred participant, so
-the Library carries its implementation when the package has one. Uploaded
-Libraries, Workspace selectors, and the remaining plan terms are adopted by
+group. Enablements use the implementation-preferred participant, so
+the Library carries its implementation when the package has one. A `facts`
+term lowers the Image and Description fact groups together. Name-only and
+facts-only requests use the selected API participant without requesting its
+implementation.
+Uploaded Libraries, Workspace selectors, and the remaining plan terms are adopted by
 later slices; until then the Browser plan exposes only the terms it lowers.
 
 The core request and CLI operation remain independent of Browser adoption.
@@ -262,6 +265,78 @@ contract values. Its exact positive project and assembly ceilings plus this
 typed lowering contract enforce product ownership; its compiler ban input is
 limited to runtime platform hazards that dependency layering cannot
 distinguish, not an open-ended inventory of internal product APIs.
+
+### Browser Library Overview facts
+
+An exact package or Platform Library Overview requests only the `facts` term:
+identity plus the Image and Description groups of the selected API asset. For
+a package Library that is its compile asset, never its implementation. Inspect
+Web's Platform source plan admits only the runtime pack's implementation
+facet, so a Platform Library's selected asset, and the image its facts
+describe, is that runtime-pack assembly. Every
+value is metadata-cheap and decodes no IL body, following the
+[overview cost](progressive-disclosure.md#overview-cost) rule. The wire carries
+each value already spelled by the shared `LibraryFactLabels` owner, so the
+Overview and CLI `Library Info` cannot disagree. Sections returns each group
+as spelled records (`LibraryImageFactLabels`, `LibraryDescriptionFactLabels`),
+so the Browser contract assembly reads only strings, numbers, and Booleans and
+takes no `ILInspector.Metadata` dependency; a fact the image does not
+carry is absent rather than empty. Enablements keep their separate
+implementation-preferred request.
+
+The Overview does not list Types. Its Navigate count is the unfiltered row
+count of the Type list it opens, so the control and its destination agree:
+the Library row's public Type count, plus a Platform Library's forwarded
+Types once their inventory is known. Until then the control is unnumbered, so
+a facade that only forwards never reads as empty. Activating it settles a
+pending inventory and retries a failed one, and a failure is reported as an
+unavailable inventory rather than as a Library with no Types. The Library document's public Type Count already
+follows [accessibility as the arbiter](api-population-scope.md#accessibility-within-api-visibility-scope);
+the Type level's legacy surface population does not yet, because it leaves
+out `EditorBrowsable(Never)` Types and buckets nested Types by declared rather
+than effective accessibility. Until
+[#10693](https://github.com/richlander/dotnet-inspect/issues/10693) adopts the
+rule there, the Overview shows the count its destination lists, and the two
+counts converge when it does.
+
+`LibraryDocument_OverviewFacts_UseSharedLabelsWithoutImplementationMaterialization`
+gates the lowering on the pinned `System.Text.Json` reference asset with an
+unreadable implementation beside it. Frontend tests gate the request, the
+rendering, and absent and failed facts.
+
+### Browser Name-level Library browsing
+
+The `typeNames` term lowers the existing default Library hierarchy:
+public definitions and advertised forwarders, grouped by namespace and spelled
+by Name. It executes `LibraryInspectionOperation` and consumes
+`LibraryTypeHierarchyProjection`, as the CLI Library hierarchy does. The Browser
+adapter retains the operation's Share outcome and diagnostics. It does not
+request Member Counts, Member rows, or Type signatures for this view.
+Browser Core adapts the existing Presentation plan and Metadata-owned identity
+and kind to detached values; the export assembly stays within its existing
+dependency ceiling rather than referencing Presentation or Metadata directly.
+
+The motivating asset is
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`,
+entry `runtimes/linux-x64/lib/net11.0/System.Text.Json.dll`. Its Library
+hierarchy includes `JsonElement`, nested enumerators, and advertised compiler
+attribute forwarders. The existing CLI view demonstrates the required
+presentation without full API extraction. Managed Browser tests compare its
+Name rows with the same shared operation and hierarchy projection, including
+forwarders; frontend tests cover rendering, empty results, and visible
+incompleteness.
+
+The managed real-library gates now use the corresponding patched runtime pack,
+`11.0.0-rc.3.26522.148`, following the repository's fixture migration. The
+original RC1 coordinate remains the motivating restoration case.
+
+Inspect Web no longer renders this hierarchy in Library Overview; the Type
+level lists Types. The term and its gates remain for hosts that request it.
+
+This adoption does not certify retirement of the broader Package surface,
+Platform acquisition, retained Navigation, or selected-Type compatibility
+paths. Those remain tracked by
+[#10983](https://github.com/richlander/dotnet-inspect/issues/10983).
 
 ## Library document
 

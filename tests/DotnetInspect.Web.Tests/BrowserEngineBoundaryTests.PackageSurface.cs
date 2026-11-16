@@ -2743,6 +2743,33 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Null(supplier.PackageId);
             Assert.Null(supplier.PackageVersion);
         });
+
+#if DEBUG
+        BrowserReferencePackageSupplierEvidenceInspection enriched =
+            Assert.IsType<BrowserReferencePackageSupplierEvidenceInspection>(
+                JsonSerializer.Deserialize(
+                    await PackageExports.QueryReferencePackageSuppliersWithEvidence(
+                        packageId, "1.0.0", "net11.0",
+                        $"compile:lib/net11.0/{packageId}.dll"),
+                    BrowserPackageJsonContext.Default.BrowserReferencePackageSupplierEvidenceInspection));
+#else
+        BrowserReferencePackageSupplierEvidenceInspection enriched =
+            await PackageExports.ReferencePackageSuppliersWithEvidenceAsync(
+                packageId, "1.0.0", "net11.0",
+                $"compile:lib/net11.0/{packageId}.dll");
+#endif
+        Assert.Equal("available", enriched.Content.Outcome);
+        Assert.Null(enriched.Content.Failure);
+        Assert.Equal(
+            JsonSerializer.Serialize(suppliers,
+                BrowserPackageJsonContext.Default.BrowserReferencePackageSupplierArray),
+            JsonSerializer.Serialize(enriched.Content.Suppliers,
+                BrowserPackageJsonContext.Default.BrowserReferencePackageSupplierArray));
+        BrowserPackageAcquisitionEvidenceEntry rootAcquisition =
+            Assert.Single(enriched.Evidence.Acquisitions);
+        Assert.Equal(packageId.ToLowerInvariant(), rootAcquisition.PackageId);
+        Assert.Equal("Cache", rootAcquisition.Transfer.Path);
+        Assert.Empty(rootAcquisition.Transfer.Requests);
     }
 
     [Fact]

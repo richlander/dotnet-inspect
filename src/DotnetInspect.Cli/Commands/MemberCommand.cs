@@ -8,6 +8,7 @@ using DotnetInspect.Cli.Models;
 using ILInspector.Metadata;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.DocumentationHouse;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -160,7 +161,8 @@ public static partial class MemberCommand
                         plan,
                         exactTypeRequest,
                         packageDemand,
-                        CancellationToken.None)
+                        CancellationToken.None,
+                        resolvedMember)
                     : ExecuteSharedMemberAsync(
                         options,
                         plan,
@@ -171,7 +173,8 @@ public static partial class MemberCommand
                             ?? throw new InvalidOperationException(
                                 "An injected Member PackageHouse requires "
                                     + "a source-operation issuer.")),
-                        CancellationToken.None))
+                        CancellationToken.None,
+                        resolvedMember))
                 .ConfigureAwait(false);
             if (exactMemberExitCode is { } completed)
                 return completed;
@@ -305,7 +308,8 @@ public static partial class MemberCommand
                     preselectedType);
             if (!lookupResult.Found)
             {
-                if (options.RouterDeferredTypeOrMember
+                if (lookupResult.Outcome == ExactTypeInspectionOutcome.NotFound
+                    && options.RouterDeferredTypeOrMember
                     && !requiresContextualExplanation)
                 {
                     return await ExecuteDeferredTypeAsync(
@@ -519,13 +523,8 @@ public static partial class MemberCommand
                 selectedTfm,
                 MemberCodeSourceAssembly: sourceAssembly);
 
-            // Default --docs on for single-type view at Normal+ unless explicitly disabled
             MemberOptions contextualSubjectOptions = options;
             MemberOptions effectiveOptions = options;
-            if (allowImplicitDocumentation
-                && !options.DocsExplicitlySet
-                && options.Verbosity >= Verbosity.Normal)
-                effectiveOptions = options with { ShowDocs = true };
             if (effectiveOptions.HasCallerScope
                 && !ApiCommand.HasExactCallGraphDocumentSelection(
                     effectiveOptions))
@@ -791,12 +790,23 @@ public static partial class MemberCommand
                     return 1;
                 }
                 ApiMember selected = contextualExplanationResolution.Target!.ApiMember.Member;
-                string path = apiType.SourceAssemblyPath ?? sourceAssembly?.Path ?? apiDllPath;
+                // The shared PackageHouse route reads a temporary operational
+                // path under House-normalized provenance, so Share names the
+                // requested package and selected package asset, as the
+                // compatibility route does, keeping the packet route-independent.
+                bool sharedPackageRoute =
+                    source.PackageContent is not null
+                    && loaded.LibraryAssetPath is not null;
+                ResolvedAssemblyReference? shareAssembly =
+                    sharedPackageRoute ? null : sourceAssembly;
+                string path = sharedPackageRoute
+                    ? loaded.LibraryAssetPath!
+                    : apiType.SourceAssemblyPath ?? sourceAssembly?.Path ?? apiDllPath;
                 MemberInspectionTerminalPlan selectedPlan = MemberInspectionPlanBuilder.Create(
-                    sourceAssembly, path, selectedTfm, apiType.FullName,
+                    shareAssembly, path, selectedTfm, apiType.FullName,
                     apiType.DefinitionName, ApiMemberIdentity.GetMemberAnchor(apiType, selected),
                     executionPlan, effectiveOptions,
-                    ResolvedPackageSource(source, sourceAssembly, selectedTfm));
+                    ResolvedPackageSource(source, shareAssembly, selectedTfm));
                 resolvedMember(source, loaded, apiType, new ShareProjectionPlan(selectedPlan.Basis));
             }
 
@@ -828,6 +838,9 @@ public static partial class MemberCommand
                     packageName,
                     packageVersion,
                     context.HttpClient,
+                    allowImplicitDocumentation
+                        ? new(DocumentationDemand.CompiledXml)
+                        : null,
                     CancellationToken.None,
                     contextualExplanationResolution);
                 return WriteContextualCompanion(
@@ -1058,8 +1071,7 @@ public static partial class MemberCommand
                     packageVersion);
             }
 
-            if (effectiveOptions.OverloadIndex is null
-                && effectiveOptions.IncludeSections?.Contains(SectionNames.UnsafeMembers) == true
+            if (effectiveOptions.IncludeSections?.Contains(SectionNames.UnsafeCode) == true
                 && (runtimeAssemblyPath ?? apiDllPath) is { } unsafeDllPath)
             {
                 effectiveOptions = effectiveOptions with { DllPath = unsafeDllPath };
@@ -1139,10 +1151,13 @@ public static partial class MemberCommand
                         packageName,
                         packageVersion,
                         context.HttpClient,
+                        allowImplicitDocumentation
+                            ? new(DocumentationDemand.CompiledXml)
+                            : null,
                         CancellationToken.None);
                     if (memberGroupExitCode == 0 && count > 1)
-                        CommandError.WriteLine(
-                            $"Warning: {apiType.FullName}.{memberName} has "
+                        CommandError.WriteWarning(
+                            $"{apiType.FullName}.{memberName} has "
                                 + $"{count} overloads; showing {memberName}:1. "
                                 + "Add --tree to list all overloads, or select "
                                 + $"another with {memberName}:N.");
@@ -1232,15 +1247,13 @@ public static partial class MemberCommand
                 }
             }
 
-            // Enrich with local XML docs only (source info is in the source command)
             {
                 var dllPath = runtimeAssemblyPath ?? apiDllPath;
                 if (dllPath != null
-                    && (effectiveOptions.IncludeSections is null
-                        || effectiveOptions.IncludeSections.Any(
-                            static section => section is not SectionNames.Overloads
-                                and not SectionNames.DocumentedOverloads))
-                    && (effectiveOptions.ShowDocs
+                    && !effectiveOptions.Count
+                    && (allowImplicitDocumentation
+                            && MemberGroupDocumentOutput
+                                .RequestsCompatibilityDocumentation(effectiveOptions)
                         || effectiveOptions.ShowSamples))
                     await DocumentationEnricher.EnrichAsync(
                         [apiType],
@@ -1315,13 +1328,11 @@ public static partial class MemberCommand
                     ApiCommand.GetRequestedMemberSections(
                         apiType,
                         effectiveOptions);
-                bool descriptorBackedDecompiledSource =
+                bool descriptorBackedMemberPipeline =
                     sourceAssembly is not null
                     && packageName is not null
                     && packageVersion is not null
-                    && source.PackageExtractPath is null
-                    && requestedSourceSections.Contains(
-                        SectionNames.DecompiledSource);
+                    && source.PackageExtractPath is null;
                 if (requestedSourceSections.Contains(SectionNames.SourceDiff)
                     && sourceMember?.MetadataToken is not null)
                 {
@@ -1436,7 +1447,7 @@ public static partial class MemberCommand
                     if (effectiveOptions.PdbPath is null
                         && NeedsMemberPipelinePdbPath(
                             requestedSourceSections,
-                            descriptorBackedDecompiledSource))
+                            descriptorBackedMemberPipeline))
                     {
                         string? pdbPath = sourceAssembly is null
                             ? await ApiCommand.TryAcquirePdbPathAsync(
@@ -1606,7 +1617,7 @@ public static partial class MemberCommand
                         && selectedMemberHasBody != false
                         && NeedsMemberPipelinePdbPath(
                             requestedSourceSections,
-                            descriptorBackedDecompiledSource))
+                            descriptorBackedMemberPipeline))
                     {
                         string? pdbPath = sourceAssembly is null
                             ? await ApiCommand.TryAcquirePdbPathAsync(
@@ -2399,19 +2410,29 @@ public static partial class MemberCommand
         SectionNames.SemanticsOverlay,
     ];
 
+    private static readonly HashSet<string>
+        DescriptorBackedMemberPipelineSectionNames =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.DecompiledSource,
+            SectionNames.AnnotatedSource,
+            SectionNames.AnnotatedSourceDocument,
+            SectionNames.FindingCensus,
+            SectionNames.Facts,
+        };
+
     private static bool IsPureSelector(string[]? select, string name) =>
         select is { Length: 1 } && select[0].Equals(name, StringComparison.OrdinalIgnoreCase);
 
     private static bool NeedsMemberPipelinePdbPath(
         IReadOnlySet<string> sections,
-        bool descriptorBackedDecompiledSource = false) =>
+        bool descriptorBackedMemberPipeline = false) =>
         MemberPipelinePdbPathSectionNames.Any(
             section =>
                 sections.Contains(section)
-                && (!descriptorBackedDecompiledSource
-                    || !section.Equals(
-                        SectionNames.DecompiledSource,
-                        StringComparison.OrdinalIgnoreCase)));
+                && (!descriptorBackedMemberPipeline
+                    || !DescriptorBackedMemberPipelineSectionNames.Contains(
+                        section)));
 
     // Sections that read only the selected member's own declaration, body,
     // attributes, and source mapping. A request limited to these sections
@@ -2425,6 +2446,7 @@ public static partial class MemberCommand
         SectionNames.ExceptionRegions,
         SectionNames.SourceLocations,
         SectionNames.FidelityCauses,
+        SectionNames.UnsafeCode,
         SectionNames.Overloads,
     ];
 

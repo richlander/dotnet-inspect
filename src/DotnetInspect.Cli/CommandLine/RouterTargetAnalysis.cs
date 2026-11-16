@@ -5,6 +5,7 @@ using DotnetInspect.Cli.Inspectors;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
+using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
 using ILInspector.Metadata;
@@ -102,8 +103,8 @@ internal static class RouterTargetAnalysis
         string? member = null;
         if (lookup is PlatformTypeLookupOutcome.Missing)
         {
-            foreach (ImpliedMemberTypeCandidate candidate in
-                ApiTypeLookupService.GetImpliedMemberTypeCandidates(target))
+            foreach (TypeMemberSelectionCandidate candidate in
+                ExactTypeInspectionOperation.GetTypeMemberCandidates(target))
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 lookup = PlatformResolver.LookupTypeInFramework(

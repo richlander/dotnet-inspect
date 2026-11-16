@@ -754,6 +754,7 @@ public sealed partial class PackageHouseExecutionTests
     public async Task
         AssemblyReferenceSupplierReusesFileListAndDecodedMember()
     {
+        var acquisitions = new List<PackageHouseAcquisitionReceipt>();
         AssemblyReferenceIdentity identity = CallGraphTargetIdentity();
         string packageId = identity.Name;
         await using HouseEnvironment environment =
@@ -772,6 +773,8 @@ public sealed partial class PackageHouseExecutionTests
                 executions) =
             await SupplierAssociationAsync(
                 environment,
+                limits: null,
+                acquisitions.Add,
                 (packageId, RouteVersion));
         var store = new InMemoryPackageStore();
         PackageHouse house = environment.CreateContentHouse(
@@ -789,6 +792,14 @@ public sealed partial class PackageHouseExecutionTests
                     AssemblyBindingSelection.NameNotOwned(),
                     house,
                     operation));
+        PackageHouseAcquisitionReceipt[] firstAcquisitions = [.. acquisitions];
+        Assert.Equal(2, firstAcquisitions.Length);
+        Assert.All(firstAcquisitions, acquisition =>
+            Assert.Equal(packageId, acquisition.Candidate.Coordinate.PackageId,
+                ignoreCase: true));
+        Assert.NotEmpty(firstAcquisitions[0].Transfer.Requests);
+        Assert.Empty(firstAcquisitions[1].Transfer.Requests);
+        Assert.Equal("Cache", firstAcquisitions[1].Transfer.Path.ToString());
         var second = Assert.IsType<
             PackageAssemblyReferenceSupplierOutcome.Selected>(
                 await association.ResolveAsync(
@@ -801,6 +812,7 @@ public sealed partial class PackageHouseExecutionTests
             first.Selection.Assembly,
             second.Selection.Assembly);
         Assert.Equal(1, environment.Clients[0].PayloadRequests);
+        Assert.Equal(firstAcquisitions, acquisitions);
         operation.Dispose();
         await environment.AssertRootSettledAsync();
     }
@@ -1169,6 +1181,17 @@ public sealed partial class PackageHouseExecutionTests
         HouseEnvironment environment,
         PackageAssemblyReferenceSupplierLimits? limits,
         params (string PackageId, string Version)[] dependencies)
+        => await SupplierAssociationAsync(
+            environment, limits, captureAcquisition: null, dependencies);
+
+    private static async Task<(
+        PackageAssemblyReferenceSupplierAssociation Association,
+        ImmutableArray<PackageDependencyEdgeRealizationExecution>
+            Executions)> SupplierAssociationAsync(
+        HouseEnvironment environment,
+        PackageAssemblyReferenceSupplierLimits? limits,
+        Action<PackageHouseAcquisitionReceipt>? captureAcquisition,
+        params (string PackageId, string Version)[] dependencies)
     {
         PackageRootBinding rootBinding =
             CallGraphRootBinding(dependencies);
@@ -1188,7 +1211,8 @@ public sealed partial class PackageHouseExecutionTests
                     traversal,
                     rootOccurrenceIndex: 0,
                     snapshot,
-                    limits)),
+                    limits),
+                captureAcquisition),
             snapshot);
     }
 

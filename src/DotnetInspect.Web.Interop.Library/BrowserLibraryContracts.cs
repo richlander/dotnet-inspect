@@ -44,7 +44,7 @@ public sealed record BrowserUploadedLibrarySurface(
     BrowserLibraryApiFacetDescriptor[] TypeKinds,
     BrowserLibraryApiFacetDescriptor[] TypeTraits,
     BrowserLibraryAccessibilityDescriptor[] Accessibility,
-    int TotalMembers,
+    int? TotalMembers,
     string[] InspectionErrors,
     string? InspectionError,
     bool IsTruncated);
@@ -119,7 +119,7 @@ public sealed record BrowserLibraryAssemblySurface(
     string? PublicKeyToken,
     string Asset,
     int PublicTypes,
-    int PublicMembers,
+    int? PublicMembers,
     string? PlatformPack);
 
 public sealed record BrowserLibraryTypeSurface(
@@ -138,7 +138,7 @@ public sealed record BrowserLibraryTypeSurface(
     string Assembly,
     string AssemblyId,
     string AssemblyName,
-    int Members,
+    int? Members,
     string Signature,
     BrowserLibraryMemberSurface[] Api,
     string? PlatformPack);
@@ -216,16 +216,65 @@ public sealed record BrowserPlatformLibrarySelector(
     string AssemblyFileName,
     string Pack);
 
-/// <summary>The Browser subset of <c>LibraryInspectionPlan</c> adopted so far.</summary>
+/// <summary>
+/// The Browser subset of <c>LibraryInspectionPlan</c> adopted so far.
+/// <see cref="Facts"/> requests the Image and Description fact groups.
+/// </summary>
 public sealed record BrowserLibraryInspectionPlan(
-    bool Enablements);
+    bool Enablements,
+    bool TypeNames = false,
+    bool Facts = false);
 
 public sealed record BrowserLibraryDocumentInspection(
     BrowserLibraryDocumentOutcome Outcome,
     string? Detail,
     BrowserLibraryAssemblyReference? Assembly,
     BrowserLibraryEnablements? Enablements,
-    BrowserLibraryInspectionDiagnostic[] Diagnostics);
+    BrowserLibraryInspectionDiagnostic[] Diagnostics)
+{
+    public BrowserLibraryTypeNames? TypeNames { get; init; }
+    public BrowserLibraryImageFacts? Image { get; init; }
+    public BrowserLibraryDescriptionFacts? Description { get; init; }
+    public BrowserLibraryInspectionShare? Share { get; init; }
+}
+
+/// <summary>
+/// The Image fact group with the shared <c>LibraryFactLabels</c> spellings.
+/// A null label is a fact the image does not carry.
+/// </summary>
+public sealed record BrowserLibraryImageFacts(
+    int ImageBytes,
+    string? TargetFramework,
+    string? Compilation,
+    string? Architecture,
+    bool StrongNameSigned,
+    string? Reproducible);
+
+/// <summary>
+/// The Description fact group with the shared <c>LibraryFactLabels</c>
+/// spellings. A null value is a fact the image does not carry.
+/// </summary>
+public sealed record BrowserLibraryDescriptionFacts(
+    string? InformationalVersion,
+    string? Company,
+    string? Product,
+    string? Copyright);
+
+public sealed record BrowserLibraryTypeNames(
+    string Outcome,
+    string? Detail,
+    BrowserLibraryTypeNamespace[] Namespaces);
+
+public sealed record BrowserLibraryTypeNamespace(
+    string Name,
+    int DeclarationCount,
+    BrowserLibraryTypeName[] Types);
+
+public sealed record BrowserLibraryTypeName(
+    string DefinitionId,
+    string Name,
+    string DeclarationKind,
+    string? DefinitionKind);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserLibraryDocumentOutcome>))]
 public enum BrowserLibraryDocumentOutcome

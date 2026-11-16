@@ -108,9 +108,8 @@ type-disjointness evidence. General diagnostics travel with `IrFunction` and
 Lambda, local-function, iterator, and async work may need synthesized sibling
 bodies; it is not always a single-body operation. Import and reconstruction
 remain bounded by the supplied capabilities and evidence. In particular, the
-[classic async inverse design](design/classic-async-reconstruction.md) describes
-a target proof contract, not a claim that the current classic pass implements
-all of it.
+[classic async inverse design](design/classic-async-reconstruction.md) owns the
+proof contract the classic pass implements through its general inverse.
 
 [`CSharpPrinter`](../src/ILInspector.Decompiler/Pipeline/Ir/CSharpPrinter.cs)
 offers raised, lowered, and already-transformed printing paths. `PrintRaised`

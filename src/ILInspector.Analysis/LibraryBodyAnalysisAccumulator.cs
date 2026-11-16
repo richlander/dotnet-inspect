@@ -65,8 +65,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
             ImmutableArray.CreateBuilder<
                 StringMaterializationOccurrence>();
         var bodySignals = new Dictionary<int, BodySignals>();
-        var implementationProfiles =
-            ImmutableArray.CreateBuilder<MethodBodyImplementationMetrics>();
         var allocationOccurrences = new Dictionary<int, ImmutableArray<AllocationOccurrence>>();
         var unsafetyOccurrences = new Dictionary<int, ImmutableArray<UnsafetyOccurrence>>();
         var suppressedOpportunityTokens = new HashSet<int>();
@@ -258,21 +256,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
                 implementationMetrics.Add(implementationMetric);
             if (r.ImplementationMetricDiagnostic is { } metricDiagnostic)
                 implementationMetricDiagnostics.Add(metricDiagnostic);
-            if (r.ImplementationProfile is { } implementationProfile)
-            {
-                if (r.Diagnostic is { } profileDiagnostic)
-                {
-                    implementationProfile = implementationProfile with
-                    {
-                        IncompleteReasons =
-                        [
-                            .. implementationProfile.IncompleteReasons,
-                            profileDiagnostic.Message,
-                        ],
-                    };
-                }
-                implementationProfiles.Add(implementationProfile);
-            }
             if (r.Diagnostic is not null)
                 diagnostics.Add(r.Diagnostic);
             if (r.DeclaredSource is { } declaredSource)
@@ -336,8 +319,6 @@ internal sealed class LibraryBodyAnalysisAccumulator
                     implementationMetrics.ToImmutable(),
                 ImplementationMetricDiagnostics:
                     implementationMetricDiagnostics.ToImmutable(),
-                ImplementationProfiles:
-                    implementationProfiles.ToImmutable(),
                 InAssemblyTypeIsException: _includeMethodEvidence
                     ? BuildInAssemblyExceptionMap()
                     : new Dictionary<

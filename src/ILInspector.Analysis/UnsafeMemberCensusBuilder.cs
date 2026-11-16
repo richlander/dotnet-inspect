@@ -45,6 +45,13 @@ internal sealed record UnsafeMemberRootSet(
 {
     public static UnsafeMemberRootSet Unavailable { get; } =
         new(new HashSet<int>(), IsComplete: false, Failed: true);
+
+    /// <summary>
+    /// No inventory, for a fold that presents no exposure: it adds no
+    /// limitation, and every exposure it leaves is unread.
+    /// </summary>
+    public static UnsafeMemberRootSet NotRead { get; } =
+        new(new HashSet<int>(), IsComplete: true, Failed: false);
 }
 
 /// <summary>

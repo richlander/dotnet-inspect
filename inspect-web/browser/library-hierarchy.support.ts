@@ -9,6 +9,7 @@ import type {
   BrowserAssemblySurface,
   BrowserMemberSurface,
   BrowserPackageChildrenInspection,
+  BrowserPackageLibraryIdentity,
   BrowserPackageSurface,
   BrowserTypeSurface,
 } from "../src/facades/inspect-web-package.d.ts";
@@ -385,6 +386,9 @@ interface PackageLoadingFixture {
   versions?: readonly string[];
   activityCatalogFailure?: boolean;
   packageChildren?: BrowserPackageChildrenInspection;
+  libraryIdentities?: readonly BrowserPackageLibraryIdentity[];
+  unloadedLibraries?: readonly BrowserAssemblySurface[];
+  deferLibraryIdentities?: boolean;
 }
 
 type LibraryUploadFixture = "available" | "rejected" | "deferred";
@@ -1405,13 +1409,16 @@ async function installFacades(
         return { summary: "Runs the widget.", returns: null, parameters: {}, exceptions: [] };
       }
       export async function queryLibraryApi(id, version, framework, asset) {
+        document.documentElement.dataset.libraryApiRequest = asset;
         document.documentElement.dataset.libraryApiAttempts =
           String(++libraryApiAttempts);
         if (diagnosticsOptions.libraryApiFailure) {
           throw new Error("Library API inspection failed.");
         }
         const surface = surfaceFor(id, version, framework);
-        const selected = surface.assemblies.find(item => item.id === asset);
+        const selected = surface.assemblies.find(item => item.id === asset)
+          ?? ${JSON.stringify(packageLoading.unloadedLibraries ?? [])}
+            .find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         const types = surface.types.filter(type => type.assemblyId === asset);
         const typeKinds = [...new Set(types.map(type => type.kindFacetId))].map((id, index) => ({
@@ -1524,6 +1531,21 @@ async function installFacades(
           isPlatformSearchEligible: claims[name]?.[2] ?? false
         }));
       }
+      let packageLibraryIdentityRequestCount = 0;
+      export async function queryPackageLibraryIdentities(id, version, framework, runtimeIdentifier) {
+        const attempt = ++packageLibraryIdentityRequestCount;
+        document.documentElement.dataset.packageLibraryIdentityRequestCount = String(attempt);
+        document.documentElement.dataset.packageLibraryIdentitiesRequest =
+          JSON.stringify([id, version, framework, runtimeIdentifier]);
+        const options = ${JSON.stringify(packageLoading)};
+        if (options.deferLibraryIdentities)
+          await new Promise(resolve => document.addEventListener(
+            "fixture-library-identities-ready:" + attempt, resolve, { once: true }));
+        document.documentElement.dataset.packageLibraryIdentitiesCompleted = String(attempt);
+        return options.libraryIdentities ?? surfaceFor(id, version, framework).assemblies.map(
+          ({ id, name, version, culture, publicKeyToken }) =>
+            ({ id, name, version, culture, publicKeyToken }));
+      }
       export async function queryLibraryReferences(id, version, framework, asset) {
         document.documentElement.dataset.referenceRequest = asset;
         const surface = surfaceFor(id, version, framework);
@@ -1580,6 +1602,12 @@ async function installFacades(
         document.documentElement.dataset.referenceSupplierRequest =
           JSON.stringify([id, version, framework, asset]);
         const scenario = ${JSON.stringify(references)};
+        if (scenario === "workspace-library"
+          && ${JSON.stringify(packageLoading.libraryIdentities !== undefined)}) {
+          await new Promise(resolve => document.addEventListener(
+            "fixture-reference-suppliers-ready", resolve, { once: true }));
+          return [];
+        }
         if (scenario === "ecosystem-icons" && asset === "asset:core") {
           await new Promise(resolve => document.addEventListener(
             "fixture-reference-suppliers-ready", resolve, { once: true }));
@@ -1612,13 +1640,37 @@ async function installFacades(
     library: `
       const uploadMode = ${JSON.stringify(libraryUpload)};
       const uploadInspection = ${JSON.stringify(uploadInspection)};
+      const diagnosticsOptions = ${JSON.stringify(diagnostics)};
+      let libraryApiAttempts = 0;
       export async function inspectLibrary(request) {
         document.documentElement.dataset.libraryInspectionRequest =
           JSON.stringify(request);
+        const facts = request.plan.facts === true;
+        if (facts) {
+          document.documentElement.dataset.libraryApiAttempts =
+            String(++libraryApiAttempts);
+          if (diagnosticsOptions.libraryApiFailure) {
+            throw new Error("Library facts inspection failed.");
+          }
+        }
         return {
           outcome: "Available",
           detail: null,
           assembly: null,
+          image: facts ? {
+            imageBytes: 6144,
+            targetFramework: ".NETCoreApp,Version=v10.0",
+            compilation: "CoreCLR",
+            architecture: "AnyCPU",
+            strongNameSigned: true,
+            reproducible: "Yes",
+          } : null,
+          description: facts ? {
+            informationalVersion: null,
+            company: "Example Corporation",
+            product: null,
+            copyright: null,
+          } : null,
           enablements: {
             outcome: "Available",
             role: "implementation-assembly",
@@ -1629,7 +1681,14 @@ async function installFacades(
               { id: "memory-safety-v2", kind: "not-enabled", label: "Memory Safety v2", reason: null },
             ],
           },
-          diagnostics: [],
+          diagnostics: facts && diagnosticsOptions.libraryApiIncomplete
+            ? [{
+              code: "LibraryInspection",
+              severity: "Warning",
+              summary: "TypeDefinitions: BadImageFormat: invalid row",
+              correspondence: null,
+            }]
+            : [],
         };
       }
       export async function openUploadedLibrary(declaredName, content) {
@@ -2288,11 +2347,21 @@ async function installFacades(
         document.documentElement.dataset.memberFactsRequest = JSON.stringify(args);
         return ${JSON.stringify(memberFactsFixture())};
       }
+      export async function queryPackageUnsafeCodeTypes(id, version, framework, asset) {
+        // The Library's Types record as the library scope beside the census
+        // scopes, so a spec can check which breadth a view asked for.
+        const requests = JSON.parse(document.documentElement.dataset.unsafeMembersRequests || "[]");
+        requests.push({ scope: "library", typeIdentity: "", stableSelector: "" });
+        document.documentElement.dataset.unsafeMembersRequests = JSON.stringify(requests);
+        const selected = surfaceFor(id).assemblies.find(item => item.id === asset);
+        const type = surfaceFor(id).types.find(item => item.assemblyId === selected.id);
+        return { outcome: "available", assembly: selected.name + ".dll", types: [{ type: type.definitionId, state: "unsafe", typeId: type.definitionId, declaringType: type }], limitations: [], inspectionError: null };
+      }
       export async function queryPackageUnsafeMembers(id, version, framework, asset, typeIdentity, stableSelector) {
         // Each request records its census scope, so a spec can check which
         // breadth a view asked for.
         const requests = JSON.parse(document.documentElement.dataset.unsafeMembersRequests || "[]");
-        requests.push({ scope: stableSelector ? "member" : typeIdentity ? "type" : "library", typeIdentity, stableSelector });
+        requests.push({ scope: stableSelector ? "member" : "type", typeIdentity, stableSelector });
         document.documentElement.dataset.unsafeMembersRequests = JSON.stringify(requests);
         const selected = surfaceFor(id).assemblies.find(item => item.id === asset);
         const type = surfaceFor(id).types.find(item => item.assemblyId === selected.id);
@@ -3281,6 +3350,69 @@ async function installFacades(
         const selected = surface.assemblies.find(item => item.id === asset);
         if (!selected) throw new Error("Unknown library: " + asset);
         return performanceFor(surface, selected, version, framework, asset);
+      }
+      // Package Library Performance streams through the Worker (#9752): one
+      // JSON Item event per member, then a version-1 terminal result whose
+      // summary is the single-call result without its members. A query
+      // failure settles as Failed, as the managed operation reports it.
+      const libraryPerformanceOperations = new Map();
+      export async function queryPackagePerformanceStreaming(
+        operationId, id, version, framework, asset, eventSink
+      ) {
+        document.documentElement.dataset.analysisRequest = asset;
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        const terminal = fields => ({
+          version: 1,
+          summary: null,
+          failureKind: null,
+          error: null,
+          diagnostic: null,
+          reason: null,
+          ...fields,
+        });
+        libraryPerformanceOperations.set(operationId, null);
+        try {
+          let performance;
+          try {
+            performance = await performanceFor(
+              surface, selected, version, framework, asset);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return terminal({
+              kind: "Failed",
+              failureKind: "Unexpected",
+              error: message,
+              diagnostic: message,
+            });
+          }
+          const canceled = libraryPerformanceOperations.get(operationId);
+          if (canceled) return terminal({ kind: "Canceled", reason: canceled });
+          const { members, ...summary } = performance;
+          for (const item of members) {
+            eventSink.event = JSON.stringify({ kind: "Item", item });
+          }
+          return terminal({
+            kind: "Succeeded",
+            summary: {
+              syncCallsInAsync: [],
+              syncCallsInAsyncCount: null,
+              ...summary,
+            },
+          });
+        } finally {
+          libraryPerformanceOperations.delete(operationId);
+        }
+      }
+      export function cancelLibraryPerformanceAnalysis(operationId, reason) {
+        if (!libraryPerformanceOperations.has(operationId)) {
+          return { kind: "NotActive", reason: null };
+        }
+        const requested = libraryPerformanceOperations.get(operationId);
+        if (requested) return { kind: "AlreadyRequested", reason: requested };
+        libraryPerformanceOperations.set(operationId, reason);
+        return { kind: "Requested", reason };
       }
       export async function queryPlatformPerformance(framework, version, file, pack) {
         document.documentElement.dataset.platformAnalysisRequest = file + ":" + pack;
@@ -4345,6 +4477,14 @@ async function installFacades(
               role: "TypeApi",
             },
             {
+              id: "type.analysis",
+              kind: "Type",
+              title: "Analysis",
+              summary: "Binary-derived analysis for the active Type.",
+              order: 250,
+              role: null,
+            },
+            {
               id: "type.metadata",
               kind: "Type",
               title: "Metadata",
@@ -4499,6 +4639,15 @@ async function installFacades(
           }
         }
         return { succeeded: true, sources: workspaceSources, failure: null };
+      }
+      // The engine upgrades only a format-1 packet that pins one Runtime
+      // Library with the Overview lens (CompleteRestorationPreparation.
+      // UpgradeLegacyPlatformPacket). These fixtures' legacy Platform packets
+      // select no Library, so the real probe refuses them and restoration
+      // keeps its legacy path; package-adoption.spec.ts gates the upgrade
+      // against the real engine.
+      export function canUpgradeLegacyPlatformWorkspace() {
+        return false;
       }
       export async function prepareRetainedWorkspaceDefinition(
         retainedDefinitionId,
@@ -4991,8 +5140,8 @@ interface UnsafeMembersRequest {
   stableSelector: string;
 }
 
-// The census scopes the unsafe members facade received since this document
-// loaded.
+// The scopes the unsafe facades received since this document loaded: the
+// Library's Types, and each Type or Member census.
 async function unsafeMembersRequests(page: Page): Promise<UnsafeMembersRequest[]> {
   const recorded = await page.evaluate(() =>
     document.documentElement.dataset.unsafeMembersRequests ?? "[]");

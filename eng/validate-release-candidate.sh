@@ -15,6 +15,9 @@ expected_sha=${5:-}
 expected_artifact_id=${6:-}
 expected_digest=${7:-}
 expected_concerns_accepted=${8:-}
+ship_only=${SHIP_ONLY:-false}
+expected_ship_only=${EXPECTED_SHIP_ONLY:-}
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 
 if [[ ! "$candidate_run_id" =~ ^[1-9][0-9]*$ ]]; then
   echo "candidate run ID must be a positive decimal run ID." >&2
@@ -27,6 +30,15 @@ fi
 if [ "$accept_certification_concerns" != true ] &&
    [ "$accept_certification_concerns" != false ]; then
   echo "accept-certification-concerns must be true or false." >&2
+  exit 1
+fi
+if [ "$ship_only" != true ] && [ "$ship_only" != false ]; then
+  echo "SHIP_ONLY must be true or false." >&2
+  exit 1
+fi
+if [ -n "$expected_ship_only" ] &&
+   [ "$expected_ship_only" != true ] && [ "$expected_ship_only" != false ]; then
+  echo "EXPECTED_SHIP_ONLY must be true or false." >&2
   exit 1
 fi
 if [ -n "$expected_sha" ] && [[ ! "$expected_sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
@@ -83,7 +95,7 @@ gh api \
   "repos/$GITHUB_REPOSITORY/commits/$candidate_sha/check-runs" \
   > "$checks_json"
 
-dotnet run eng/validate-release-candidate.cs -- \
+dotnet run "$script_dir/validate-release-candidate.cs" -- \
   --run "$run_json" \
   --jobs "$jobs_json" \
   --artifacts "$artifacts_json" \
@@ -91,6 +103,7 @@ dotnet run eng/validate-release-candidate.cs -- \
   --repository "$GITHUB_REPOSITORY" \
   --expected-attempt "$candidate_attempt" \
   --accept-certification-concerns "$accept_certification_concerns" \
+  --ship-only "$ship_only" \
   --github-output "$validator_output"
 
 read_output() {
@@ -112,6 +125,7 @@ resolved_attempt=$(read_output run_attempt)
 resolved_artifact_id=$(read_output artifact_id)
 resolved_digest=$(read_output artifact_digest)
 resolved_concerns_accepted=$(read_output concerns_accepted)
+resolved_ship_only=$(read_output ship_only)
 
 if [ "$resolved_attempt" != "$candidate_attempt" ]; then
   echo "validated attempt $resolved_attempt does not match selected attempt $candidate_attempt." >&2
@@ -133,6 +147,11 @@ fi
 if [ -n "$expected_concerns_accepted" ] &&
    [ "$resolved_concerns_accepted" != "$expected_concerns_accepted" ]; then
   echo "revalidated concern acceptance $resolved_concerns_accepted does not match $expected_concerns_accepted." >&2
+  exit 1
+fi
+
+if [ -n "$expected_ship_only" ] && [ "$resolved_ship_only" != "$expected_ship_only" ]; then
+  echo "revalidated ship-only override $resolved_ship_only does not match $expected_ship_only." >&2
   exit 1
 fi
 

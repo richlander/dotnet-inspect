@@ -760,6 +760,7 @@ public sealed class PackageSourceOperationResult<T>
             && typeof(T) != typeof(NuGetCatalogPage)
             && typeof(T) != typeof(NuGetCatalogPackageReceipt)
             && typeof(T) != typeof(PackageVersionResult)
+            && typeof(T) != typeof(PackageVersionListingSnapshot)
             && typeof(T) != typeof(PackageSourceManifest)
             && typeof(T) != typeof(PackageSourcePayload))
         {
@@ -1069,6 +1070,24 @@ public sealed partial class PackageSourceResultFactory
         ValidateManifest(value, requestedCoordinate);
         return Succeeded(value);
     }
+
+    internal PackageSourceOperationResult<PackageVersionListingSnapshot>
+        SucceededVersionListingSnapshot(
+            PackageVersionListingSnapshot value,
+            NuGetOperationDeadline operation)
+    {
+        operation.ThrowIfExpired();
+        ValidateVersions(value.VersionIdentities, operation);
+        operation.ThrowIfExpired();
+        return Succeeded(value);
+    }
+
+    internal PackageSourceOperationResult<PackageVersionListingSnapshot>
+        FailedVersionListingSnapshot(PackageSourceFailureKind kind) =>
+        Failed<PackageVersionListingSnapshot>(
+            PackageSourceCapabilities.VersionEnumeration,
+            coordinate: null,
+            ValidateFailureKind(kind, allowNotFound: false));
 
     public PackageSourceOperationResult<PackageSourcePayload> SucceededPackage(
         PackageSourceCoordinate requestedCoordinate,
@@ -1490,6 +1509,21 @@ public sealed partial class PackageSourceResultFactory
 
 internal static class PackageSourceOperation
 {
+    public static Task<PackageSourceOperationResult<PackageVersionListingSnapshot>>
+        CaptureVersionListingSnapshotAsync(
+            PackageSourceResultFactory factory,
+            Func<Task<PackageVersionListingSnapshot>> operation,
+            CancellationToken cancellationToken,
+            NuGetOperationContext? operationContext,
+            NuGetOperationDeadline operationDeadline) =>
+        CaptureAsync(
+            operation,
+            value => factory.SucceededVersionListingSnapshot(value, operationDeadline),
+            factory.FailedVersionListingSnapshot,
+            allowNotFound: false,
+            cancellationToken,
+            operationContext);
+
     public static Task<PackageSourceOperationResult<PackageSearchResult>>
         CaptureSearchAsync(
             PackageSourceResultFactory factory,

@@ -58,6 +58,7 @@ class FakeRoot {
 function recordingActions(calls: string[]): LibraryControlBindingActions {
   return {
     onLibraryApiRetry: () => calls.push("library-api-retry"),
+    onLibraryTypesOpen: () => calls.push("library-types"),
     onLibraryChipSelect: value => calls.push(`library-chip:${value}`),
     onLibraryJump: value => calls.push(`library-jump:${value}`),
     onPlatformLibrarySelect: (name, pack) =>
@@ -141,4 +142,15 @@ test("library control binding tolerates an inactive surface", () => {
   assert.doesNotThrow(() => bindLibraryControls(
     fakeDom.parentNode(new FakeRoot()),
     recordingActions([])));
+});
+
+test("Library Overview opens its Types only on activation", () => {
+  const root = new FakeRoot();
+  const types = new FakeElement();
+  root.addAll("[data-library-types]", types);
+  const calls: string[] = [];
+  bindLibraryControls(fakeDom.parentNode(root), recordingActions(calls));
+  assert.deepEqual(calls, []);
+  types.dispatch("click");
+  assert.deepEqual(calls, ["library-types"]);
 });

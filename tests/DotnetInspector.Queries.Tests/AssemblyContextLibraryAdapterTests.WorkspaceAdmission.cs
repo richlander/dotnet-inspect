@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+using System.Text.Json;
 using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Platforms;
@@ -10,6 +12,479 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed partial class AssemblyContextLibraryAdapterTests
 {
+    sealed record SourceFacetDiagnostic : IViewFacetDiagnosticEvidence;
+
+    [Fact]
+    public async Task WorkspaceAdmission_NavigatesExactLibraryAndDefinitionWithoutPackage()
+    {
+        AssemblySource source = AssemblySource.FromPathlessRuntimeImage();
+        await using var workspace = new InspectionWorkspace();
+        await using var foreign = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [new AssemblyContextParticipant(source.Assembly, new TestBindingPolicy())]);
+        AssemblyContextParticipant participant = Assert.Single(group.Participants);
+        var completed = Assert.IsType<AssemblyContextLibraryAdapterResult.Completed>(
+            await AssemblyContextLibraryAdapter.MaterializeAsync(
+                group, participant, AssemblyContextLibraryRole.ApiOnly,
+                Limits(source.Bytes.Length),
+                cancellationToken: TestContext.Current.CancellationToken));
+        WorkspaceLibraryAdmissionReceipt receipt =
+            Assert.IsType<WorkspaceLibraryAdmissionOutcome.Accepted>(
+                await workspace.AdmitLibraryBatchAsync(
+                    CurrentRegistrations(workspace), completed.Artifacts,
+                    [completed.Owner])).Receipt;
+        WorkspaceLibraryOccurrence occurrence = Assert.Single(receipt.Occurrences);
+        using LibraryOperationLease lease =
+            Assert.IsType<WorkspaceLibraryOperationIssueOutcome.Issued>(
+                workspace.IssueLibraryOperation(occurrence)).Lease;
+        var inventory = Assert.IsType<LibraryTypeDeclarationInventoryInspectionOutcome.Completed>(
+            LibraryTypeDeclarationInventoryInspection.Execute(
+                new(occurrence.Library,
+                    new(source.Bytes.Length, 100_000, 1_000_000, 10_000_000)),
+                lease, TestContext.Current.CancellationToken));
+        AssemblyTypeDeclaration jsonElement = Assert.Single(
+            inventory.Correspondence.Inventory.Declarations,
+            row => row.Kind == AssemblyTypeDeclarationKind.Definition
+                && row.Name.ToMetadataFullName() == typeof(JsonElement).FullName);
+        WorkspaceScopeSnapshot scope =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        NavigationAdmittedLibraryEvaluation evaluation = new(
+            receipt, occurrence, inventory);
+        StructuralSubjectIdentity.WorkspaceSubject root =
+            StructuralSubjectIdentity.ForWorkspace(workspace.Identity);
+        StructuralSubjectIdentity.AdmittedLibrarySubject library =
+            StructuralSubjectIdentity.ForAdmittedLibrary(root, occurrence);
+        StructuralSubjectIdentity.AdmittedTypeSubject type =
+            StructuralSubjectIdentity.ForAdmittedType(library, jsonElement.Name);
+
+        NavigationWorkspaceSnapshot unprepared =
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new() { Scope = scope, AdmittedLibrary = new(receipt, occurrence) },
+                registry, NavigationSnapshotTestData.AllAvailable(registry));
+        Assert.Equal(library, unprepared.ActiveSubject);
+        Assert.Null(unprepared.AdmittedInventory);
+        Assert.Empty(unprepared.AdmittedTypes);
+        Assert.Equal(NavigationDescriptorState.Unavailable,
+            unprepared.Hierarchy.Single(row =>
+                row.Kind == StructuralSubjectKind.Type).State);
+        NavigationRestorationPreparationResult.Prepared libraryOnly =
+            Assert.IsType<NavigationRestorationPreparationResult.Prepared>(
+                NavigationTransitions.PrepareRestoration(
+                    workspace.Identity,
+                    new(scope, Package: null, (_, _) =>
+                        NavigationSnapshotTestData.AllAvailable(registry))
+                    {
+                        AdmittedLibrary = new(receipt, occurrence),
+                    },
+                    registry, new()));
+        Assert.Equal(library,
+            libraryOnly.Initialization.State.CurrentSnapshot.ActiveSubject);
+        Assert.Null(libraryOnly.Initialization.State.CurrentSnapshot.AdmittedInventory);
+        Assert.True(NavigationTransitions.ValidateAuthority(
+            libraryOnly.Initialization.State,
+            libraryOnly.Initialization.Result.Consumer.Authority));
+
+        NavigationWorkspaceSnapshot snapshot =
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new() { Scope = scope, AdmittedLibrary = evaluation, ActiveSubject = type },
+                registry, NavigationSnapshotTestData.AllAvailable(registry));
+
+        Assert.Equal(type, snapshot.ActiveSubject);
+        Assert.Equal(library, snapshot.AdmittedContext!.Library);
+        Assert.Equal(type, snapshot.AdmittedContext.Type);
+        Assert.Null(snapshot.ActiveOccurrence);
+        Assert.Null(snapshot.RetainedContext);
+        Assert.Null(snapshot.Inventory);
+        Assert.Empty(snapshot.Types);
+        Assert.Contains(snapshot.AdmittedTypes, row => row.Subject == type && row.IsActive);
+        Assert.Null(snapshot.Hierarchy.Single(row =>
+            row.Kind == StructuralSubjectKind.Package).Subject);
+        Assert.Equal(NavigationDescriptorState.Unavailable,
+            snapshot.Hierarchy.Single(row =>
+                row.Kind == StructuralSubjectKind.Package).State);
+        Assert.Equal(type, snapshot.LensOutcome.Basis.Subject);
+        Assert.Contains(snapshot.Lenses, row => row.IsEffective);
+        var projection = new NavigationConsumerProjection(
+            new("source", 0,
+                ImmutableDictionary<StructuralSubjectIdentity, string>.Empty,
+                ImmutableDictionary<NavigationLensIdentity, string>.Empty))
+            .Build(snapshot, "source").Snapshot;
+        Assert.Equal(projection.Workspace.Id,
+            projection.Libraries.Single().Navigation.Subject!.Parent);
+        Assert.Equal(projection.Libraries.Single().Navigation.Subject!.Id,
+            projection.Types.Single(row =>
+                row.Navigation.Subject!.Label == typeof(JsonElement).FullName)
+                .Navigation.Subject!.Parent);
+        Assert.Null(projection.Libraries.Single().Navigation.Action);
+        Assert.Null(projection.Types.Single(row =>
+            row.Navigation.Subject!.Label == typeof(JsonElement).FullName)
+            .Navigation.Action);
+        var exactLens = new NavigationLensIdentity(
+            type, new ViewFacetId("type.api"));
+        var restoration = new NavigationInitialization(
+            type, Lens: exactLens)
+        {
+            AdmittedContext = new(library, type),
+        };
+        var facts = new NavigationEvaluationFacts(
+            scope, Package: null, (_, _) =>
+                NavigationSnapshotTestData.AllAvailable(registry))
+        {
+            AdmittedLibrary = evaluation,
+        };
+        NavigationRestorationPreparationResult.Prepared prepared =
+            Assert.IsType<NavigationRestorationPreparationResult.Prepared>(
+                NavigationTransitions.PrepareRestoration(
+                    workspace.Identity, facts, registry, restoration));
+        NavigationOperationInitialization initialized = prepared.Initialization;
+        NavigationWorkspaceSnapshot retained = initialized.State.CurrentSnapshot;
+        Assert.Equal(type, retained.ActiveSubject);
+        Assert.Same(occurrence, retained.AdmittedEvaluation!.Occurrence);
+        Assert.Same(inventory, retained.AdmittedInventory);
+        Assert.Equal(type, retained.AdmittedContext!.Type);
+        Assert.Contains(retained.AdmittedTypes, row => row.Subject == type);
+        Assert.Equal(exactLens, retained.LensOutcome.EffectiveLens);
+        Assert.Equal(NavigationOutcomeKind.Applied,
+            initialized.Result.Consumer.Outcome.Kind);
+        Assert.Equal(initialized.Result.Consumer.Authority,
+            initialized.Result.LensResolution!.Authority);
+        Assert.True(NavigationTransitions.ValidateAuthority(
+            initialized.State, initialized.Result.Consumer.Authority));
+        Assert.Equal(
+            initialized.State.Snapshot.Libraries.Single().Navigation.Subject!.Id,
+            initialized.State.Snapshot.Types.Single(row =>
+                row.Navigation.Subject!.Label == typeof(JsonElement).FullName)
+                .Navigation.Subject!.Parent);
+        Assert.Null(initialized.State.Snapshot.Libraries.Single().Navigation.Action);
+        Assert.All(initialized.State.Snapshot.Types,
+            row => Assert.Null(row.Navigation.Action));
+        Assert.All(initialized.State.Snapshot.Lenses,
+            row => Assert.Null(row.Action));
+        NavigationEffectAuthority authority =
+            Assert.IsType<NavigationEffectAuthority>(
+                initialized.Result.Consumer.Authority);
+        NavigationState posted = NavigationTransitions.RecordConsumerPosting(
+            initialized.State, authority).State;
+        NavigationState acknowledged = NavigationTransitions.Acknowledge(
+            posted, authority).State;
+        NavigationTransition queued =
+            NavigationTransitions.QueueMaintenance(acknowledged);
+        NavigationTransition begun = NavigationTransitions.Advance(queued.State);
+        NavigationEvaluationResult evaluationResult =
+            NavigationTransitions.Evaluate(
+                begun.Work!, new NavigationPreparation.Ready(facts), registry);
+        NavigationTransition maintenance = NavigationTransitions.Complete(
+            begun.State, begun.Work!, evaluationResult);
+        Assert.Equal(NavigationOutcomeKind.Unavailable,
+            maintenance.Result!.Consumer.Outcome.Kind);
+        Assert.Same(retained, maintenance.State.CurrentSnapshot);
+        NavigationRestorationPreparationResult.Prepared inferred =
+            Assert.IsType<NavigationRestorationPreparationResult.Prepared>(
+                NavigationTransitions.PrepareRestoration(
+                    workspace.Identity, facts, registry,
+                    restoration with { AdmittedContext = null }));
+        Assert.Equal(type, inferred.Initialization.State.CurrentSnapshot.ActiveSubject);
+        Assert.Equal(library, inferred.Initialization.State.CurrentSnapshot
+            .AdmittedContext!.Library);
+        Assert.IsType<NavigationRestorationPreparationResult.Prepared>(
+            NavigationTransitions.PrepareRestoration(
+                workspace.Identity, facts, registry, new(library)));
+        NavigationRestorationPreparationResult.Prepared retainedAtRoot =
+            Assert.IsType<NavigationRestorationPreparationResult.Prepared>(
+                NavigationTransitions.PrepareRestoration(
+                    workspace.Identity, facts, registry,
+                    new NavigationInitialization(root)
+                    {
+                        AdmittedContext = new(library, type),
+                    }));
+        Assert.Equal(root,
+            retainedAtRoot.Initialization.State.CurrentSnapshot.ActiveSubject);
+        Assert.Equal(type,
+            retainedAtRoot.Initialization.State.CurrentSnapshot.AdmittedContext!.Type);
+        Assert.True(retainedAtRoot.Initialization.State.Snapshot.Types.Single(
+            row => row.Navigation.Subject!.Label == typeof(JsonElement).FullName)
+            .Navigation.IsRetained);
+        Assert.Empty(retainedAtRoot.Initialization.State.Data.Actions);
+
+        foreach (bool failed in new[] { false, true })
+        {
+            ViewFacetAvailabilitySnapshot unavailableFacts = new(
+                registry.Descriptors.Select(descriptor =>
+                    new ViewFacetAvailabilityFact(descriptor.Id,
+                        descriptor.Id == exactLens.Facet
+                            ? failed
+                                ? new ViewFacetAvailability.Failed(
+                                    "Type API failed.", new SourceFacetDiagnostic())
+                                : new ViewFacetAvailability.Unavailable(
+                                    ViewFacetUnavailableReason.CapabilityAbsent(
+                                        "Type API unavailable."))
+                            : ViewFacetAvailability.Available.Instance)));
+            var limited = facts with
+            {
+                Availability = (_, _) => unavailableFacts,
+            };
+            NavigationRestorationPreparationResult.Prepared nonEffective =
+                Assert.IsType<NavigationRestorationPreparationResult.Prepared>(
+                    NavigationTransitions.PrepareRestoration(
+                        workspace.Identity, limited, registry, restoration));
+            NavigationWorkspaceSnapshot result =
+                nonEffective.Initialization.State.CurrentSnapshot;
+            var basis = Assert.IsType<NavigationLensEvaluationBasis.ExactRequest>(
+                result.LensOutcome.Basis);
+            Assert.Equal(exactLens, basis.Request);
+            Assert.Null(result.LensOutcome.EffectiveLens);
+            Assert.Equal(failed ? NavigationOutcomeKind.Failed
+                : NavigationOutcomeKind.Unavailable,
+                nonEffective.Initialization.Result.Consumer.Outcome.Kind);
+            Assert.Equal(nonEffective.Initialization.Result.Consumer.Authority,
+                nonEffective.Initialization.Result.LensResolution!.Authority);
+        }
+
+        MetadataTypeDefinitionName missingName =
+            ((MetadataTypeDefinitionNameResult.Valid)
+                MetadataTypeDefinitionName.Create(
+                    "System.Text.Json", ["NotAnActualDefinition"])).Name;
+        Assert.Throws<ArgumentException>(() =>
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new() { Scope = scope, AdmittedLibrary = evaluation,
+                    ActiveSubject = StructuralSubjectIdentity.ForAdmittedType(
+                        library, missingName) },
+                registry, NavigationSnapshotTestData.AllAvailable(registry)));
+
+        Assert.Throws<ArgumentException>(() =>
+            StructuralSubjectIdentity.ForAdmittedLibrary(
+                StructuralSubjectIdentity.ForWorkspace(foreign.Identity),
+                occurrence));
+        WorkspaceScopeSnapshot foreignScope =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await foreign.GetScopeSnapshotAsync()).Snapshot;
+        Assert.IsType<NavigationRestorationPreparationResult.Rejected>(
+            NavigationTransitions.PrepareRestoration(
+                foreign.Identity,
+                facts with { Scope = foreignScope },
+                registry, restoration));
+        Assert.Throws<ArgumentException>(() =>
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new() { Scope = foreignScope, AdmittedLibrary = evaluation },
+                registry, NavigationSnapshotTestData.AllAvailable(registry)));
+    }
+
+    [Fact]
+    public async Task WorkspaceAdmission_EqualNamesRemainDistinctAndIncompleteInventoryCannotSelectType()
+    {
+        AssemblySource source = AssemblySource.FromPathlessRuntimeImage();
+        await using var workspace = new InspectionWorkspace();
+        using AssemblyContextGroup group = workspace.CreateAssemblyContextGroup(
+            [new AssemblyContextParticipant(source.Assembly, new TestBindingPolicy())]);
+        AssemblyContextParticipant participant = Assert.Single(group.Participants);
+        var completed = Assert.IsType<AssemblyContextLibraryAdapterResult.Completed>(
+            await AssemblyContextLibraryAdapter.MaterializeAsync(
+                group, participant, AssemblyContextLibraryRole.ApiOnly,
+                Limits(source.Bytes.Length),
+                cancellationToken: TestContext.Current.CancellationToken));
+        LibraryReference first = completed.Owner.Reference;
+        var platformSource = new ExactLibrarySourceCoordinate.Platform(
+            new PlatformLibraryPopulationDeclaration(PlatformFamily.DotNetRuntime),
+            first.AssemblyCorrespondence.ApiIdentity);
+        LibraryReference second = LibraryReference.CreateFromSource(
+            platformSource,
+            new LibraryAssemblyCorrespondence(
+                first.ApiAssembly.ArtifactReference,
+                first.AssemblyCorrespondence.ApiIdentity,
+                first.ApiAssembly.ArtifactReference,
+                first.AssemblyCorrespondence.ApiIdentity));
+        ArtifactQueryAuthorization authorization =
+            completed.Artifacts.CreateQueryAuthorization();
+        using ArtifactQueryLease query =
+            completed.Artifacts.IssueLease(authorization);
+        var secondOwner = new LibraryContentOwner(second,
+            [completed.Artifacts.IssueContentLease(
+                first.ApiAssembly.ArtifactReference, query)]);
+        WorkspaceLibraryAdmissionReceipt receipt =
+            Assert.IsType<WorkspaceLibraryAdmissionOutcome.Accepted>(
+                await workspace.AdmitLibraryBatchAsync(
+                    CurrentRegistrations(workspace), completed.Artifacts,
+                    [completed.Owner, secondOwner])).Receipt;
+        WorkspaceLibraryOccurrence left = receipt.Occurrences[0];
+        WorkspaceLibraryOccurrence right = receipt.Occurrences[1];
+        StructuralSubjectIdentity.WorkspaceSubject root =
+            StructuralSubjectIdentity.ForWorkspace(workspace.Identity);
+        StructuralSubjectIdentity.AdmittedLibrarySubject leftLibrary =
+            StructuralSubjectIdentity.ForAdmittedLibrary(root, left);
+        StructuralSubjectIdentity.AdmittedLibrarySubject rightLibrary =
+            StructuralSubjectIdentity.ForAdmittedLibrary(root, right);
+        MetadataTypeDefinitionName name =
+            ((MetadataTypeDefinitionNameResult.Valid)
+                MetadataTypeDefinitionName.Create("System.Text.Json", ["JsonElement"]))
+            .Name;
+        StructuralSubjectIdentity.AdmittedTypeSubject leftType =
+            StructuralSubjectIdentity.ForAdmittedType(leftLibrary, name);
+        StructuralSubjectIdentity.AdmittedTypeSubject rightType =
+            StructuralSubjectIdentity.ForAdmittedType(rightLibrary, name);
+        Assert.NotEqual(leftLibrary, rightLibrary);
+        Assert.NotEqual(leftType, rightType);
+        Assert.Null(leftLibrary.SourceCoordinate);
+        Assert.Same(platformSource, rightLibrary.SourceCoordinate);
+
+        using LibraryOperationLease lease =
+            Assert.IsType<WorkspaceLibraryOperationIssueOutcome.Issued>(
+                workspace.IssueLibraryOperation(left)).Lease;
+        var incomplete = Assert.IsType<LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete>(
+            LibraryTypeDeclarationInventoryInspection.Execute(
+                new(first, new(source.Bytes.Length, 0, 1_000_000, 10_000_000)),
+                lease, TestContext.Current.CancellationToken));
+        WorkspaceScopeSnapshot scope =
+            Assert.IsType<WorkspaceScopeReadResult.Available>(
+                await workspace.GetScopeSnapshotAsync()).Snapshot;
+        ViewFacetRegistry registry = InspectionViewFacetCatalog.Registry;
+        NavigationAdmittedLibraryEvaluation evaluation = new(receipt, left, incomplete);
+        NavigationWorkspaceSnapshot snapshot =
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new() { Scope = scope, AdmittedLibrary = evaluation },
+                registry, NavigationSnapshotTestData.AllAvailable(registry));
+        Assert.Same(incomplete, snapshot.AdmittedInventory);
+        Assert.Empty(snapshot.AdmittedTypes);
+        Assert.Equal(NavigationDescriptorState.Failed,
+            snapshot.Hierarchy.Single(row => row.Kind == StructuralSubjectKind.Type).State);
+        var projected = new NavigationConsumerProjection(
+            new("incomplete", 0,
+                ImmutableDictionary<StructuralSubjectIdentity, string>.Empty,
+                ImmutableDictionary<NavigationLensIdentity, string>.Empty))
+            .Build(snapshot, "incomplete").Snapshot;
+        Assert.Contains(projected.Diagnostics, diagnostic =>
+            diagnostic.Kind == NavigationDiagnosticKind.LibraryInventoryIncomplete
+            && diagnostic.Message.Contains(nameof(
+                LibraryTypeDeclarationInventoryInspectionBound.RetainedDeclarations),
+                StringComparison.Ordinal));
+        Assert.Contains(projected.Hierarchy.Single(row =>
+            row.Kind == StructuralSubjectKind.Type).Evidence,
+            diagnostic =>
+                diagnostic.Kind == NavigationDiagnosticKind.LibraryInventoryIncomplete);
+        NavigationWorkspaceSnapshot detached =
+            NavigationSnapshotDetachment.Detach(snapshot);
+        Assert.NotSame(snapshot, detached);
+        Assert.Same(incomplete, detached.AdmittedInventory);
+        Assert.Same(evaluation, detached.AdmittedEvaluation);
+        var detachedProjection = new NavigationConsumerProjection(
+            new("detached", 0,
+                ImmutableDictionary<StructuralSubjectIdentity, string>.Empty,
+                ImmutableDictionary<NavigationLensIdentity, string>.Empty))
+            .Build(detached, "detached");
+        Assert.Empty(detachedProjection.Actions);
+        Assert.Equal(projected.Diagnostics.Select(row => row.Kind),
+            detachedProjection.Snapshot.Diagnostics.Select(row => row.Kind));
+        var incompleteRequest = new NavigationInitialization(leftType)
+        {
+            AdmittedContext = new(leftLibrary, leftType),
+        };
+        var incompleteFacts = new NavigationEvaluationFacts(
+            scope, Package: null, (_, _) =>
+                NavigationSnapshotTestData.AllAvailable(registry))
+        {
+            AdmittedLibrary = evaluation,
+        };
+        NavigationRestorationPreparationResult.Failed cannotRestore =
+            Assert.IsType<NavigationRestorationPreparationResult.Failed>(
+                NavigationTransitions.PrepareRestoration(
+                    workspace.Identity, incompleteFacts, registry,
+                    incompleteRequest));
+        Assert.Equal(NavigationRestorationFailureKind.IncompleteInventory,
+            cannotRestore.Kind);
+        Assert.Same(incomplete, cannotRestore.AdmittedInventory);
+        Assert.Equal(leftType, cannotRestore.Subject);
+        Assert.IsType<NavigationRestorationPreparationResult.Rejected>(
+            NavigationTransitions.PrepareRestoration(
+                workspace.Identity, incompleteFacts, registry,
+                new NavigationInitialization(rightType)
+                {
+                    AdmittedContext = new(rightLibrary, rightType),
+                }));
+        Assert.Throws<ArgumentException>(() =>
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new() { Scope = scope, AdmittedLibrary = evaluation, ActiveSubject = leftType },
+                registry, NavigationSnapshotTestData.AllAvailable(registry)));
+        Assert.Throws<ArgumentException>(() =>
+            new NavigationAdmittedLibraryEvaluation(receipt, right, incomplete));
+
+        var firstNames = Assert.IsType<LibraryTypeDeclarationInventoryInspectionOutcome.Completed>(
+            LibraryTypeDeclarationInventoryInspection.Execute(
+                new(first, new(source.Bytes.Length, 100_000, 1_000_000, 10_000_000)),
+                lease, TestContext.Current.CancellationToken));
+        var noInventory = incompleteFacts with
+        {
+            AdmittedLibrary = new(receipt, left),
+        };
+        NavigationRestorationPreparationResult.Failed unpreparedType =
+            Assert.IsType<NavigationRestorationPreparationResult.Failed>(
+                NavigationTransitions.PrepareRestoration(
+                    workspace.Identity, noInventory, registry, incompleteRequest));
+        Assert.Equal(NavigationRestorationFailureKind.LibraryInventoryNotPrepared,
+            unpreparedType.Kind);
+        Assert.Null(unpreparedType.AdmittedInventory);
+        MetadataTypeDefinitionName missing =
+            ((MetadataTypeDefinitionNameResult.Valid)
+                MetadataTypeDefinitionName.Create(
+                    "System.Text.Json", ["NotAnActualDefinition"])).Name;
+        StructuralSubjectIdentity.AdmittedTypeSubject absent =
+            StructuralSubjectIdentity.ForAdmittedType(leftLibrary, missing);
+        NavigationRestorationPreparationResult.Unavailable missingType =
+            Assert.IsType<NavigationRestorationPreparationResult.Unavailable>(
+                NavigationTransitions.PrepareRestoration(
+                    workspace.Identity,
+                    incompleteFacts with
+                    {
+                        AdmittedLibrary = new(receipt, left, firstNames),
+                    },
+                    registry, new NavigationInitialization(absent)
+                    {
+                        AdmittedContext = new(leftLibrary, absent),
+                    }));
+        Assert.Equal(absent, missingType.Subject);
+
+        using LibraryOperationLease rightLease =
+            Assert.IsType<WorkspaceLibraryOperationIssueOutcome.Issued>(
+                workspace.IssueLibraryOperation(right)).Lease;
+        var rejectedNames = Assert.IsType<LibraryTypeDeclarationInventoryInspectionOutcome.Rejected>(
+            LibraryTypeDeclarationInventoryInspection.Execute(
+                new(first, new(source.Bytes.Length, 100_000, 1_000_000, 10_000_000)),
+                rightLease, TestContext.Current.CancellationToken));
+        NavigationRestorationPreparationResult.Failed rejectedType =
+            Assert.IsType<NavigationRestorationPreparationResult.Failed>(
+                NavigationTransitions.PrepareRestoration(
+                    workspace.Identity,
+                    incompleteFacts with
+                    {
+                        AdmittedLibrary = new(receipt, left, rejectedNames),
+                    },
+                    registry, incompleteRequest));
+        Assert.Equal(NavigationRestorationFailureKind.LibraryInventoryUnsuccessful,
+            rejectedType.Kind);
+        Assert.Same(rejectedNames, rejectedType.AdmittedInventory);
+        var rightNames = Assert.IsType<LibraryTypeDeclarationInventoryInspectionOutcome.Completed>(
+            LibraryTypeDeclarationInventoryInspection.Execute(
+                new(second, new(source.Bytes.Length, 100_000, 1_000_000, 10_000_000)),
+                rightLease, TestContext.Current.CancellationToken));
+        NavigationWorkspaceSnapshot firstSnapshot =
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new() { Scope = scope,
+                    AdmittedLibrary = new(receipt, left, firstNames),
+                    ActiveSubject = leftType },
+                registry, NavigationSnapshotTestData.AllAvailable(registry));
+        NavigationWorkspaceSnapshot secondSnapshot =
+            NavigationWorkspaceSnapshotEvaluation.Evaluate(
+                new() { Scope = scope,
+                    AdmittedLibrary = new(receipt, right, rightNames),
+                    ActiveSubject = rightType },
+                registry, NavigationSnapshotTestData.AllAvailable(registry));
+        Assert.NotEqual(firstSnapshot.ActiveSubject, secondSnapshot.ActiveSubject);
+        Assert.NotEqual(firstSnapshot.LensOutcome.EffectiveLens,
+            secondSnapshot.LensOutcome.EffectiveLens);
+        Assert.Null(secondSnapshot.Hierarchy.Single(row =>
+            row.Kind == StructuralSubjectKind.Package).Subject);
+    }
+
     [Fact]
     public async Task
         WorkspaceAdmission_OwnsOperationsAndRetiresOwnersBeforeArtifacts()

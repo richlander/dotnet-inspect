@@ -28,6 +28,11 @@ export interface TypeMetadataLoadRequest {
   type: string;
   typeIdentity: string;
   workspaceJson: string;
+  retainedPlatform?: {
+    retainedDefinitionId: string;
+    realizationId: string;
+    navigationId: string;
+  };
   isVisible(): boolean;
 }
 

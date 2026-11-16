@@ -8,7 +8,7 @@ namespace DotnetInspector.Packages;
 /// Issues package acquisition candidates from explicit source authorization
 /// and owner-issued source results.
 /// </summary>
-public sealed class PackageAcquisitionCandidateIssuer
+public sealed partial class PackageAcquisitionCandidateIssuer
 {
     private readonly object _issuer = new();
 
@@ -222,7 +222,8 @@ public sealed class PackageAcquisitionCandidateIssuer
             discovery.HasAnyCandidate,
             discovery.Candidates,
             discovery.Contract,
-            _issuer);
+            _issuer,
+            discovery.DependencyRangeConstraint);
     }
 
     private PackageVersionDiscoveryResult
@@ -312,21 +313,7 @@ public sealed class PackageAcquisitionCandidateIssuer
             foreach (PackageCandidateObservation candidate in
                      result.Candidates)
             {
-                if (!ReferenceEquals(candidate.Source, result.Source)
-                    || !candidate.Coordinate.PackageId.Equals(
-                        packageId,
-                        StringComparison.OrdinalIgnoreCase))
-                {
-                    throw new InvalidOperationException(
-                        "The package source returned version evidence for another authority or package.");
-                }
-                if (candidate.DiscoveryContract
-                    != PackageDiscoveryContract
-                        .CompleteVersionEnumeration)
-                {
-                    throw new InvalidOperationException(
-                        "Package version discovery requires complete version-enumeration observations.");
-                }
+                RequireVersionObservation(packageId, result.Source, candidate);
 
                 incompleteGalleryListingState |=
                     result.Source.TransportKind
@@ -400,6 +387,25 @@ public sealed class PackageAcquisitionCandidateIssuer
             retainedCandidates,
             contract,
             _issuer);
+    }
+
+    private static void RequireVersionObservation(
+        string packageId,
+        PackageSourceResultIdentity source,
+        PackageCandidateObservation candidate)
+    {
+        if (!ReferenceEquals(candidate.Source, source)
+            || !candidate.Coordinate.PackageId.Equals(
+                packageId, StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "The package source returned version evidence for another authority or package.");
+        }
+        if (candidate.DiscoveryContract != PackageDiscoveryContract.CompleteVersionEnumeration)
+        {
+            throw new InvalidOperationException(
+                "Package version discovery requires complete version-enumeration observations.");
+        }
     }
 
     private static void RequireAuthority(

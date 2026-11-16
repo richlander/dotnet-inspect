@@ -361,6 +361,7 @@ internal static class MemberSourceLocationCollector
                             .GetProducerIdentity(
                                 source.PackageAuthority
                                     .Source),
+                    MicrosoftSymbolServerFallback = true,
                     NuGetSourceOptions = sourceOptions,
                     Timeout = TimeSpan.FromMinutes(5),
                     Log = logger.Log,
@@ -490,7 +491,7 @@ internal static class MemberSourceLocationCollector
         IReadOnlyDictionary<ApiMember, ApiMember>
             TokenSources);
 
-    private sealed class PortablePdbPackageContentSource(
+    internal sealed class PortablePdbPackageContentSource(
         DesktopPackageSourceComposition composition,
         TemporaryPackageStoreScope stores,
         NuGetSourceOptions? sourceOptions,

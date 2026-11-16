@@ -904,6 +904,7 @@ function harness() {
     currentPlatformForwarderView: () => null,
     selectedLibrary: () => null,
     selectedLibraryRequest: () => "asset:retained-library",
+    firstLibraryScope: () => null,
     isRuntimePackId: () => false,
     loadPackage: async (
       id: string, version: string, framework: string,
@@ -2651,6 +2652,7 @@ test("mixed source publication keeps its inactive Platform visible", () => {
   const posting = {
     retainedDefinitionId: "workspace-definition-1",
     realizationId: "realization-1",
+    platforms: [{ navigationId: "platform-tab", nativeSelection: null }],
     canonicalLocation: "https://inspect.test/?w=source-mixed",
     definition: {
       activeTabId: "package-tab",

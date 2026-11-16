@@ -157,6 +157,8 @@ public static class FixtureIds
 
     public const string DecompilerCheckedArithmetic = "decompiler.checked-arithmetic";
     public const string DecompilerAuthoredRebuild = "decompiler.authored-rebuild";
+    public const string DecompilerAsyncMainCompiler = "decompiler.async-main-compiler";
+    public const string DecompilerAsyncMainRuntime = "decompiler.async-main-runtime";
     public const string DecompilerClassicAsync = "decompiler.classic-async";
     public const string DecompilerClassicAsyncArtifacts =
         "decompiler.classic-async-artifacts";
@@ -979,6 +981,20 @@ public static class FixtureCatalog
         Boundaries(FixtureBoundary.CompilerLowering),
         "decompiler", "type-identity", "compiler-axis");
 
+    public static readonly FixtureDefinition DecompilerAsyncMainCompiler = Fixture(
+        FixtureIds.DecompilerAsyncMainCompiler,
+        "ILInspector.Decompiler.Fixtures.AsyncMainCompiler",
+        "ILInspector.Decompiler.Fixtures.AsyncMainCompiler.dll",
+        Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.OutputKind),
+        "decompiler", "async-main", "compiler");
+
+    public static readonly FixtureDefinition DecompilerAsyncMainRuntime = Fixture(
+        FixtureIds.DecompilerAsyncMainRuntime,
+        "ILInspector.Decompiler.Fixtures.AsyncMainRuntime",
+        "ILInspector.Decompiler.Fixtures.AsyncMainRuntime.dll",
+        Boundaries(FixtureBoundary.CompilerLowering, FixtureBoundary.OutputKind),
+        "decompiler", "async-main", "runtime");
+
     public static readonly FixtureDefinition DecompilerClassicAsync = Fixture(
         FixtureIds.DecompilerClassicAsync,
         "ILInspector.Decompiler.Fixtures.ClassicAsync",
@@ -1367,6 +1383,8 @@ public static class FixtureCatalog
         AnalysisSpoofSystemRuntime,
         DecompilerCheckedArithmetic,
         DecompilerTypeIdentity,
+        DecompilerAsyncMainCompiler,
+        DecompilerAsyncMainRuntime,
         DecompilerClassicAsync,
         DecompilerClassicAsyncArtifacts,
         DecompilerRuntimeAsync,
@@ -1856,6 +1874,8 @@ public static class FixtureCatalog
             "ILInspector.Analysis.TopLevelClassicAsyncFixtures" => "fixtures/analysis/ILInspector.Analysis.TopLevelClassicAsyncFixtures",
             "ILInspector.Analysis.IteratorFixtures" => "fixtures/analysis/ILInspector.Analysis.IteratorFixtures",
             "ILInspector.Decompiler.Fixtures.CheckedArithmetic" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.CheckedArithmetic",
+            "ILInspector.Decompiler.Fixtures.AsyncMainCompiler" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.AsyncMainCompiler",
+            "ILInspector.Decompiler.Fixtures.AsyncMainRuntime" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.AsyncMainRuntime",
             "ILInspector.Decompiler.Fixtures.ClassicAsync" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsync",
             "ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicAsyncArtifacts",
             "ILInspector.Decompiler.Fixtures.ClassicStateMachines" => "fixtures/decompiler/ILInspector.Decompiler.Fixtures.ClassicStateMachines",

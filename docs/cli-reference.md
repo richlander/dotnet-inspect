@@ -60,8 +60,9 @@ requests use the package-backed source.
 ## Repository development SDK
 
 Published tool users can install or run `dotnet-inspect` with the commands
-above. Contributors building this repository should use .NET 11 RC1 SDK
-`11.0.100-rc.1.26425.128`.
+above. Contributors building this repository should use a stable .NET 11.0
+SDK, starting at `11.0.100`. Newer installed 11.0 feature bands and patches
+are accepted; prerelease SDKs are not.
 
 Check the selected SDK first:
 
@@ -841,6 +842,15 @@ Add `--tail` for the last N items. `--lines` explicitly selects rendered lines
 on a semantic-row command, and `--tail-lines` selects rendered lines from the
 end. Rendered-line clipping is not available with JSON document output.
 
+For package file inventories such as `-S Skills` and `-S Licenses`, items are
+file rows; the header does not consume an item.
+For the default `library` Type hierarchy, items are Types, with their
+Library and namespace context retained. Neither limit changes the output view.
+With `package -S Skills --row 2 --print -n 6`, the requested output is the
+second Skill's text, so `-n 6` selects six text lines instead. `--rows` remains
+available for explicit inventory selection, independently of text-line limits.
+Project's `-S Skills --print` uses the same text-line unit for `-n`.
+
 Useful discovery and projection patterns:
 
 ```bash
@@ -876,7 +886,10 @@ top-level catalog, or report one exact category or section in detail:
 `Formats`, and, where the owner declares them, `Shape` (`table`, `hierarchy`,
 or `text`, per [Section shapes](design/section-shapes.md)), `Cardinality`
 (`scalar` or `inventory`), and `Terminals`. Every owner declares all of them;
-`Call Graph` is a graph and declares no shape. Library `Dependency Structure`
+`Call Graph` remains a graph rather than declaring a single shape; Member
+inspection offers typed Hierarchy, Table, and Document representations, with
+a finite reference-preserving tree projection as its native output.
+Library `Dependency Structure`
 is a Table of namespace edges. A category reports the formats supported by its
 complete expansion plus the formats of each member; it never selects or drops
 members to satisfy a format. Use the result to choose an exact section before
@@ -1415,7 +1428,8 @@ Find defaults to TSV, with one stable header and unified Type and Member rows:
 `Match`, and `Ecosystem`. `Kind` is `type` or `member`; `Declaration` describes
 the class, method, property, or other declaration category. Coordinates are
 display addresses, not substitutes for the internally retained declaration
-identity. Implicit Member matches are included in TSV. `--columns` selects
+identity. Implicit Member matches are included in every Table encoding.
+`--columns` selects
 columns and `--no-header` suppresses the header.
 
 Settled Member and wildcard Type rows print progressively during source
@@ -1426,8 +1440,17 @@ retain the existing buffered selection behavior; Count emits its final scalar.
 Diagnostics stay on stderr, and already printed rows remain available if a
 later source fails.
 
-Explicit `--markdown`, table, JSONL, and plain type-search JSON retain their
-existing shapes; plain JSON remains a root result array. When a selected
+Pretty table and JSONL use the same discovery schema and selected findings as
+TSV. `--markdown` retains its Member/Type section composition. `--json` emits
+a structured Find Document with `rows`, `unmatched_patterns`, and
+`is_incomplete`; rows retain typed Type or Member facts and a `finding_kind`
+discriminator. This replaces the legacy Type-only root array and the implicit
+Member omissions in pretty table and non-Ecosystem JSONL. Row windows and
+`--compact` apply normally. Display `--columns`/`--fields` projections are not
+supported with Find Document JSON; use a Table encoding for those projections.
+Count keeps its existing Type/Member policy and remains a scalar.
+
+When a selected
 Package row feeds Type or Member inspection internally, the handoff preserves
 the selected package-relative implementation asset and compatible TFM rather
 than reopening a same-named reference assembly. Platform implementation-pack
@@ -1980,12 +2003,15 @@ declared shape's native format when no format is named, per
 prints its undecorated payload (`Source`, `Decompiled Source`,
 `IL`, `API Declarations`, `PDB Source`, `Source Diff`, `Annotated Source`, the
 overlays, and `Finding Census`). The shape decides, not a list of section
-names. `Annotated Source Document` and `Call Graph` keep their composed
-rendering: the first is a document with no bare payload, the second a graph.
-An explicit format, an environment default, `--print`, `--row`, `--tree`,
-`--count`, a projection, a shape flag, discovery, an envelope, or an analysis
-query keeps its existing behavior, and selecting several sections composes
-Markdown as before. Scalar sections (`Type Info`, `API Info`, and every Text
+names. `Annotated Source Document` keeps its composed rendering because it
+has no bare payload. A lone `member -S "Call Graph"` instead defaults to its
+shared finite tree projection, retaining cycles and shared nodes as revisit
+references. Explicit row formats use its edge Table; `--markdown` and complete
+`--json` use its Document.
+An explicit format or environment default overrides the native preference.
+Other terminals and projections retain their admitted semantics, and selecting
+several sections composes Markdown as before. Scalar sections
+(`Type Info`, `API Info`, and every Text
 payload other than `Source`) have no rows: selecting one alone with `--count`
 or `--rows` fails before acquisition and names an inventory section as the
 alternative; a bare `-n` on it is the rendered-line window. `Signature` is a
@@ -2333,9 +2359,10 @@ dotnet-inspect member System.Text.Json.JsonSerializer Serialize:1 \
   --platform System.Text.Json -S "Call Graph" --envelope
 ```
 
-This complete transport is separate from Markout lowering. Markdown,
-Mermaid, tree, table, TSV, and JSONL keep their existing presentation and row
-contracts. Complete Call Graph JSON requires the exact singleton section and
+This complete transport is separate from presentation lowering. A lone
+Call Graph selection defaults to tree; request `--markdown` for the authored
+edge-table Document. Mermaid, explicit tree, table, TSV, and JSONL retain
+their directed-edge row contracts. Complete Call Graph JSON requires the exact singleton section and
 rejects row or line windows, fields, columns, Count, payload projections, and
 competing presentation formats rather than truncating the semantic document.
 Call Graph Share is currently `nonProjectable`; a Copilot App may render the
@@ -2384,6 +2411,33 @@ source declarations emits schema 3; one with source declarations emits schema
 5. Schema 3 remains a valid inspection input but cannot encode the derived Type
 scenario; requesting Share from that input fails visibly without discarding
 the Type output.
+
+#### Inspect async source and compiled lowering
+
+Select raised C# and physical metadata independently:
+
+```bash
+dotnet-inspect member Program Main:1 --library ./AsyncExample.dll --all \
+  -S "Decompiled Source,Custom Attributes,Fidelity Causes,IL"
+```
+
+`Decompiled Source` reconstructs the logical `async`/`await` body. Its fidelity
+grade describes that body projection; it does not certify whole-type rendering
+or preservation of compiled declarations.
+
+`Custom Attributes` includes compiler attributes and decoded values, such as
+`NullableContext = 1` and a compiler state-machine metadata type name. A Type
+argument uses `type "Program+<Main>d__0"` to preserve its metadata spelling;
+this is display evidence, not a C# `typeof` expression. Unsupported values are
+explicitly unavailable.
+
+`IL` identifies the physical MethodDef and its implementation flags separately
+from custom attributes. Compiler-async shows the original builder kickoff
+followed by authenticated state-machine role bodies, each with its own physical
+MethodDef token. Runtime-async shows the `Async` flag and original
+`AsyncHelpers.Await` instructions, without a fabricated state machine.
+Whole-type raised output is available through `type Program --all` with
+`-S "Decompiled Source"` for both forms of the parameterless Task Main example.
 
 ### Compatibility and change tracking
 
@@ -2474,9 +2528,10 @@ Diff, analysis-set views, and mixed-section requests retain their existing
 routes; this adoption does not add the website Compare UI.
 
 Use `-S @Diff` to compose the `Changes`, `Analysis Diff`, and `Implementation
-Diff` views. `Annotated Source Diff`, `Complexity Context`, `Structural
-Context`, `Summary`, and `Transitions` remain exact-name sections because
-their focused semantics do not compose with those comparison views.
+Diff` views. `Annotated Source Diff`, `Changed Types`, `Changed Members`,
+`Complexity Context`, `Structural Context`, `Summary`, and `Transitions` remain
+exact-name sections because their focused semantics do not compose with those
+comparison views.
 
 `explain diff` describes these sections without acquiring a package:
 `explain diff/sections/changes` states each section's shape, formats, and
@@ -2490,6 +2545,32 @@ key, `Literal` on `Transitions`, which `--analysis string-literals` requires.
 dotnet-inspect explain diff
 dotnet-inspect explain diff/sections/changes
 dotnet-inspect diff -Q Transitions
+```
+
+`-S "Changed Types"` answers which Types have any diff: one row per Type
+whose API or Body state is `Changed` or `Indeterminate`, from
+[Finding Diff Any](design/finding-diff-any.md), with its identifier. It
+compares both axes, needs exactly one Library at each endpoint (a package
+endpoint compares its implementation assembly), and is selected by itself.
+It writes TSV by default, the document with what was compared, per-axis
+counts, and the comparison's receipt with `--json`, and a Markdown view with
+`--markdown`. `explain finding-diff-any` describes its route.
+
+```bash
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 -S "Changed Types"
+```
+
+`-S "Changed Members"` answers which Members of one Type have any diff: one
+row per Member whose API or Body state is `Changed` or `Indeterminate`, with
+its signature and the stable selector `--member` accepts, and a `Residual` row
+when the Type's own declaration or presence differs. It takes exactly one
+`--type`, the exact escaped definition name with nested Types spelled
+`Outer+Inner`, reads only that Type in each version, and otherwise follows
+`Changed Types`. `explain finding-diff-any-members` describes its route.
+
+```bash
+dotnet-inspect diff --package System.Text.Json@9.0.0..10.0.0 \
+  -S "Changed Members" --type System.Text.Json.JsonSerializerOptions
 ```
 
 `--analysis` selects which keyed Finding comparisons a pairwise diff runs.

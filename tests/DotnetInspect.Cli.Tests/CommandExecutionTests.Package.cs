@@ -22,23 +22,24 @@ namespace DotnetInspect.Cli.Tests;
 public partial class CommandExecutionTests
 {
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Package_SecondCoordinateIsRejectedBeforeAcquisition(
-        bool implicitRoute)
+    [InlineData(false, "First.Missing@1.0.0", "Second.Missing@1.0.0")]
+    [InlineData(true, "First.Missing@1.0.0", "Second.Missing@1.0.0")]
+    [InlineData(false, "System.Text.Json", "Target Frameworks")]
+    public async Task Package_SecondPositionalIsRejectedBeforeAcquisition(
+        bool implicitRoute,
+        string first,
+        string second)
     {
-        const string First = "First.Missing@1.0.0";
-        const string Second = "Second.Missing@1.0.0";
         string[] arguments = implicitRoute
-            ? [First, Second, "--versions"]
-            : ["package", First, Second];
+            ? [first, second, "--versions"]
+            : ["package", first, second];
 
         var (exit, output, error) = await RunAppAsync(arguments);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Equal(
-            $"Error: Unrecognized command or argument '{Second}'.\n",
+            $"Error: Unrecognized command or argument '{second}'.\n",
             error.ReplaceLineEndings("\n"));
     }
 
@@ -90,13 +91,26 @@ public partial class CommandExecutionTests
             category,
             mixed,
             library,
-            multiple,
         })
         {
             Assert.Equal(1, result.Exit);
             Assert.Empty(result.Output);
             Assert.Contains("--rows", result.Error, StringComparison.Ordinal);
         }
+
+        // Plural package inspection was removed (#10943): a second coordinate
+        // is surplus input, rejected before resolution, rather than a
+        // multi-package Files surface with its own window validation.
+        Assert.Equal(1, multiple.Exit);
+        Assert.Empty(multiple.Output);
+        Assert.Contains(
+            "'Package.That.Also.Must.NotResolve'",
+            multiple.Error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "not available offline",
+            multiple.Error,
+            StringComparison.Ordinal);
     }
 
     [Fact]
@@ -2444,23 +2458,6 @@ public partial class CommandExecutionTests
         {
             Directory.Delete(tempDir, recursive: true);
         }
-    }
-
-    [Fact]
-    public async Task Package_PositionalSectionNameIsRejectedAsPackageReference()
-    {
-        var (exit, output, error) = await RunAppAsync(
-            "package",
-            "System.Text.Json",
-            "Target Frameworks");
-
-        Assert.Equal(1, exit);
-        Assert.Empty(output);
-        Assert.Contains(
-            "'Target Frameworks' is not a valid package ID",
-            error);
-        Assert.Contains("-S \"Target Frameworks\"", error);
-        Assert.DoesNotContain("Configured-authority", error);
     }
 
     [Fact]

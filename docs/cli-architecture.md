@@ -48,6 +48,22 @@ The CLI consumes owner-issued facts. It must not reopen inspected content to
 recompute Metadata or Analysis truth, reconstruct typed identity from display
 text, or hide a failed producer behind an empty section.
 
+### Package target admission
+
+Package input is a Package coordinate, an exact Package reference, or a local
+`.nupkg` path. File or directory existence does not exempt a coordinate from
+Package ID validation. Invalid input fails non-zero on stderr without inspection
+content or an exception stack. Rejected `.csproj` paths name the explicit
+`project` command and the `--project` API source option.
+
+The motivating real asset is this repository's
+`src/DotnetInspect.Cli/DotnetInspect.Cli.csproj` at commit
+`25095d2fb`: passing that existing path without a command reached Package
+version selection and reported an `ArgumentException`. Durable command-entry
+tests cover existing and missing Project paths through bare and explicit
+Package invocation, plus existing non-Package files and directories. Local
+Package archive tests remain the neighboring supported-input control.
+
 ### Type target admission
 
 Ordinary `type` inspection requires a Type name or pattern, supplied
@@ -645,6 +661,30 @@ through the existing restoration lifetime. The router introduces no persistent
 controller, new Workspace query grammar, or second Navigation implementation.
 If an existing inspection owner lacks a typed execution entrance, record that
 prerequisite separately rather than rebuilding its semantics in the router.
+
+For native format-6 Platform selections, the CLI admits the exact requested
+Runtime Library through the configured Platform source and executes the saved
+`library.types` or `type.overview` view under the captured Library operation
+lease. These views consume the shared Library Name inventory and Type Overview
+document operations, respectively. Their structured Name hierarchies and
+optional exact-Member counts are not a rich `type.api` replay. A native
+selection never becomes a Package selection; Package `type.api` remains
+unchanged. Native replay admits the Name hierarchy and JSON, plus the shared
+Library Types Count terminal. Type Overview has no standalone Count terminal;
+its nested exact-Member Counts belong to the compact Overview. Other formats
+and new queries over native declaration contexts are refused before
+acquisition. Restoration owns the admitted resources until rendering completes.
+
+The motivating asset is nuget.org
+`Microsoft.NETCore.App.Runtime.linux-x64@11.0.0-rc.1.26425.128`,
+`runtimes/linux-x64/lib/net11.0/System.Text.Json.dll` (SHA-256
+`61bfbbb5104e2531474d5bc3e6cf5b596608174ee374b98e62957620dea7f870`).
+The original Platform `System.Text.Json.JsonElement` Overview link attempted
+to acquire its display identity as a Package rather than the pinned Runtime
+Library. Retain the canonical format-6 Library and Type replay as integration
+evidence against this real package, with Package replay and legacy format-1
+refusal as neighboring controls. The Runtime package is not vendored into the
+repository; the pinned source and digest make its acquisition reproducible.
 
 #### Motivating assets and adoption evidence
 

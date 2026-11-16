@@ -88,6 +88,8 @@ async function queryPackage(page: Page, unit: Unit): Promise<CallResult> {
           error: result.versionSettlement.content.failure?.reason ?? "no surface",
         };
       }
+      if (surface.totalMembers === null)
+        throw new Error("Package Member count is unavailable.");
       return {
         milliseconds: performance.now() - started,
         types: surface.types.length,

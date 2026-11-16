@@ -363,7 +363,8 @@ public sealed class StackAllocSpanPass : IIrPass
     /// <see cref="IsSideEffectFree"/> -- recursively, so a nested call's or
     /// constructor's own preceding arguments are proven too. This is the
     /// common, safe shape for the constructor call being passed directly as
-    /// a call argument (e.g. <c>Consume(new Span&lt;int&gt;(ptr, n))</c>) or
+    /// a call argument (e.g. <c>Consume(new Span&lt;int&gt;(ptr, n))</c>), the
+    /// operand of an await (evaluated before the await can suspend), or
     /// as another constructor's argument (e.g. <c>new Consumer(new
     /// Span&lt;int&gt;(ptr, n))</c>) -- moving the allocation to sit in the
     /// constructor's own position changes nothing observable, since nothing
@@ -378,6 +379,9 @@ public sealed class StackAllocSpanPass : IIrPass
     {
         if (ReferenceEquals(expression, newObject))
             return true;
+        // An await evaluates its operand before it can suspend.
+        if (expression is AwaitExpression awaited)
+            return ReachesAsOnlyPrecedingEffect(awaited.Operand, newObject);
 
         var arguments = expression switch
         {

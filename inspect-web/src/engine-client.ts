@@ -51,6 +51,7 @@ type PackageOperations =
   | "queryPlatformMemberDocumentation"
   | "queryPackage"
   | "queryPackageIcon"
+  | "queryPackageLibraryIdentities"
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "inspectPackageDependencies"
@@ -73,6 +74,8 @@ type LibraryOperations = "inspectLibrary" | "openUploadedLibrary";
 type MetadataOperations =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
+  | "cancelTypeFindingDiffAny"
+  | "queryTypeFindingDiffAny"
   | "findTypes"
   | "queryAnnotatedTypeRelations"
   | "queryLibraryApiDiff"
@@ -82,6 +85,8 @@ type MetadataOperations =
   | "queryMemberGroupDocument"
   | "queryPerformanceTypeMemberPopulation"
   | "queryTypeOverviewDocument"
+  | "queryRetainedPlatformTypeOverviewDocument"
+  | "queryRetainedPlatformMemberGroupDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
@@ -96,7 +101,8 @@ type MetadataOperations =
   | "queryPlatformHeapEntries"
   | "queryPlatformMetadata"
   | "queryPlatformMetadataTable"
-  | "queryTypeProjection";
+  | "queryTypeProjection"
+  | "queryRetainedPlatformTypeProjection";
 
 type AnalysisOperations =
   | "queryCloneCandidates"
@@ -108,6 +114,7 @@ type AnalysisOperations =
   | "queryPackageOpportunities"
   | "queryPackagePerformance"
   | "queryPackageResourceTriage"
+  | "queryPackageUnsafeCodeTypes"
   | "queryPackageUnsafeMembers"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
@@ -121,6 +128,7 @@ type AnalysisOperations =
   | "queryPlatformOpportunities"
   | "queryPlatformPerformance"
   | "queryPlatformResourceTriage"
+  | "queryPlatformUnsafeCodeTypes"
   | "queryPlatformUnsafeMembers";
 
 type SourceOperations =
@@ -148,6 +156,8 @@ type CallGraphOperations =
   | "queryMemberCallGraph";
 
 type CatalogOperations =
+  | "canUpgradeLegacyPlatformWorkspace"
+  | "prepareLegacyPlatformWorkspaceDefinition"
   | "admitEcosystemPackageToWorkspace"
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"
@@ -253,7 +263,14 @@ export interface EngineClient {
       MetadataFacade["queryUploadedLibraryPerformanceTypeMemberPopulation"]
     >>>;
   };
-  readonly analysis: AsyncFacade<AnalysisFacade, AnalysisOperations>;
+  readonly analysis: AsyncFacade<AnalysisFacade, AnalysisOperations> & {
+    queryPackagePerformanceStreaming(
+      ...args: Parameters<AnalysisFacade["queryPackagePerformanceStreaming"]>
+    ): ReturnType<AnalysisFacade["queryPackagePerformanceStreaming"]>;
+    cancelLibraryPerformanceAnalysis(
+      ...args: Parameters<AnalysisFacade["cancelLibraryPerformanceAnalysis"]>
+    ): void;
+  };
   readonly source: AsyncFacade<SourceFacade, SourceOperations> & {
     queryMemberSourceComparison(
       ...args: Parameters<SourceFacade["queryMemberSourceComparison"]>

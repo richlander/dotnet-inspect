@@ -1520,6 +1520,161 @@ public class PdbAcquisitionServiceTests
 
     [Fact]
     public async Task
+        PackageSettlement_ConfiguredMsdlFallbackAcquiresAfterNuGetSymbolDenial()
+    {
+        // #11031: a Microsoft package's PDB is published only to MSDL, and
+        // the NuGet symbol server denies the request with HTTP 403.
+        var (assembly, pdbBytes) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "Example.Fallback",
+                "1.0.0",
+                "net10.0",
+                rid: null));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler = new SymbolProviderHandler(
+            nuGetSymbolStatus: HttpStatusCode.Forbidden,
+            msdlPdb: pdbBytes);
+        using var client = new HttpClient(handler);
+
+        PortablePdbSettlementResult result =
+            await SettleNuGetOrgPackageAsync(
+                source,
+                assembly,
+                client,
+                microsoftSymbolServerFallback: true);
+
+        var acquired =
+            Assert.IsType<
+                PortablePdbSettlementResult.Acquired>(result);
+        Assert.Equal(
+            PortablePdbSettlementSource.MicrosoftSymbolServer,
+            acquired.Source);
+        int nuGetSymbol = handler.RequestUris.FindIndex(
+            uri => uri.Host == "symbols.nuget.org");
+        int msdl = handler.RequestUris.FindIndex(
+            uri => uri.Host == "msdl.microsoft.com");
+        Assert.InRange(nuGetSymbol, 0, msdl - 1);
+        Assert.Contains(
+            acquired.Receipts,
+            receipt => receipt.Candidate
+                    == PortablePdbSettlementCandidate.NuGetSymbolServer
+                && receipt.StatusCode == HttpStatusCode.Forbidden);
+        Assert.Contains(
+            acquired.Receipts,
+            receipt => receipt.Candidate
+                    == PortablePdbSettlementCandidate.MicrosoftSymbolServer
+                && receipt.Outcome
+                    == PortablePdbSettlementAttemptOutcome.Acquired);
+    }
+
+    [Fact]
+    public async Task
+        PackageSettlement_ConfiguredMsdlFallbackKeepsEarlierFailureWhenItMisses()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "Example.FallbackMiss",
+                "1.0.0",
+                "net10.0",
+                rid: null));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler = new SymbolProviderHandler(
+            nuGetSymbolStatus: HttpStatusCode.Forbidden,
+            msdlPdb: null);
+        using var client = new HttpClient(handler);
+
+        PortablePdbSettlementResult result =
+            await SettleNuGetOrgPackageAsync(
+                source,
+                assembly,
+                client,
+                microsoftSymbolServerFallback: true);
+
+        // The 403 is not absence, and the fallback's 404 does not erase it.
+        var failed =
+            Assert.IsType<
+                PortablePdbSettlementResult.Failed>(result);
+        Assert.Equal(
+            PortablePdbSettlementFailureKind.ExternalProviderFailed,
+            failed.Failure);
+        Assert.Contains(
+            handler.RequestUris,
+            uri => uri.Host == "msdl.microsoft.com");
+    }
+
+    [Fact]
+    public async Task
+        PackageSettlement_ConfiguredMsdlFallbackDoesNotApplyToAnotherProducer()
+    {
+        var (assembly, _) = CreateTestAssembly(
+            AssemblyResolutionProvenance.Package(
+                "Private.FallbackPackage",
+                "1.0.0",
+                "net10.0",
+                rid: null));
+        using var source =
+            SourceLinkService.OpenEmbeddedPdbOnly(assembly);
+        var handler =
+            new PlatformSymbolHandler(
+                throwOnRequest: true);
+        using var client = new HttpClient(handler);
+        var privateSource =
+            new NuGetFetch.PackageSource(
+                "private",
+                "https://packages.example/v3/index.json");
+
+        PortablePdbSettlementResult result =
+            await PortablePdbSettlement.SettleAsync(
+                new PortablePdbSettlementRequest(
+                    source.Context,
+                    assembly,
+                    client,
+                    new InMemoryPdbStore(),
+                    new UniformPackageSourceAuthorization(
+                        [
+                            privateSource,
+                            NuGetFetch.PackageSource.NuGetOrg,
+                        ]))
+                {
+                    PackageProducer =
+                        NuGetFetch.PackageSourceClientFactory
+                            .GetProducerIdentity(
+                                privateSource),
+                    MicrosoftSymbolServerFallback = true,
+                },
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<
+            PortablePdbSettlementResult.Unavailable>(result);
+        Assert.Empty(handler.RequestUris);
+    }
+
+    private static Task<PortablePdbSettlementResult>
+        SettleNuGetOrgPackageAsync(
+            SourceLinkService source,
+            ResolvedAssemblyReference assembly,
+            HttpClient client,
+            bool microsoftSymbolServerFallback) =>
+        PortablePdbSettlement.SettleAsync(
+            new PortablePdbSettlementRequest(
+                source.Context,
+                assembly,
+                client,
+                new InMemoryPdbStore(),
+                new UniformPackageSourceAuthorization(
+                    [NuGetFetch.PackageSource.NuGetOrg]))
+            {
+                PackageProducer =
+                    NuGetFetch.PackageProducerIdentity.NuGetOrg,
+                MicrosoftSymbolServerFallback =
+                    microsoftSymbolServerFallback,
+            },
+            TestContext.Current.CancellationToken);
+
+    [Fact]
+    public async Task
         PackageSettlement_BindingFailureRetainsNuGetProviderAuthority()
     {
         var (assembly, _) = CreateTestAssembly(
@@ -2197,6 +2352,37 @@ public class PdbAcquisitionServiceTests
                 {
                     Content = new ByteArrayContent(_pdbBytes),
                 });
+        }
+    }
+
+    /// <summary>
+    /// The NuGet symbol server answers <c>nuGetSymbolStatus</c>; MSDL serves
+    /// <c>msdlPdb</c>, or 404 when it is null; every other route is 404.
+    /// </summary>
+    private sealed class SymbolProviderHandler(
+        HttpStatusCode nuGetSymbolStatus,
+        byte[]? msdlPdb)
+        : HttpMessageHandler
+    {
+        internal List<Uri> RequestUris { get; } = [];
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            Uri uri = request.RequestUri!;
+            RequestUris.Add(uri);
+            HttpResponseMessage response =
+                uri.Host == "symbols.nuget.org"
+                    ? new(nuGetSymbolStatus)
+                    : uri.Host == "msdl.microsoft.com"
+                        && msdlPdb is not null
+                        ? new(HttpStatusCode.OK)
+                        {
+                            Content = new ByteArrayContent(msdlPdb),
+                        }
+                        : new(HttpStatusCode.NotFound);
+            return Task.FromResult(response);
         }
     }
 

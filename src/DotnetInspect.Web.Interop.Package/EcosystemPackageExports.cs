@@ -52,34 +52,40 @@ public static partial class PackageExports
                         .Select(supply => $"{supply.Package}|{supply.Version}"))))
             : null;
         BrowserEcosystemPackageClassification[] results = [.. candidates.Select(candidate =>
-        {
-            var coordinate = new PackageCoordinate(candidate.Id, candidate.Version);
-            if (candidate.Version is not null
-                && PackageCoordinateResolver.Validate(coordinate) is not null)
-            {
-                // Spotlight projects the row while an explicit version is still
-                // being typed. Ownership remains answerable without version evidence.
-                coordinate = coordinate with { Version = null };
-            }
-            var result = EcosystemPackCatalog.IsEcosystemPackage(
-                coordinate, traversalTfm, inventory);
-            var ecosystem = result switch
-            {
-                EcosystemPackageResult.Known known => known.Package.Ecosystem,
-                EcosystemPackageResult.Unavailable unavailable => unavailable.Ecosystem,
-                _ => null,
-            };
-            var platform = (result as EcosystemPackageResult.Known)?.Package.PlatformOwnedInfo;
-            return new BrowserEcosystemPackageClassification(
-                candidate.Id, candidate.Version, ecosystem?.Id.Value, ecosystem?.Title,
-                platform?.LayerName, platform?.IsPruned,
-                ecosystem is not null && coordinate.Version is not null && input is not null
-                    && string.Equals(input.Tfm, traversalTfm, StringComparison.OrdinalIgnoreCase)
-                    && !string.IsNullOrWhiteSpace(input.Version)
-                    ? PackageVersionPrecedence.Compare(coordinate.Version, input.Version)
-                    : null);
-        })];
+            ClassifyEcosystemPackage(traversalTfm, candidate, input, inventory))];
         return JsonSerializer.Serialize(
             results, BrowserPackageJsonContext.Default.BrowserEcosystemPackageClassificationArray);
+    }
+
+    private static BrowserEcosystemPackageClassification ClassifyEcosystemPackage(
+        string traversalTfm,
+        BrowserEcosystemPackageCandidate candidate,
+        BrowserEcosystemPackageInventory? input,
+        PlatformPruneInventory? inventory)
+    {
+        var coordinate = new PackageCoordinate(candidate.Id, candidate.Version);
+        if (candidate.Version is not null
+            && PackageCoordinateResolver.Validate(coordinate) is not null)
+        {
+            // Spotlight can request affiliation while a version is still being typed.
+            coordinate = coordinate with { Version = null };
+        }
+        var result = EcosystemPackCatalog.IsEcosystemPackage(
+            coordinate, traversalTfm, inventory);
+        var ecosystem = result switch
+        {
+            EcosystemPackageResult.Known known => known.Package.Ecosystem,
+            EcosystemPackageResult.Unavailable unavailable => unavailable.Ecosystem,
+            _ => null,
+        };
+        var platform = (result as EcosystemPackageResult.Known)?.Package.PlatformOwnedInfo;
+        return new BrowserEcosystemPackageClassification(
+            candidate.Id, candidate.Version, ecosystem?.Id.Value, ecosystem?.Title,
+            platform?.LayerName, platform?.IsPruned,
+            ecosystem is not null && coordinate.Version is not null && input is not null
+                && string.Equals(input.Tfm, traversalTfm, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(input.Version)
+                ? PackageVersionPrecedence.Compare(coordinate.Version, input.Version)
+                : null);
     }
 }

@@ -1783,13 +1783,13 @@ public sealed class MetadataMethodImplementationEvidenceTests
     public void PinnedSystemInt32GenericMathCanaryResolvesKnownSpecialName()
     {
         const string RuntimeCommit =
-            "81be0823c7162a79bcc8bde49763293c92567e9e";
+            "5254d8bcf59917edc1e1abc33bdf2442b77b1c70";
         const string RuntimeBuild =
-            "11.0.100-rc.1.26425.128";
+            "11.0.100-rc.3.26522.148";
         const string Sha256 =
-            "9573ebabb9af0671f76f4aa958223b8a0b50c299affcb1a2f75c9ee717305fc8";
+            "d67d98f3b2178cb3768fea37c791577500e9cee904c859afd3871138bbc58653";
         Assert.Equal(40, RuntimeCommit.Length);
-        Assert.StartsWith("11.0.100-rc.1", RuntimeBuild);
+        Assert.StartsWith("11.0.100-rc.3", RuntimeBuild);
 
         string path = Path.Combine(
             AppContext.BaseDirectory,
@@ -1805,7 +1805,7 @@ public sealed class MetadataMethodImplementationEvidenceTests
             FileVersionInfo.GetVersionInfo(path).ProductVersion
             ?? "";
         Assert.Contains(
-            "11.0.0-rc.1.26425.128",
+            "11.0.0-rc.3.26522.148",
             productVersion);
         using var stream = File.OpenRead(path);
         using var pe = new PEReader(stream);

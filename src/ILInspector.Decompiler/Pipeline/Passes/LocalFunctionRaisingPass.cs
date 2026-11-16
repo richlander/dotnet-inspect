@@ -599,6 +599,7 @@ public sealed class LocalFunctionRaisingPass : IIrPass
                     body.UsesUpdatedMemorySafetyRules))
             {
                 SourceMethodAddress = body.SourceMethodAddress,
+                IsAsync = body.RequiresAsyncBodyModifier,
                 SynthesizedLocalNames = body.SynthesizedLocalNames,
                 LocalDeclaredInNestedScope = body.LocalDeclaredInNestedScope,
                 LocalDeclarationBindings = body.LocalDeclarationBindings,

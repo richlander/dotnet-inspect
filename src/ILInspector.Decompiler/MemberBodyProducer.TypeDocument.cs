@@ -306,6 +306,9 @@ public static partial class MemberBodyProducer
                 }
             }
         }
+        if (TryGetAsyncEntryPoint(source, typeHandle) is { } entryPoint)
+            loweredOwners.TryAdd(entryPoint.Wrapper, entryPoint.Main);
+
         if (loweredOwners.Count > 0)
         {
             var oldMembers = logicalMembers;

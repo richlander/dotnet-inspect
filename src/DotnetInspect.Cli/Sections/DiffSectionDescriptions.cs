@@ -133,4 +133,41 @@ internal static class DiffSectionDescriptions
         "Available only where a selected analysis declares Transitions at "
         + "the request surface; string-literals requires one --where "
         + "predicate on Literal.");
+
+    public static SectionDescription ChangedTypes { get; } = new(
+        "Every Type whose public API or implementation differs between the "
+        + "two versions, one row per Type with its API state, its Body "
+        + "state, and its identifier; a Type whose state could not be "
+        + "decided is listed as Indeterminate, not omitted.",
+        "One library in each version, read by Finding Diff Any: the public "
+        + "API facts of public Types on the API axis, and every method's "
+        + "compiled IL and every non-public declaration on the Body axis, "
+        + "each axis stopped at its first difference. A package endpoint "
+        + "compares its implementation assembly.",
+        "Every compared Type is Unchanged on both axes. "
+        + NotComparedBoundary,
+        "A state says whether a Type differs, not what changed: Changes "
+        + "lists API changes and Implementation Diff body changes. "
+        + "Indeterminate is undecided, never unchanged. Requires exactly "
+        + "one library at each endpoint and is selected by itself.");
+
+    public static SectionDescription ChangedMembers { get; } = new(
+        "Every Member of one Type whose public API or implementation differs "
+        + "between the two versions, one row per Member with its API state, "
+        + "its Body state, its signature, and its selector, and a Residual "
+        + "row when the Type's own declaration or presence differs; a row "
+        + "whose state could not be decided is listed as Indeterminate, not "
+        + "omitted.",
+        "The Type selected with --type, read by Finding Diff Any in each "
+        + "version's one library and paired by its identity, with no other "
+        + "Type read: each Member's public API facts on the API axis, and "
+        + "its compiled IL and non-public declarations on the Body axis. A "
+        + "package endpoint compares its implementation assembly.",
+        "Every Member and the Type's residual are Unchanged on both axes. "
+        + NotComparedBoundary,
+        "A state says whether a Member differs, not what changed. A Member "
+        + "whose signature changed is two Members, one on each side. "
+        + "Indeterminate is undecided, never unchanged. Requires exactly "
+        + "one library at each endpoint and one exact --type, nested Types "
+        + "spelled Outer+Inner, and is selected by itself.");
 }

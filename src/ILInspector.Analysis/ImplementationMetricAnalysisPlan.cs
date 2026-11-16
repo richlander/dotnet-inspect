@@ -94,7 +94,6 @@ internal enum ImplementationMetricRequestOrigin
     Explicit,
     LibraryStructuralReport,
     CompleteProfileCompatibility,
-    LegacyFeatureCompatibility,
 }
 
 /// <summary>
@@ -184,13 +183,6 @@ internal sealed record ImplementationMetricAnalysisRequest(
             ImplementationMetricWorkLimits.LegacyUnbounded,
             ImplementationMetricRequestOrigin
                 .LibraryStructuralReport);
-
-    internal static ImplementationMetricAnalysisRequest
-        LegacyFeatureCompatibility() =>
-        CompleteProfile(
-            ImplementationMetricWorkLimits.LegacyUnbounded,
-            ImplementationMetricRequestOrigin
-                .LegacyFeatureCompatibility);
 
     internal static ImplementationMetricAnalysisRequest CompleteProfile(
         ImplementationMetricWorkLimits limits,

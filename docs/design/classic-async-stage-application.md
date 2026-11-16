@@ -13,7 +13,7 @@ This document owns stage application for
 - the authenticated declared-kickoff request, when available, from the
   [classic async request adapter](classic-async-request-adapter.md); and
 - the terminal decision from the
-  [classic async inverse core](classic-async-reconstruction.md).
+  [classic async general inverse](classic-async-reconstruction.md).
 
 The named consumer is `ClassicAsyncReconstructionPass` in the shared
 `ILInspector.Decompiler` pipeline. That pipeline is already consumed by the CLI
@@ -80,16 +80,16 @@ fabricated support body.
 `EvaluateDeclaredKickoff` does not itself license reconstruction. The pass
 still correlates the decoded kickoff state-machine type with the exact Metadata
 relationship, imports the certified execution MethodDef, and asks
-`ClassicInverseCore` for its terminal decision.
+`ClassicGeneralInverse` for its terminal outcome.
 
-- `Reconstruct` installs the detached plan through the existing application
-  path.
-- `Decline` preserves the kickoff or marks a visible unsupported boundary
+- `Reconstructed` installs the spliced body through the application path.
+- `Declined` preserves the kickoff behind a visible `DEC0004` boundary
   according to the inverse contract.
-- `Failed` remains a visible planning failure.
+- A request whose identities and bodies do not correlate remains a visible
+  failure.
 
-Stage application neither broadens the recipe domain nor translates a decline
-or failure into reconstruction.
+Stage application neither broadens the general inverse's domain nor translates
+a decline or failure into reconstruction.
 
 ## Evidence
 
@@ -119,16 +119,16 @@ The following Release gates enforce this owner:
 - `PreserveArm_ReturnsBeforeKickoffAcquisition` proves preservation returns
   before an otherwise kickoff-shaped host can enter cross-method acquisition;
   and
-- `FaithfulLegacyRecipeRemainsFullyReconstructed` keeps authenticated declared
-  kickoffs on the terminal inverse-decision path.
+- `ProtocolShapeRemainsFullyReconstructed` proves an authenticated declared
+  kickoff reconstructs fully through the general inverse.
 
 These run in `tests/ILInspector.Decompiler.Tests` with Release configuration.
 
 ## Non-claims
 
 This owner does not define Metadata relationship construction or
-implementation-role discovery, request adaptation, classic recipe recognition,
-proof ledgers, nested local-function or lambda embedding, member/type result
-projection, declaration modifier/disposition policy, C# rendering, or host
-presentation. Those remain with #5277, #5276, #5278, #5279, #5293, and their
-owning documents.
+implementation-role discovery, request adaptation, classic lowering-protocol
+recognition, its role ledger, nested local-function or lambda embedding,
+member/type result projection, declaration modifier/disposition policy, C#
+rendering, or host presentation. Those remain with their owning documents and
+with #5277, #4472, #5278, #5279, and #5293.

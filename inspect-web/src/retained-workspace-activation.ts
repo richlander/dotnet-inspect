@@ -23,6 +23,7 @@ interface RetainedWorkspaceDefinitionIdentity {
 interface PacketRetainedWorkspaceDefinitionInput
   extends RetainedWorkspaceDefinitionIdentity {
   readonly canonicalPacket: string;
+  readonly upgradeLegacyPlatform?: boolean;
   readonly packageQuery?: never;
   readonly homeDemo?: never;
   readonly ecosystem?: never;
@@ -102,6 +103,13 @@ interface SoleDeactivationIntent {
 }
 
 export interface RetainedWorkspaceActivationClient {
+  canUpgradeLegacyPlatformWorkspace?(packet: string): boolean | Promise<boolean>;
+  prepareLegacyPlatformWorkspaceDefinition?(
+    retainedDefinitionId: string,
+    label: string,
+    canonicalLocation: string,
+    packet: string,
+  ): Promise<BrowserRetainedWorkspacePreparationResult>;
   prepareProjectWorkspaceDefinition?(
     retainedDefinitionId: string,
     label: string,
@@ -749,6 +757,14 @@ export function createRetainedWorkspaceActivationController(
             definition.packageQuery.packageId,
             definition.packageQuery.version,
           );
+        } else if (definition.upgradeLegacyPlatform === true) {
+          if (credentialEndpoints.length !== 0
+            || client.prepareLegacyPlatformWorkspaceDefinition === undefined) {
+            throw new Error("The engine cannot upgrade this legacy Platform Workspace.");
+          }
+          preparation = await client.prepareLegacyPlatformWorkspaceDefinition(
+            definition.id, definition.label,
+            definition.canonicalLocation, definition.canonicalPacket);
         } else if (credentialEndpoints.length === 0) {
           preparation = await client.prepareRetainedWorkspaceDefinition(
             definition.id,

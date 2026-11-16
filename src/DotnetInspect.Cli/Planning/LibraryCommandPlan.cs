@@ -1,5 +1,6 @@
 using DotnetInspect.Cli.Options;
 using DotnetInspector.Presentation;
+using DotnetInspector.Sections;
 
 namespace DotnetInspect.Cli.Planning;
 
@@ -18,7 +19,10 @@ internal abstract record LibraryCommandPlan
     internal sealed record TypeHierarchy(
         LibraryTypeHierarchyPresentationFormat Format,
         bool Explicit)
-        : LibraryCommandPlan;
+        : LibraryCommandPlan
+    {
+        public RowSelectionIntent<string>? RowSelection { get; init; }
+    }
 }
 
 internal abstract record LibraryCommandPlanningResult

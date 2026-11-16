@@ -101,6 +101,7 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     openUploadedLibrary: () => unexpected("openUploadedLibrary"),
   },
   package: {
+    queryPackageLibraryIdentities: () => unexpected("queryPackageLibraryIdentities"),
     openPlatformForwarderView: () => unexpected("openPlatformForwarderView"),
     activatePlatformForwarder: () => unexpected("activatePlatformForwarder"),
     closePlatformForwarderView: () => unexpected("closePlatformForwarderView"),
@@ -164,6 +165,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryAnnotatedTypeRelations"),
     queryLibraryApiDiff: () =>
       unexpected("queryLibraryApiDiff"),
+    cancelTypeFindingDiffAny: () => unexpected("cancelTypeFindingDiffAny"),
+    queryTypeFindingDiffAny: () => unexpected("queryTypeFindingDiffAny"),
     queryLibraryFindingDiffAny: () =>
       unexpected("queryLibraryFindingDiffAny"),
     queryMemberDeclaration: () =>
@@ -176,6 +179,12 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPerformanceTypeMemberPopulation"),
     queryTypeOverviewDocument: () =>
       unexpected("queryTypeOverviewDocument"),
+    queryRetainedPlatformTypeOverviewDocument: () =>
+      unexpected("queryRetainedPlatformTypeOverviewDocument"),
+    queryRetainedPlatformMemberGroupDocument: () =>
+      unexpected("queryRetainedPlatformMemberGroupDocument"),
+    queryRetainedPlatformTypeProjection: () =>
+      unexpected("queryRetainedPlatformTypeProjection"),
     queryTypeMemberPopulation: () =>
       unexpected("queryTypeMemberPopulation"),
     queryPlatformMemberDeclaration: () =>
@@ -238,6 +247,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
     renderTriageCaret: () => unexpected("renderTriageCaret"),
     queryPackageResourceTriage: () =>
       unexpected("queryPackageResourceTriage"),
+    queryPackageUnsafeCodeTypes: () =>
+      unexpected("queryPackageUnsafeCodeTypes"),
     queryPackageUnsafeMembers: () =>
       unexpected("queryPackageUnsafeMembers"),
     queryPackageLibraryDependencyStructure: () =>
@@ -256,6 +267,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("queryPlatformPerformance"),
     queryPlatformResourceTriage: () =>
       unexpected("queryPlatformResourceTriage"),
+    queryPlatformUnsafeCodeTypes: () =>
+      unexpected("queryPlatformUnsafeCodeTypes"),
     queryPlatformUnsafeMembers: () =>
       unexpected("queryPlatformUnsafeMembers"),
   },
@@ -346,6 +359,10 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
       unexpected("preparePackageQueryWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinition: () =>
       unexpected("prepareRetainedWorkspaceDefinition"),
+    canUpgradeLegacyPlatformWorkspace: () =>
+      unexpected("canUpgradeLegacyPlatformWorkspace"),
+    prepareLegacyPlatformWorkspaceDefinition: () =>
+      unexpected("prepareLegacyPlatformWorkspaceDefinition"),
     prepareRetainedWorkspaceDefinitionFromRecords: () =>
       unexpected("prepareRetainedWorkspaceDefinitionFromRecords"),
     prepareRetainedWorkspaceDefinitionWithCredentials: () =>
@@ -957,6 +974,7 @@ test("retained Catalog transport preserves compact posting and bounded Package a
       contextIndex: 1,
       family: "Microsoft.NETCore.App",
       runtimeIdentifier: "linux-x64",
+      nativeSelection: null,
       summary: {
         selectedCompileFramework: "net10.0",
         libraryCount: 1,
@@ -2128,6 +2146,33 @@ test("background bindings are not Worker activity", async () => {
   state.host.dispose();
 });
 
+test("Type Member comparison stays background and its cancellation uses the same managed identity", async () => {
+  const completed = deferred<void>();
+  const canceled: string[][] = [];
+  const state = fixture({ metadata: {
+    queryTypeFindingDiffAny: async () => { await completed.promise; return contractViolation({ schemaVersion: 1, kind: "Canceled" }); },
+    cancelTypeFindingDiffAny: (id, reason) => { canceled.push([id, reason]); return { kind: "Requested", reason }; },
+  } });
+  const pending = state.client.metadata.queryTypeFindingDiffAny("member-cues", {
+    schemaVersion: 1, typeIdentifier: "Example.Widget", comparison: {
+      schemaVersion: 3, packageId: "Fixture", currentVersion: "2.0.0", targetVersion: "1.0.0",
+      targetFramework: "net11.0", runtimeIdentifier: "linux-x64", compileAssetId: "compile:lib/net11.0/Fixture.dll", axes: "ApiAndBody",
+    },
+  });
+  await state.environment.flushAsync();
+  assert.equal(state.client.activity.outstanding(), 0);
+  await state.client.activity.whenIdle();
+  const cancellation = state.client.metadata.cancelTypeFindingDiffAny("member-cues", "superseded");
+  await state.environment.flushAsync();
+  assert.deepEqual(await cancellation, { kind: "Requested", reason: "superseded" });
+  assert.deepEqual(canceled, [["member-cues", "superseded"]]);
+  completed.resolve();
+  await state.environment.flushAsync();
+  await pending;
+  assert.deepEqual(state.diagnostics, []);
+  state.host.dispose();
+});
+
 test("generated rejection fails visibly without poisoning neighboring calls", async () => {
   const state = fixture({
     catalog: {
@@ -2751,6 +2796,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryReferencePackageSuppliers",
       "queryPackageHierarchy",
       "queryPackageIcon",
+      "queryPackageLibraryIdentities",
       "queryPackageVulnerabilities",
       "queryPackageRoot",
       "queryPackageSummary",
@@ -2764,6 +2810,8 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     metadata: [
       "cancelLibraryApiDiff",
       "cancelLibraryFindingDiffAny",
+      "cancelTypeFindingDiffAny",
+      "queryTypeFindingDiffAny",
       "findTypes",
       "queryLibraryApiDiff",
       "queryLibraryFindingDiffAny",
@@ -2774,6 +2822,9 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPerformanceTypeMemberPopulation",
       "queryTypeMemberPopulation",
       "queryTypeOverviewDocument",
+      "queryRetainedPlatformTypeOverviewDocument",
+      "queryRetainedPlatformMemberGroupDocument",
+      "queryRetainedPlatformTypeProjection",
       "queryPlatformMemberDeclaration",
       "queryPlatformMemberDocument",
       "queryPlatformMemberGroupDocument",
@@ -2806,6 +2857,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPackageResourceTriage",
       "queryPackageTypeImplementationHeat",
       "queryPackageTypeMethodLeverage",
+      "queryPackageUnsafeCodeTypes",
       "queryPackageUnsafeMembers",
       "queryPlatformIntegrations",
       "queryPlatformLibraryDependencyStructure",
@@ -2816,6 +2868,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "queryPlatformResourceTriage",
       "queryPlatformTypeImplementationHeat",
       "queryPlatformTypeMethodLeverage",
+      "queryPlatformUnsafeCodeTypes",
       "queryPlatformUnsafeMembers",
       "renderTriageCaret",
     ],
@@ -2870,6 +2923,8 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "preparePackageQueryWorkspaceDefinition",
       "prepareProjectWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinition",
+      "canUpgradeLegacyPlatformWorkspace",
+      "prepareLegacyPlatformWorkspaceDefinition",
       "prepareRetainedWorkspaceDefinitionFromRecords",
       "prepareRetainedWorkspaceDefinitionWithCredentials",
       "recordRetainedWorkspaceNavigationPosting",
@@ -2892,7 +2947,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 146);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 156);
   assert.equal(
     new Set(engineWorkerOrdinaryOperationKinds).size,
     engineWorkerOrdinaryOperationKinds.length,
@@ -2948,6 +3003,27 @@ test("triage caret transport preserves exact source extent and managed output", 
   const result = state.client.analysis.renderTriageCaret(sourceLine, 4, 4);
   await state.environment.flushAsync();
   assert.equal(await result, printed);
+  state.host.dispose();
+});
+
+test("unsafe code transport carries the Library to both owners", async () => {
+  const empty = { outcome: "available", assembly: "Fixture", types: [], limitations: [], inspectionError: null };
+  const calls: string[][] = [];
+  const state = fixture({
+    analysis: {
+      queryPackageUnsafeCodeTypes: async (...args) => { calls.push(["package", ...args]); return empty; },
+      queryPlatformUnsafeCodeTypes: async (...args) => { calls.push(["platform", ...args]); return empty; },
+    },
+  });
+  const packageResult = state.client.analysis.queryPackageUnsafeCodeTypes("Pkg", "1.0.0", "net10.0", "lib/net10.0/Pkg.dll");
+  const platformResult = state.client.analysis.queryPlatformUnsafeCodeTypes("net10.0", "10.0.0", "System.Text.Json.dll", "pack:System.Text.Json");
+  await state.environment.flushAsync();
+  assert.deepEqual(await packageResult, empty);
+  assert.deepEqual(await platformResult, empty);
+  assert.deepEqual(calls, [
+    ["package", "Pkg", "1.0.0", "net10.0", "lib/net10.0/Pkg.dll"],
+    ["platform", "net10.0", "10.0.0", "System.Text.Json.dll", "pack:System.Text.Json"],
+  ]);
   state.host.dispose();
 });
 

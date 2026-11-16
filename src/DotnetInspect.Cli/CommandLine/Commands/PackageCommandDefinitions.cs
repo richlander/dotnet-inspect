@@ -406,6 +406,21 @@ public static class PackageCommandDefinitions
                     lowering),
             defaultUnit:
                 CliRowSelectionDefaultUnit.RenderedLines);
+        CliOutputItemSelection.Register(
+            packageCommand,
+            new(
+                opts.Limit,
+                legacyPackageSectionRows,
+                top: null,
+                orderBy: null,
+                opts.Head,
+                opts.Tail,
+                opts.Lines,
+                opts.TailLines),
+            result => PackageOptionsParser.ResolveOutputItems(
+                result, opts, commandArgs),
+            result => CliOutputItemSelection.ResolveProjection(result.GetValue(opts.Print)),
+            result => opts.IsJsonDocumentOutput(result));
         CliRowSelectionCommandRegistry.Register(
             packageCommand,
             new(
@@ -492,10 +507,7 @@ public static class PackageCommandDefinitions
             if (parseResult.GetValue(packageNameArg) is { } first
                 && first.Equals("search", StringComparison.OrdinalIgnoreCase))
             {
-                CommandError.Write(
-                    "'package search' has been removed. Use 'find --packages <ID>' "
-                    + "for an exact package or 'find --packages <PREFIX>*' for "
-                    + "package-prefix discovery.");
+                CommandError.Write(PackageOptionsParser.RemovedSearchError);
                 return 1;
             }
 

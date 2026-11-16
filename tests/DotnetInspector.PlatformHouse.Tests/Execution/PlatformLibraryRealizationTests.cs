@@ -82,6 +82,10 @@ public partial class PlatformLibraryRealizationTests
         Assert.Same(
             artifacts[1],
             realized.ImplementationAssembly!.ArtifactReference);
+        Assert.Null(
+            Assert.IsType<PlatformLibraryArtifactProvenance>(
+                    realized.ImplementationAssembly.ArtifactReference.Provenance)
+                .ImplementationArtifactIdentity);
         Assert.True(
             realized.ApiAssembly.HasRole(
                 LibraryContentRole.ApiAssembly));
@@ -493,6 +497,63 @@ public partial class PlatformLibraryRealizationTests
             property =>
                 typeof(Exception).IsAssignableFrom(
                     property.PropertyType));
+    }
+
+    [Theory]
+    [InlineData(PlatformSourceFacet.Reference)]
+    [InlineData(PlatformSourceFacet.Implementation)]
+    public void ImplementationArtifactIdentity_RejectsWrongFacetOrMember(
+        PlatformSourceFacet facet)
+    {
+        PlatformLibraryDemandIdentity library =
+            PlatformLibraryDemandIdentityAuthority.Create("runtime-catalog")
+                .Issue("System.Text.Json");
+        var request = Request(
+            library,
+            PlatformViewDemand.ReferenceAndImplementation,
+            TestContext.Current.CancellationToken);
+        PlatformSourceContribution.Realization contribution = Contribution(
+            request.Request,
+            facet == PlatformSourceFacet.Reference
+                ? request.Reference
+                : request.Implementation,
+            facet);
+        var identity = new AssemblyReferenceIdentity(
+            "System.Text.Json",
+            new Version(11, 0, 0, 0),
+            null,
+            null);
+        var certificate = new TestImplementationArtifactIdentity(
+            facet == PlatformSourceFacet.Reference
+                ? identity
+                : identity with { Version = new Version(10, 0, 0, 0) });
+
+        Assert.Throws<ArgumentException>(() =>
+            new PlatformLibraryArtifactMaterializationItem(
+                contribution,
+                new Provenance("test"),
+                identity,
+                1,
+                _ => throw new InvalidOperationException("Must not open content."),
+                implementationArtifactIdentity: certificate));
+        if (facet == PlatformSourceFacet.Reference)
+        {
+            Assert.Throws<ArgumentException>(() =>
+                new PlatformLibraryArtifactProvenance(
+                    contribution,
+                    new Provenance("test"),
+                    certificate));
+        }
+    }
+
+    sealed class TestImplementationArtifactIdentity(
+        AssemblyReferenceIdentity identity) :
+        PlatformImplementationArtifactIdentity(identity)
+    {
+        public override bool Equals(PlatformImplementationArtifactIdentity? other) =>
+            ReferenceEquals(this, other);
+
+        public override int GetHashCode() => AssemblyIdentity.GetHashCode();
     }
 
     [Fact]

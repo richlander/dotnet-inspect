@@ -58,6 +58,7 @@ type PackageOperationName =
   | "prefetchPlatformPacks"
   | "queryPackage"
   | "queryPackageIcon"
+  | "queryPackageLibraryIdentities"
   | "queryPackageRoot"
   | "queryPackageSummary"
   | "loadRuntimePack"
@@ -82,16 +83,21 @@ type LibraryOperationName = "inspectLibrary" | "openUploadedLibrary";
 type MetadataOperationName =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
+  | "cancelTypeFindingDiffAny"
+  | "queryTypeFindingDiffAny"
   | "findTypes"
   | "queryAnnotatedTypeRelations"
   | "queryLibraryApiDiff"
   | "queryLibraryFindingDiffAny"
   | "queryTypeProjection"
+  | "queryRetainedPlatformTypeProjection"
   | "queryMemberDeclaration"
   | "queryMemberDocument"
   | "queryMemberGroupDocument"
   | "queryPerformanceTypeMemberPopulation"
   | "queryTypeOverviewDocument"
+  | "queryRetainedPlatformTypeOverviewDocument"
+  | "queryRetainedPlatformMemberGroupDocument"
   | "queryTypeMemberPopulation"
   | "queryPlatformMemberDeclaration"
   | "queryPlatformMemberDocument"
@@ -125,6 +131,7 @@ type AnalysisOperationName =
   | "queryPlatformOpportunities"
   | "queryPackagePerformance"
   | "queryPackageResourceTriage"
+  | "queryPackageUnsafeCodeTypes"
   | "queryPackageUnsafeMembers"
   | "queryPackageLibraryDependencyStructure"
   | "queryPackageLibraryMetrics"
@@ -138,6 +145,7 @@ type AnalysisOperationName =
   | "queryPlatformLibraryStructuralSalience"
   | "queryPlatformPerformance"
   | "queryPlatformResourceTriage"
+  | "queryPlatformUnsafeCodeTypes"
   | "queryPlatformUnsafeMembers";
 
 type SourceOperationName =
@@ -163,6 +171,8 @@ type CallGraphOperationName =
   | "expandPlatformCallGraph";
 
 type CatalogOperationName =
+  | "canUpgradeLegacyPlatformWorkspace"
+  | "prepareLegacyPlatformWorkspaceDefinition"
   | "admitEcosystemPackageToWorkspace"
   | "admitRetainedWorkspacePackage"
   | "admitRetainedWorkspacePlatform"
@@ -1313,6 +1323,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<PackageFacade["queryLibraryReferences"]>
       ) => facades.package.queryLibraryReferences(...args),
     ),
+    queryPackageLibraryIdentities: valueOperation(
+      "ordinary-package-query-library-identities",
+      4,
+      (
+        facades,
+        ...args: Parameters<PackageFacade["queryPackageLibraryIdentities"]>
+      ) => facades.package.queryPackageLibraryIdentities(...args),
+    ),
     queryReferencePackageSuppliers: valueOperation(
       "ordinary-package-query-reference-suppliers",
       4,
@@ -1407,6 +1425,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["cancelLibraryFindingDiffAny"]>
       ) => facades.metadata.cancelLibraryFindingDiffAny(...args),
     ),
+    cancelTypeFindingDiffAny: valueOperation(
+      "ordinary-metadata-cancel-type-finding-diff-any", 2,
+      (facades, ...args: Parameters<MetadataFacade["cancelTypeFindingDiffAny"]>) => facades.metadata.cancelTypeFindingDiffAny(...args),
+    ),
+    queryTypeFindingDiffAny: valueOperation(
+      "ordinary-metadata-query-type-finding-diff-any", 2,
+      (facades, ...args: Parameters<MetadataFacade["queryTypeFindingDiffAny"]>) => facades.metadata.queryTypeFindingDiffAny(...args),
+    ),
     queryLibraryFindingDiffAny: valueOperation(
       "ordinary-metadata-query-library-finding-diff-any",
       2,
@@ -1452,6 +1478,21 @@ export const engineWorkerOrdinaryOperations = {
           MetadataFacade["queryTypeMemberPopulation"]
         >
       ) => facades.metadata.queryTypeMemberPopulation(...args),
+    ),
+    queryRetainedPlatformTypeOverviewDocument: valueOperation(
+      "ordinary-metadata-query-retained-platform-type-overview-document",
+      6,
+      (facades,
+        ...args: Parameters<MetadataFacade["queryRetainedPlatformTypeOverviewDocument"]>
+      ) => facades.metadata.queryRetainedPlatformTypeOverviewDocument(...args),
+    ),
+    queryRetainedPlatformMemberGroupDocument: valueOperation(
+      "ordinary-metadata-query-retained-platform-member-group-document",
+      8,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["queryRetainedPlatformMemberGroupDocument"]>
+      ) => facades.metadata.queryRetainedPlatformMemberGroupDocument(...args),
     ),
     queryTypeOverviewDocument: valueOperation(
       "ordinary-metadata-query-type-overview-document",
@@ -1701,6 +1742,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["queryTypeProjection"]>
       ) => facades.metadata.queryTypeProjection(...args),
     ),
+    queryRetainedPlatformTypeProjection: valueOperation(
+      "ordinary-metadata-query-retained-platform-type-projection",
+      4,
+      (
+        facades,
+        ...args: Parameters<MetadataFacade["queryRetainedPlatformTypeProjection"]>
+      ) => facades.metadata.queryRetainedPlatformTypeProjection(...args),
+    ),
     queryAnnotatedTypeRelations: valueOperation(
       "ordinary-metadata-query-annotated-type-relations",
       7,
@@ -1880,6 +1929,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<AnalysisFacade["queryPackageResourceTriage"]>
       ) => facades.analysis.queryPackageResourceTriage(...args),
     ),
+    queryPackageUnsafeCodeTypes: valueOperation(
+      "ordinary-analysis-query-package-unsafe-code-types",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPackageUnsafeCodeTypes"]>
+      ) => facades.analysis.queryPackageUnsafeCodeTypes(...args),
+    ),
     queryPackageUnsafeMembers: valueOperation(
       "ordinary-analysis-query-package-unsafe-members",
       6,
@@ -1961,6 +2018,14 @@ export const engineWorkerOrdinaryOperations = {
         facades,
         ...args: Parameters<AnalysisFacade["queryPlatformResourceTriage"]>
       ) => facades.analysis.queryPlatformResourceTriage(...args),
+    ),
+    queryPlatformUnsafeCodeTypes: valueOperation(
+      "ordinary-analysis-query-platform-unsafe-code-types",
+      4,
+      (
+        facades,
+        ...args: Parameters<AnalysisFacade["queryPlatformUnsafeCodeTypes"]>
+      ) => facades.analysis.queryPlatformUnsafeCodeTypes(...args),
     ),
     queryPlatformUnsafeMembers: valueOperation(
       "ordinary-analysis-query-platform-unsafe-members",
@@ -2443,6 +2508,27 @@ export const engineWorkerOrdinaryOperations = {
         }
       },
     ),
+    canUpgradeLegacyPlatformWorkspace: valueOperation(
+      "ordinary-catalog-can-upgrade-legacy-platform-workspace",
+      1,
+      (facades, packet: string) => facades.catalog.canUpgradeLegacyPlatformWorkspace(packet),
+    ),
+    prepareLegacyPlatformWorkspaceDefinition: valueOperation(
+      "ordinary-catalog-prepare-legacy-platform-workspace-definition",
+      4,
+      (facades,
+        ...args: Parameters<CatalogFacade["prepareLegacyPlatformWorkspaceDefinition"]>
+      ) => facades.catalog.prepareLegacyPlatformWorkspaceDefinition(...args),
+      async (facades, result) => {
+        if (result.status !== "prepared" || result.receipt === null) return;
+        const cancellation = await facades.catalog.cancelRetainedWorkspaceActivation(
+          result.receipt);
+        if (cancellation.status === "failed") {
+          throw new Error(cancellation.failure?.message
+            ?? "Rejected legacy Platform preparation could not be cleaned up.");
+        }
+      },
+    ),
     prepareRetainedWorkspaceDefinition: valueOperation(
       "ordinary-catalog-prepare-retained-workspace-definition",
       4,
@@ -2729,6 +2815,9 @@ export function bindEngineWorkerOrdinaryClient(
       queryLibraryReferences: bind(
         engineWorkerOrdinaryOperations.package.queryLibraryReferences,
       ),
+      queryPackageLibraryIdentities: bind(
+        engineWorkerOrdinaryOperations.package.queryPackageLibraryIdentities,
+      ),
       queryReferencePackageSuppliers: bind(
         engineWorkerOrdinaryOperations.package.queryReferencePackageSuppliers,
       ),
@@ -2766,6 +2855,8 @@ export function bindEngineWorkerOrdinaryClient(
       cancelLibraryFindingDiffAny: bind(
         engineWorkerOrdinaryOperations.metadata.cancelLibraryFindingDiffAny,
       ),
+      cancelTypeFindingDiffAny: bind(engineWorkerOrdinaryOperations.metadata.cancelTypeFindingDiffAny),
+      queryTypeFindingDiffAny: bind(engineWorkerOrdinaryOperations.metadata.queryTypeFindingDiffAny, "background"),
       queryLibraryFindingDiffAny: bind(
         engineWorkerOrdinaryOperations.metadata.queryLibraryFindingDiffAny,
         "background",
@@ -2784,6 +2875,12 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryTypeOverviewDocument: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeOverviewDocument,
+      ),
+      queryRetainedPlatformTypeOverviewDocument: bind(
+        engineWorkerOrdinaryOperations.metadata.queryRetainedPlatformTypeOverviewDocument,
+      ),
+      queryRetainedPlatformMemberGroupDocument: bind(
+        engineWorkerOrdinaryOperations.metadata.queryRetainedPlatformMemberGroupDocument,
       ),
       queryPerformanceTypeMemberPopulation: bind(
         engineWorkerOrdinaryOperations.metadata
@@ -2835,6 +2932,9 @@ export function bindEngineWorkerOrdinaryClient(
       ),
       queryTypeProjection: bind(
         engineWorkerOrdinaryOperations.metadata.queryTypeProjection,
+      ),
+      queryRetainedPlatformTypeProjection: bind(
+        engineWorkerOrdinaryOperations.metadata.queryRetainedPlatformTypeProjection,
       ),
       queryAnnotatedTypeRelations: bind(
         engineWorkerOrdinaryOperations.metadata
@@ -2913,6 +3013,10 @@ export function bindEngineWorkerOrdinaryClient(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageResourceTriage,
       ),
+      queryPackageUnsafeCodeTypes: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPackageUnsafeCodeTypes,
+      ),
       queryPackageUnsafeMembers: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPackageUnsafeMembers,
@@ -2948,6 +3052,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryPlatformResourceTriage: bind(
         engineWorkerOrdinaryOperations.analysis
           .queryPlatformResourceTriage,
+      ),
+      queryPlatformUnsafeCodeTypes: bind(
+        engineWorkerOrdinaryOperations.analysis
+          .queryPlatformUnsafeCodeTypes,
       ),
       queryPlatformUnsafeMembers: bind(
         engineWorkerOrdinaryOperations.analysis
@@ -3124,6 +3232,12 @@ export function bindEngineWorkerOrdinaryClient(
       preparePackageQueryWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog
           .preparePackageQueryWorkspaceDefinition,
+      ),
+      canUpgradeLegacyPlatformWorkspace: bind(
+        engineWorkerOrdinaryOperations.catalog.canUpgradeLegacyPlatformWorkspace,
+      ),
+      prepareLegacyPlatformWorkspaceDefinition: bind(
+        engineWorkerOrdinaryOperations.catalog.prepareLegacyPlatformWorkspaceDefinition,
       ),
       prepareRetainedWorkspaceDefinition: bind(
         engineWorkerOrdinaryOperations.catalog

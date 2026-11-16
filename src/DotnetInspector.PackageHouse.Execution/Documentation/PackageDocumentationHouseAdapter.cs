@@ -13,8 +13,24 @@ public static class PackageDocumentationHouseAdapter
         PackageHouseLibraryMaterializationReceipt materialization,
         DocumentationSubjectReference subject)
     {
-        ArgumentNullException.ThrowIfNull(materialization);
         ArgumentNullException.ThrowIfNull(subject);
+        return Create(materialization, subject);
+    }
+
+    /// <summary>
+    /// The same selection evidence for a whole-Library summary read
+    /// (docs/design/documentation-house.md#whole-library-compiled-summaries),
+    /// naming no subject.
+    /// </summary>
+    public static CompiledXmlContribution CreateLibraryCompiledXmlContribution(
+        PackageHouseLibraryMaterializationReceipt materialization) =>
+        Create(materialization, subject: null);
+
+    private static CompiledXmlContribution Create(
+        PackageHouseLibraryMaterializationReceipt materialization,
+        DocumentationSubjectReference? subject)
+    {
+        ArgumentNullException.ThrowIfNull(materialization);
 
         LibraryReference library = materialization.Library;
         LibraryContentReference apiContent = library.ApiAssembly;

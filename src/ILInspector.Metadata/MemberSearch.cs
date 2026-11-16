@@ -1096,7 +1096,10 @@ public static class MemberSearch
                         _reader,
                         projectionType),
                     eventDefinition,
-                    adder);
+                    adder,
+                    NullabilityReader.GetTypeNullableContext(
+                        _reader,
+                        projectionTypeHandle));
             return (
                 ApiMemberIdentity.CreateEventAnchor(
                     _reader,

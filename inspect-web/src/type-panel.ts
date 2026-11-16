@@ -74,7 +74,7 @@ export interface TypeSummary {
   namespace: string;
   kind: string;
   signature: string;
-  members: number;
+  members: number | null;
   accessibility?: string;
   assembly: string;
   assemblyId?: string;
@@ -293,6 +293,7 @@ export interface TypeMetadata {
   exactTypeInspection?: BrowserTypeMetadata["exactTypeInspection"];
   typeSignatureInspection?: BrowserTypeMetadata["typeSignatureInspection"];
   typeSignaturePresentation?: BrowserTypeMetadata["typeSignaturePresentation"];
+  typeProjectionInspection?: BrowserTypeMetadata["typeProjectionInspection"];
   hierarchy?: BrowserTypeMetadata["hierarchy"];
   graphNodes?: readonly unknown[];
   inspectionFailures?: readonly string[];
@@ -770,7 +771,9 @@ export function renderTypeNav(options: TypeNavOptions): string {
                 <span class="type-name">${escapeHtml(typeDisplayName(item))}</span>
                 ${isForwardedType(item)
                   ? '<small class="forwarded-type-label">Forwarded</small>'
-                  : `<small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>`}
+                  : item.members === null
+                    ? definingLibrary ? `<small>${escapeHtml(definingLibrary)}</small>` : ""
+                    : `<small title="${item.members} ${item.members === 1 ? "member" : "members"}">${definingLibrary ? `${escapeHtml(definingLibrary)} · ` : ""}${item.members}</small>`}
               </button>`;
             }).join("")}
           </section>`;
@@ -974,7 +977,7 @@ export function typeHeading(options: TypeHeadingOptions): string {
       <h1>${escapeHtml(typeDisplayName(item))}</h1>
       <code class="type-signature">${highlight(item.signature)}</code>
     </div>
-    <div class="type-metrics"><span><strong>${item.members}</strong> members</span><span><strong>${escapeHtml(item.accessibility || "public")}</strong> accessibility</span></div>
+    <div class="type-metrics">${item.members === null ? "" : `<span><strong>${item.members}</strong> members</span>`}<span><strong>${escapeHtml(item.accessibility || "public")}</strong> accessibility</span></div>
     <dl class="definition-list">
       <div><dt>TFM:</dt><dd>${escapeHtml(packageContext.activeFramework)}</dd></div>
       <div><dt>Library:</dt><dd>${escapeHtml(libraryLabel ?? item.assembly)}</dd></div>
@@ -1050,6 +1053,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   const exactEnvelope = meta?.exactTypeInspection;
   const exact = exactEnvelope?.content.type ?? null;
   const signature = meta?.typeSignaturePresentation;
+  const projection = meta?.typeProjectionInspection?.content;
   const exactModifiers = signature?.modifiers ?? [
     exact?.isStatic ? "static" : "",
     exact?.isAbstract && !exact?.isStatic ? "abstract" : "",
@@ -1065,13 +1069,15 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     const accessibility =
       exactUnavailable
         ? "unavailable"
-        : signature?.accessibility || exact?.accessibility || item.accessibility || "public";
+        : signature?.accessibility || exact?.accessibility
+          || item.accessibility || "public";
     const retainedKindParts = item.kind.split(/\s+/).filter(Boolean);
     const retainedKind = retainedKindParts.at(-1) ?? item.kind;
     const retainedModifiers = retainedKindParts.slice(0, -1);
     const metadataBadges = [
-      exactUnavailable ? "exact Type" : signature?.kind || exact?.kind || retainedKind,
-      ...(exact ? exactModifiers : retainedModifiers),
+      exactUnavailable ? "exact Type"
+        : signature?.kind || exact?.kind || projection?.kind || retainedKind,
+      ...(exact || signature || projection ? exactModifiers : retainedModifiers),
       accessibility,
     ];
     const badges = metadataBadges.map(badge =>
@@ -1092,7 +1098,9 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
             <div class="subject-overview-summary-group type-overview-navigation">
               <span class="subject-overview-summary-label">Navigate</span>
               <div>
-                <button type="button" data-type-members>${item.members.toLocaleString()} member${item.members === 1 ? "" : "s"}</button>
+                <button type="button" data-type-members>${item.members === null
+                  ? "Members"
+                  : `${item.members.toLocaleString()} member${item.members === 1 ? "" : "s"}`}</button>
                 ${analysisSummaryHtml}
               </div>
             </div>
@@ -1118,16 +1126,19 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   if (!meta) {
     return renderSurface(`<section class="document-section metadata-surface-state empty-document" data-type-graph-surface><span class="loader"></span><h2>Loading…</h2></section>`);
   }
-  if (!exactEnvelope) {
+  if (!exactEnvelope && !signature && !projection) {
     return renderSurface(`
       <section class="document-section metadata-surface-state empty-document" data-type-graph-surface>
         <span class="large-glyph">⌁</span>
         <h2>Type metadata is unavailable</h2>
-        <p>The exact metadata inspection envelope was not returned.</p>
+        <p>Inspection did not produce Type metadata.</p>
+        ${(meta.inspectionFailures ?? []).length
+          ? `<ul>${meta.inspectionFailures!.map(entry =>
+            `<li>${escapeHtml(entry)}</li>`).join("")}</ul>` : ""}
       </section>`);
   }
-  const exactResult = exactEnvelope.content;
-  if (!exactResult.isAvailable || !exact) {
+  const exactResult = exactEnvelope?.content;
+  if (exactEnvelope && exactResult && (!exactResult.isAvailable || !exact)) {
     const outcome = exactResult.outcome === EXACT_TYPE_NOT_FOUND
       ? "Type not found"
       : exactResult.outcome === EXACT_TYPE_AMBIGUOUS
@@ -1150,14 +1161,18 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   }
 
   const shape: (readonly [string, string])[] = [
-    ["Kind", [...exactModifiers, signature?.kind || exact?.kind || item.kind].join(" ")],
-    ["Accessibility", signature?.accessibility || exact?.accessibility || item.accessibility || "public"],
-    ["Namespace", signature?.namespace || exact?.namespace || item.namespace || "global"],
+    ["Kind", [...exactModifiers,
+      signature?.kind || exact?.kind || projection?.kind || item.kind].join(" ")],
+    ["Accessibility", signature?.accessibility || exact?.accessibility
+      || item.accessibility || "public"],
+    ["Namespace", signature?.namespace || exact?.namespace
+      || item.namespace || "global"],
     ["Assembly", exactAssembly || item.assembly],
   ];
   if (signature?.baseType) shape.push(["Base type", signature.baseType]);
-  if (exact?.enumUnderlyingType)
-    shape.push(["Enum underlying", exact.enumUnderlyingType]);
+  const enumUnderlyingType = exact?.enumUnderlyingType ?? projection?.enumUnderlyingType;
+  if (enumUnderlyingType)
+    shape.push(["Enum underlying", enumUnderlyingType]);
   if (signature?.typeParameters)
     shape.push(["Type parameters", signature.typeParameters]);
   if (signature && signature.nestedTypeCount > 0)
@@ -1165,10 +1180,11 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
   if (!signature)
     shape.push(["Type signature", "Unavailable"]);
 
-  const interfaces = exact.interfaces.length
+  const implementedInterfaces = exact?.interfaces ?? projection?.interfaces ?? [];
+  const interfaces = implementedInterfaces.length
     ? `<section class="document-section">
-        <div class="section-title"><h2>Implements</h2><span>${exact.interfaces.length} interface${exact.interfaces.length === 1 ? "" : "s"}</span></div>
-        <div class="type-chip-list">${exact.interfaces.map(name => relatedTypeChip(name)).join("")}</div>
+        <div class="section-title"><h2>Implements</h2><span>${implementedInterfaces.length} interface${implementedInterfaces.length === 1 ? "" : "s"}</span></div>
+        <div class="type-chip-list">${implementedInterfaces.map(name => relatedTypeChip(name)).join("")}</div>
       </section>`
     : "";
 
@@ -1209,25 +1225,36 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
           ${warning}
         </section>`;
       })()
-    : "";
+    : projection
+      ? `<section class="document-section">
+          <div class="section-title"><h2>${projection.kind === "interface"
+            ? "Implementers" : "Derived types"}</h2><span>Same Library · ${projection.derivedTypes.length} ${(meta.inspectionFailures ?? []).length ? "observed " : ""}direct matches</span></div>
+          ${projection.derivedTypes.length
+            ? `<div class="type-chip-list">${projection.derivedTypes
+              .map(name => relatedTypeChip(name)).join("")}</div>`
+            : (meta.inspectionFailures ?? []).length
+              ? "<p>Relationship inspection is incomplete.</p>"
+              : "<p>No relationships found in this Library.</p>"}
+        </section>`
+      : "";
 
-  const attributes = exact.attributes.length
+  const customAttributes = exact?.attributes ?? projection?.attributes ?? [];
+  const attributes = customAttributes.length
     ? `<section class="document-section">
-        <div class="section-title"><h2>Custom attributes</h2><span>${exact.attributes.length}</span></div>
-        <ul class="custom-attribute-list" aria-label="Custom attributes">${exact.attributes.map(attribute => `<li><code class="language-csharp">${highlightCSharp(`[${attribute}]`)}</code></li>`).join("")}</ul>
+        <div class="section-title"><h2>Custom attributes</h2><span>${customAttributes.length}</span></div>
+        <ul class="custom-attribute-list" aria-label="Custom attributes">${customAttributes.map(attribute => `<li><code class="language-csharp">${highlightCSharp(`[${attribute}]`)}</code></li>`).join("")}</ul>
       </section>`
     : "";
 
-  const composition = exact.members.length && memberCompositionHtml
+  const composition = (exact?.members.length || projection) && memberCompositionHtml
     ? `<section class="document-section">
         <div class="section-title"><h2>Members</h2><span>click a count to browse the member list</span></div>
         ${memberCompositionHtml}
       </section>`
     : "";
 
-  const exactDiagnostics = (
-    !exactResult.isComplete
-    || exactEnvelope.diagnostics.length > 0)
+  const exactDiagnostics = exactEnvelope && exactResult && (
+    !exactResult.isComplete || exactEnvelope.diagnostics.length > 0)
     ? `<section class="document-section metadata-warning"><strong>⚠ Exact type inspection may be incomplete</strong><ul>${
       exactEnvelope.diagnostics.length
         ? exactEnvelope.diagnostics

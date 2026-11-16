@@ -22,7 +22,7 @@ internal static partial class ExactTypeInspectionQuery
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedType);
-        ExactTypeSelectionKind selection = selectedDefinition is null
+        ExactTypeSelectionKind selectionKind = selectedDefinition is null
             ? ExactTypeSelectionKind.Query
             : ExactTypeSelectionKind.DefinitionIdentity;
         var root = new AssemblyContextParticipant(assembly, bindingPolicy);
@@ -108,7 +108,7 @@ internal static partial class ExactTypeInspectionQuery
         if (catalogSurface.InspectionFailures.Any(failure =>
             failure.Operation != ApiSurface.ConstraintResolutionOperation
                 && MayAffectTypeLookup(
-                    failure, requestedType, selection)))
+                    failure, requestedType, selectionKind)))
         {
             ImmutableArray<ApiSurfaceInspectionFailure> lookupFailures =
             [
@@ -127,81 +127,24 @@ internal static partial class ExactTypeInspectionQuery
                     null),
                 null);
         }
-        ApiType? selectedType;
-        string? matchedName;
-        string[] suggestions;
-        bool ambiguous;
-        if (selectedDefinition is not null)
-        {
-            MetadataTypeLookupResult<ApiType> lookup = MetadataTypeLookup.Definition(
-                catalogSurface.Types.Where(type => type.DefinitionName is not null),
-                static type => type.DefinitionName!,
-                selectedDefinition);
-            selectedType = lookup.Matches.Length == 1 ? lookup.Matches[0] : null;
-            matchedName = lookup.MatchedName;
-            ambiguous = lookup.Matches.Length > 1;
-            suggestions = [];
-        }
-        else if (TypeMatcher.IsTypeGlobPattern(requestedType))
-        {
-            string[] names = [.. catalogSurface.Types.Select(type => type.FullName)];
-            LookupResult pattern = TypeMatcher.Lookup(names, requestedType);
-            selectedType = pattern.Match is null
-                ? null
-                : catalogSurface.Types.First(type => type.FullName == pattern.Match);
-            matchedName = pattern.Match;
-            suggestions = [.. pattern.Suggestions];
-            ambiguous = pattern.Match is null && pattern.Suggestions.Count > 0;
-        }
-        else
-        {
-            MetadataTypeLookupResult<ApiType> lookup = MetadataTypeLookup.Query(
-                catalogSurface.Types.Where(type => type.DefinitionName is not null),
-                static type => type.DefinitionName!,
-                requestedType);
-            selectedType = lookup.Matches.Length == 1 ? lookup.Matches[0] : null;
-            matchedName = lookup.MatchedName;
-            ambiguous = lookup.Matches.Length > 1;
-            suggestions = ambiguous
-                ? [.. lookup.Matches.Select(type => type.FullName).Distinct(StringComparer.Ordinal)]
-                : selectedType is null
-                    ? [.. TypeMatcher.Lookup(
-                        [.. catalogSurface.Types.Select(type => type.FullName)],
-                        requestedType).Suggestions]
-                    : [];
-        }
+        ExactTypeCatalogSelection selection = SelectCatalog(
+            catalogSurface, requestedType, allowImpliedMember: false,
+            selectionKind);
+        ApiType? selectedType = selection.Type;
+        string? matchedName = selection.MatchedType;
         if (selectedType is null)
         {
-            if (!ambiguous
-                && (selectedDefinition is not null || !TypeMatcher.IsTypeGlobPattern(requestedType)))
-            {
-                IEnumerable<TypeForwarder> forwarders =
-                    catalogSurface.TypeForwarders.Where(item => item.DefinitionName is not null);
-                MetadataTypeLookupResult<TypeForwarder> forwarded = selectedDefinition is null
-                    ? MetadataTypeLookup.Query(
-                        forwarders, static item => item.DefinitionName!, requestedType)
-                    : MetadataTypeLookup.Definition(
-                        forwarders, static item => item.DefinitionName!, selectedDefinition);
-                if (forwarded.Matches.Length == 1)
-                    return Unavailable("The selected forwarded Type API could not be read.");
-                if (forwarded.Matches.Length > 1)
-                {
-                    ambiguous = true;
-                    suggestions = [.. forwarded.Matches.Select(item => item.TypeName)];
-                }
-            }
+            if (selection.Outcome == ExactTypeInspectionOutcome.Unavailable)
+                return Unavailable("The selected Type API could not be read.");
             return new(
                 new(
-                    new(
-                        ambiguous
-                            ? ExactTypeInspectionOutcome.Ambiguous
-                            : ExactTypeInspectionOutcome.NotFound,
+                    new(selection.Outcome,
                         requestedType, null, null, null, null,
-                        [], [.. suggestions], [], []),
-                    [],
-                    null),
+                        [], selection.Suggestions, [], []),
+                    [], null),
                 catalogSurface);
         }
+        ImmutableArray<string> suggestions = selection.Suggestions;
 
         if (selectedType.DefinitionName is not { } definitionName)
             return Unavailable("The selected Type has no Metadata definition identity.");
@@ -241,7 +184,7 @@ internal static partial class ExactTypeInspectionQuery
             workspace.Identity,
             new ExactTypeInspectionContext(loaded),
             requestedType,
-            selection,
+            selectionKind,
             [participant],
             definingSource: null,
             definingSources: null,

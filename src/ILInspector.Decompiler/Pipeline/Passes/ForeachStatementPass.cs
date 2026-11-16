@@ -44,7 +44,12 @@ namespace ILInspector.Decompiler.Pipeline;
 /// one that copies the array stays a for loop because its copy and index carry
 /// source names. Both slots must be referenced <em>only</em> by the lowered
 /// shape across the whole function — a reference anywhere else means the slots
-/// are not the hidden foreach scaffolding.</para>
+/// are not the hidden foreach scaffolding. When csc eliminated a single-use
+/// <c>item</c>, the body instead reads <c>a[i]</c> exactly once as its first
+/// effect (only plain local, argument, or constant reads before it), and the
+/// raise synthesizes the iteration variable; a read after a user call or store
+/// stays a for loop, since hoisting it could reorder it past a write to the
+/// array.</para>
 ///
 /// <para><b>String form</b> mirrors the array form, but indexes through
 /// <c>string.Length</c> and <c>string.Chars</c> over hidden string-copy and index
@@ -186,10 +191,28 @@ public sealed class ForeachStatementPass : IIrPass
             var loop = candidate.Loop;
             var collection = candidate.CollectionCopy.Value;
             collection.Detach();
-            candidate.ItemStore.Detach();
+            int itemIndex;
+            TypeRef itemType;
+            if (candidate.ItemStore is { } itemStore)
+            {
+                itemStore.Detach();
+                (itemIndex, itemType) = (itemStore.Index, itemStore.Type);
+            }
+            else
+            {
+                // The single-use iteration variable was folded into its one use
+                // (the element read, the body's first effect) before this
+                // pass ran. The copy and index are hidden scaffolding the body
+                // never writes and, under `i < a.Length`, the read cannot throw:
+                // hoisting it to the foreach header is the exact inverse.
+                LoadElement element = candidate.InlineElement!;
+                itemType = element.ResultType!;
+                itemIndex = function.AddSynthesizedLocal(itemType, "item");
+                element.ReplaceWith(new LoadLocal(itemIndex, itemType));
+            }
             var body = loop.Body;
             body.Detach();
-            var foreachStatement = new ForeachStatement(candidate.ItemStore.Index, candidate.ItemStore.Type, collection, body);
+            var foreachStatement = new ForeachStatement(itemIndex, itemType, collection, body);
             context.Stepper.StepOver(candidate.StepMessage, loop);
             loop.ReplaceWith(foreachStatement);
             candidate.CollectionCopy.Detach();
@@ -710,11 +733,12 @@ public sealed class ForeachStatementPass : IIrPass
     sealed record IndexedCandidate(
         ForLoop Loop,
         StoreLocal CollectionCopy,
-        StoreLocal ItemStore,
+        StoreLocal? ItemStore,
         int CollectionIndex,
         int IndexIndex,
         IReadOnlyCollection<IrNode> Allowed,
-        string StepMessage);
+        string StepMessage,
+        LoadElement? InlineElement = null);
 
     static IndexedCandidate? TryMatchArray(IrFunction function, ForLoop loop)
     {
@@ -749,17 +773,34 @@ public sealed class ForeachStatementPass : IIrPass
             return null;
         }
 
-        // body opens with: item = a[i]
-        if (loop.Body.Children is not [StoreLocal { Value: LoadElement { Array: var elementArray, Index: var elementIndex } } itemStore, ..]
-            || !IsLoad(elementArray, arrayIndex)
-            || !IsLoad(elementIndex, indexIndex))
+        // body opens with: item = a[i]; or, when the single-use item was folded
+        // into its use, reads a[i] exactly once
+        StoreLocal? itemStore = null;
+        LoadElement? inlineElement = null;
+        IrExpression elementArray, elementIndex;
+        if (loop.Body.Children is [StoreLocal { Value: LoadElement { Array: var storedArray, Index: var storedIndex } } store, ..]
+            && IsLoad(storedArray, arrayIndex)
+            && IsLoad(storedIndex, indexIndex))
+        {
+            itemStore = store;
+            (elementArray, elementIndex) = (storedArray, storedIndex);
+            if (itemStore.Index == arrayIndex || itemStore.Index == indexIndex)
+                return null;
+            if (!IterationVariableOnlyStoredByHeader(function, itemStore))
+                return null;
+        }
+        else if (loop.Body.DescendantsOutsideNestedFunctions.OfType<LoadElement>()
+                .Where(element => IsLoad(element.Array, arrayIndex) && IsLoad(element.Index, indexIndex))
+                .ToList() is [{ ResultType: not null } element]
+            && IsFirstEffect(loop.Body, element))
+        {
+            inlineElement = element;
+            (elementArray, elementIndex) = (element.Array, element.Index);
+        }
+        else
         {
             return null;
         }
-        if (itemStore.Index == arrayIndex || itemStore.Index == indexIndex)
-            return null;
-        if (!IterationVariableOnlyStoredByHeader(function, itemStore))
-            return null;
 
         // Both scaffold locals must be compiler-hidden; the item local may carry
         // the source foreach-variable name, but the copy and index never do.
@@ -776,7 +817,43 @@ public sealed class ForeachStatementPass : IIrPass
             arrayCopy, initStore, comparison.Left, lengthArray, loop.Increment, incLeft, elementArray, elementIndex,
         };
 
-        return new IndexedCandidate(loop, arrayCopy, itemStore, arrayIndex, indexIndex, allowed, "raise indexed array loop to foreach");
+        return new IndexedCandidate(loop, arrayCopy, itemStore, arrayIndex, indexIndex, allowed, "raise indexed array loop to foreach", inlineElement);
+    }
+
+    // csc folds the single-use iteration variable into its use only when the
+    // element read is the body's first effect. A read after a user call or
+    // store could follow a write to the array, which hoisting it would
+    // reorder. The path from the body's first statement descends through
+    // operands every simple statement and expression evaluates unconditionally,
+    // and anything evaluated before the read is a plain local, argument, or
+    // constant read (an accumulator's `sum + await a[i]`).
+    static bool IsFirstEffect(IrNode body, LoadElement element)
+    {
+        if (body.Children.Count == 0)
+            return false;
+        IrNode node = body.Children[0];
+        while (!ReferenceEquals(node, element))
+        {
+            if (!(node is ExpressionStatement or StoreLocal or StoreStackSlot or Return
+                    || node is IrExpression and not (Lambda or LoadElement)))
+                return false;
+            int next = -1;
+            for (int i = 0; i < node.Children.Count; i++)
+            {
+                if (ReferenceEquals(node.Children[i], element) || node.Children[i].Descendants.Any(d => ReferenceEquals(d, element)))
+                {
+                    next = i;
+                    break;
+                }
+                if (node is not (Binary or Call or NewObject)
+                    || node.Children[i] is not (LoadLocal or LoadArgument or Constant))
+                    return false;
+            }
+            if (next < 0)
+                return false;
+            node = node.Children[next];
+        }
+        return true;
     }
 
     static IndexedCandidate? TryMatchString(IrFunction function, ForLoop loop)

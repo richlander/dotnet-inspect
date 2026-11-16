@@ -352,7 +352,7 @@ public static class MatchCommand
 
     /// <summary>
     /// Resolves a <c>Type.Member</c> selector to the unique <see cref="ApiMember.MetadataToken"/>
-    /// it names. Reuses <see cref="ApiTypeLookupService"/>'s type-vs-member boundary detection
+    /// it names. Uses the shared exact-Type operation's type-vs-member boundary detection
     /// rather than re-splitting the string, since that boundary is not knowable syntactically.
     /// </summary>
     internal static ResolvedSelector ResolveSelector(ApiSurface api, string apiDllPath, string selector)
@@ -397,24 +397,27 @@ public static class MatchCommand
         var lookup = ApiTypeLookupService.LookupType(api, selector);
         if (!lookup.Found)
         {
-            if (TryGetForwardedTypeFailure(
-                    api,
-                    selector,
-                    out ApiSurfaceInspectionFailure? forwardingFailure,
-                    out string? forwardedType))
+            if (lookup.Outcome is ExactTypeInspectionOutcome.Unavailable
+                or ExactTypeInspectionOutcome.Ambiguous)
             {
-                string target = forwardingFailure.DependencyAssembly is null
-                    ? ""
-                    : " Target: "
-                        + AssemblyIdentityFormatter.Format(
-                            forwardingFailure.DependencyAssembly)
-                        + ".";
-                return new ResolvedSelector(
-                    null,
-                    null,
-                    null,
-                    $"Forwarded type '{forwardedType}' could not be resolved: "
-                        + $"{forwardingFailure.Kind}.{target}");
+                ApiSurfaceInspectionFailure[] forwardingFailures =
+                    [.. (lookup.Failures ?? []).Where(failure => failure.Operation == "resolve forwarded type")];
+                ApiSurfaceInspectionFailure? forwardingFailure = forwardingFailures.Length == 1
+                    ? forwardingFailures[0] : null;
+                if (forwardingFailure is { AffectedTypeDefinitions.Length: 1 })
+                {
+                    string target = forwardingFailure.DependencyAssembly is null
+                        ? ""
+                        : " Target: " + AssemblyIdentityFormatter.Format(
+                            forwardingFailure.DependencyAssembly) + ".";
+                    return new ResolvedSelector(null, null, null,
+                        $"Forwarded type '{forwardingFailure.AffectedTypeDefinitions[0].ToMetadataFullName()}' "
+                            + $"could not be resolved: {forwardingFailure.Kind}.{target}");
+                }
+                string details = string.Join("; ", (lookup.Failures ?? []).Select(failure =>
+                    $"{failure.Kind}: {failure.Detail}"));
+                return new ResolvedSelector(null, null, null,
+                    $"Type selection for '{selector}' is {lookup.Outcome.ToString().ToLowerInvariant()}. {details}");
             }
 
             return new ResolvedSelector(
@@ -493,104 +496,6 @@ public static class MatchCommand
             originAssemblyPath,
             null,
             apiType);
-    }
-
-    static bool TryGetForwardedTypeFailure(
-        ApiSurface api,
-        string selector,
-        [NotNullWhen(true)] out ApiSurfaceInspectionFailure? failure,
-        [NotNullWhen(true)] out string? typeName)
-    {
-        var candidates = api.InspectionFailures
-            .Where(candidate =>
-                candidate.Operation.Equals(
-                    "resolve forwarded type",
-                    StringComparison.Ordinal)
-                && !candidate.AffectedTypeDefinitions.IsDefaultOrEmpty)
-            .SelectMany(candidate =>
-                candidate.AffectedTypeDefinitions.Select(
-                    affected => (
-                        Failure: candidate,
-                        Name: affected.ToMetadataFullName())))
-            .ToArray();
-        if (candidates.Length == 0)
-        {
-            failure = null;
-            typeName = null;
-            return false;
-        }
-
-        int searchEnd = selector.Length;
-        for (int probes = 0; probes < 64 && searchEnd > 0; probes++)
-        {
-            int dot = FqnParser.LastTopLevelDot(selector[..searchEnd]);
-            if (dot <= 0)
-                break;
-
-            int typeEnd = dot;
-            string member = selector[(dot + 1)..];
-            MemberTargetSelector memberSelector =
-                MemberTargetSelector.Parse(member);
-            if (string.IsNullOrWhiteSpace(memberSelector.Name))
-            {
-                failure = null;
-                typeName = null;
-                return false;
-            }
-
-            if (typeEnd > 1 && selector[typeEnd - 1] == '.')
-            {
-                if (!(memberSelector.Name.Equals(
-                        ".ctor",
-                        StringComparison.OrdinalIgnoreCase)
-                    || memberSelector.Name.Equals(
-                        "cctor",
-                        StringComparison.OrdinalIgnoreCase)
-                    || memberSelector.Name.Equals(
-                        ".cctor",
-                        StringComparison.OrdinalIgnoreCase)))
-                {
-                    failure = null;
-                    typeName = null;
-                    return false;
-                }
-
-                typeEnd--;
-                if (typeEnd > 0 && selector[typeEnd - 1] == '.')
-                {
-                    failure = null;
-                    typeName = null;
-                    return false;
-                }
-            }
-
-            (ApiSurfaceInspectionFailure Failure, string Name)[] matches =
-                [.. candidates.Where(candidate =>
-                    TypeMatcher.MatchesTypeFilter(
-                        candidate.Name,
-                        selector[..typeEnd]))];
-            if (matches.Length > 0)
-            {
-                if (matches.Length != 1)
-                {
-                    failure = null;
-                    typeName = null;
-                    return false;
-                }
-
-                (ApiSurfaceInspectionFailure Failure, string Name) matched =
-                    matches[0];
-                failure = matched.Failure;
-                typeName = matched.Name;
-                return true;
-            }
-
-            searchEnd = dot;
-        }
-
-        failure = null;
-        typeName = null;
-        return false;
     }
 
     static async Task<MethodBodyDiffDocument> CompareBodiesAsync(

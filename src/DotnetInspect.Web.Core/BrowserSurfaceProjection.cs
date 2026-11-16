@@ -190,7 +190,7 @@ internal static class BrowserSurfaceProjection
             [.. surfaces.Accessibility.Select(Descriptor)],
             identified
                 .Where(type => IsDefaultBucket(surfaces, type))
-                .Sum(type => type.Members),
+                .Sum(type => type.Members.GetValueOrDefault()),
             noticeEntries,
             notice,
             truncation is not null);
@@ -335,7 +335,7 @@ internal static class BrowserSurfaceProjection
                         identityPublicKeyToken,
                         asset,
                         publicTypes.Length,
-                        publicTypes.Sum(type => type.Members),
+                        publicTypes.Sum(type => type.Members.GetValueOrDefault()),
                         PlatformPack: null),
                 ]
                 : [],
@@ -343,7 +343,7 @@ internal static class BrowserSurfaceProjection
             [.. inventory.KindFacets.Select(Descriptor)],
             [.. inventory.TraitFacets.Select(Descriptor)],
             [.. accessibility.Select(Descriptor)],
-            publicTypes.Sum(type => type.Members),
+            publicTypes.Sum(type => type.Members.GetValueOrDefault()),
             noticeEntries,
             notice,
             truncation is not null);

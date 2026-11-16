@@ -12,12 +12,16 @@ public enum CompiledXmlContributionKind
 
 /// <summary>
 /// Resource-free source evidence for one compiled-XML selection observation.
+/// A contribution names the documentation subject it was created for, or no
+/// subject when it describes the Library's companion selection for a
+/// whole-Library summary read (docs/design/documentation-house.md#whole-library-compiled-summaries);
+/// per-subject settlement rejects a contribution without its subject.
 /// </summary>
 public sealed class CompiledXmlContribution
 {
     private CompiledXmlContribution(
         CompiledXmlContributionKind kind,
-        DocumentationSubjectReference subject,
+        DocumentationSubjectReference? subject,
         LibraryReference library,
         LibraryContentReference apiContent,
         DocumentationSourceReference source,
@@ -26,7 +30,6 @@ public sealed class CompiledXmlContribution
     {
         if (!Enum.IsDefined(kind))
             throw new ArgumentOutOfRangeException(nameof(kind));
-        ArgumentNullException.ThrowIfNull(subject);
         ArgumentNullException.ThrowIfNull(library);
         ArgumentNullException.ThrowIfNull(apiContent);
         ArgumentNullException.ThrowIfNull(source);
@@ -61,7 +64,7 @@ public sealed class CompiledXmlContribution
     }
 
     public CompiledXmlContributionKind Kind { get; }
-    public DocumentationSubjectReference Subject { get; }
+    public DocumentationSubjectReference? Subject { get; }
     public LibraryReference Library { get; }
     public LibraryContentReference ApiContent { get; }
     public DocumentationSourceReference Source { get; }
@@ -69,7 +72,7 @@ public sealed class CompiledXmlContribution
     public int? Precedence { get; }
 
     public static CompiledXmlContribution Candidate(
-        DocumentationSubjectReference subject,
+        DocumentationSubjectReference? subject,
         LibraryReference library,
         LibraryContentReference apiContent,
         DocumentationSourceReference source,
@@ -85,7 +88,7 @@ public sealed class CompiledXmlContribution
             precedence);
 
     public static CompiledXmlContribution Absent(
-        DocumentationSubjectReference subject,
+        DocumentationSubjectReference? subject,
         LibraryReference library,
         LibraryContentReference apiContent,
         DocumentationSourceReference source) =>
@@ -99,7 +102,7 @@ public sealed class CompiledXmlContribution
             precedence: null);
 
     public static CompiledXmlContribution Partial(
-        DocumentationSubjectReference subject,
+        DocumentationSubjectReference? subject,
         LibraryReference library,
         LibraryContentReference apiContent,
         DocumentationSourceReference source) =>
@@ -113,7 +116,7 @@ public sealed class CompiledXmlContribution
             precedence: null);
 
     public static CompiledXmlContribution Unavailable(
-        DocumentationSubjectReference subject,
+        DocumentationSubjectReference? subject,
         LibraryReference library,
         LibraryContentReference apiContent,
         DocumentationSourceReference source) =>

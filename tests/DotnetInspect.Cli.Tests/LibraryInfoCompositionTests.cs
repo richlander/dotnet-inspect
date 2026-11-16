@@ -27,7 +27,7 @@ public sealed class LibraryInfoCompositionTests
         Assert.Contains("| Company | Microsoft Corporation |", info, StringComparison.Ordinal);
         Assert.Contains("| Signed | Yes |", info, StringComparison.Ordinal);
         Assert.Contains("| Reproducible | Yes |", info, StringComparison.Ordinal);
-        Assert.Contains("| Version | 11.0.0-rc.1.26425.128 |", info, StringComparison.Ordinal);
+        Assert.Contains("| Version | 11.0.0-rc.3.26522.148 |", info, StringComparison.Ordinal);
         Assert.DoesNotContain("Modified", info, StringComparison.Ordinal);
     }
 
@@ -103,7 +103,7 @@ public sealed class LibraryInfoCompositionTests
         Assert.Equal(
             0,
             LibraryInspection.ConstructionCountForTests);
-        Assert.Contains("Version: 11.0.0-rc.1.26425.128", output, StringComparison.Ordinal);
+        Assert.Contains("Version: 11.0.0-rc.3.26522.148", output, StringComparison.Ordinal);
         Assert.Contains("TFM: .NETCoreApp,Version=v11.0", output, StringComparison.Ordinal);
         Assert.Contains("Size: 601.3 KB", output, StringComparison.Ordinal);
         Assert.DoesNotContain("Modified", output, StringComparison.Ordinal);

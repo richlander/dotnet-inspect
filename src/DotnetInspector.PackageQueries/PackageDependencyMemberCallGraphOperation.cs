@@ -337,7 +337,7 @@ public sealed class PackageDependencyMemberCallGraphGeneration :
 
         return PackageRoleMemberCallGraphQuery.CreateContinuationEvidence(
             projection,
-            available.Document,
+            available,
             predecessor);
     }
 
@@ -475,6 +475,36 @@ public sealed class PackageDependencyMemberCallGraphPreparation
     public ImmutableArray<PackageRootBinding> GraphBindings { get; }
 
     public PackageRootIdentity Root { get; }
+
+    public ImmutableArray<PackageDependencyEdgeRealizationEvidence>
+        GetRealizationEvidence(PackageDependencyTraversalOutcome traversal)
+    {
+        ArgumentNullException.ThrowIfNull(traversal);
+        if (!ReferenceEquals(traversal, Traversal))
+            throw new ArgumentException(
+                "Realization evidence belongs to another traversal.",
+                nameof(traversal));
+
+        return
+        [
+            .. Routes.Destinations.Select(static destination =>
+                destination switch
+                {
+                    PackageDependencyWorkspaceDestination.Package package =>
+                        package.Realization,
+                    PackageDependencyWorkspaceDestination.Platform platform =>
+                        platform.Realization,
+                    PackageDependencyWorkspaceDestination.Unavailable unavailable =>
+                        unavailable.Realization,
+                    _ => throw new InvalidOperationException(
+                        "Unknown dependency Workspace destination."),
+                })
+                .OfType<PackageDependencyEdgeRealizationEvidence>()
+                .OrderBy(static realization =>
+                    realization.Subject.RootOccurrenceIndex)
+                .ThenBy(static realization => realization.Subject.EdgeIndex),
+        ];
+    }
 
     public PackageRootBinding ResolvePackageBinding(
         PackageDependencyEdgeRealizationSubject route)

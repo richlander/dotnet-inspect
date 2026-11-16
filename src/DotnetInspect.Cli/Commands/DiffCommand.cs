@@ -197,6 +197,20 @@ public partial class DiffCommand
             return discovered;
         }
 
+        // Changed Types and Changed Members run Finding Diff Any's Library
+        // and Type routes on their own; they compose with no other section,
+        // filter, or analysis.
+        bool findingDiffAny = SelectsFindingDiffAny(options);
+        if (findingDiffAny)
+        {
+            if (!ValidateFindingDiffAny(options))
+                return 1;
+            if (!options.FormatExplicitlySet
+                && !options.JsonOutput && !options.EnvelopeOutput
+                && !options.Tabular && !options.Tsv && !options.Jsonl)
+                options = options with { Tabular = true, Tsv = true };
+        }
+
         DiffAnalysisPlan? analysisPlan = null;
         if (SelectsAnalysisSet(options))
         {
@@ -254,6 +268,7 @@ public partial class DiffCommand
         if (transportOption is not null
             && !analysisTransport
             && !annotatedSourceTransport
+            && !findingDiffAny
             && ((!implementationTransport
                     && options.HasContentProjection)
                 || implementationTransport
@@ -360,6 +375,7 @@ public partial class DiffCommand
                     options,
                     analysisPlan is not null,
                     annotatedSourceTransport
+                        || findingDiffAny
                         || RequestsWorkspaceImplementationTarget(options)
                         || ReadsMethodBodies(catalog, options, analysisPlan),
                     logger,
@@ -405,6 +421,13 @@ public partial class DiffCommand
 
             try
             {
+                if (findingDiffAny)
+                {
+                    return await ExecuteFindingDiffAnyAsync(
+                        inputs,
+                        options,
+                        cancellationToken);
+                }
                 if (annotatedSourceTransport)
                 {
                     return await ExecuteAnnotatedSourceDiffAsync(
@@ -1014,6 +1037,217 @@ public partial class DiffCommand
         }
     }
 
+    static bool SelectsFindingDiffAny(DiffOptions options)
+        => options.IncludeSections?.Contains(DiffSections.ChangedTypes.Name) == true
+            || SelectsChangedMembers(options);
+
+    static bool SelectsChangedMembers(DiffOptions options)
+        => options.IncludeSections?.Contains(DiffSections.ChangedMembers.Name) == true;
+
+    static bool ValidateFindingDiffAny(DiffOptions options)
+    {
+        bool members = SelectsChangedMembers(options);
+        string section = members
+            ? DiffSections.ChangedMembers.Name
+            : DiffSections.ChangedTypes.Name;
+        if (options.IncludeSections is not { Count: 1 })
+        {
+            CommandError.Write(
+                $"{section} must be selected by itself because it compares "
+                + (members ? "one Type" : "one whole Library pair")
+                + "; use @Diff for composable comparison sections.");
+            return false;
+        }
+        if (options.Tree)
+        {
+            CommandError.Write($"{section} does not offer a Hierarchy representation.");
+            return false;
+        }
+        if (members && options.TypeFilter.Count != 1)
+        {
+            CommandError.Write(
+                "Changed Members requires exactly one --type: the Type's exact "
+                + "escaped definition name, with nested Types spelled Outer+Inner.");
+            return false;
+        }
+        if (options.Analysis is not null
+            || options.Where.Length > 0
+            || (!members && options.TypeFilter.Count > 0)
+            || options.MemberFilter.Count > 0
+            || options.IncludeAll
+            || options.Breaking
+            || options.Additive
+            || options.ChangedOnly
+            || options.AllocRegressionsOnly
+            || options.NameOnly
+            || options.Legend
+            || options.IncludePdbSource
+            || options.SourceRepositories.Length > 0
+            || options.EvidenceEnvelopePath is not null)
+        {
+            CommandError.Write(
+                members
+                    ? "Changed Members compares every Member of one Type on the "
+                        + "API and Body axes; --analysis, --where, --member, "
+                        + "--all, --breaking, --additive, --changed, "
+                        + "--alloc-regressions, --name-only, --legend, and "
+                        + "source options are not supported."
+                    : "Changed Types compares every Type of one Library pair on the "
+                        + "API and Body axes; --analysis, --where, --type, --member, "
+                        + "--all, --breaking, --additive, --changed, "
+                        + "--alloc-regressions, --name-only, --legend, and source "
+                        + "options are not supported.");
+            return false;
+        }
+        if ((options.JsonOutput || options.EnvelopeOutput)
+            && (options.HasRenderedLineWindow
+                || options.Columns is not null
+                || options.Fields is not null))
+        {
+            CommandError.Write(
+                $"{section} --json does not support rendered-line clipping "
+                + "or column/field projections.");
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Runs Finding Diff Any's Library or Type route over the request's one
+    /// Library pair and writes the Changed Types or Changed Members section:
+    /// rows for a Table format, the Document for --json, or its Markdown view.
+    /// </summary>
+    static async Task<int> ExecuteFindingDiffAnyAsync(
+        DiffInputs inputs,
+        DiffOptions options,
+        CancellationToken cancellationToken)
+    {
+        bool members = SelectsChangedMembers(options);
+        string section = members
+            ? DiffSections.ChangedMembers.Name
+            : DiffSections.ChangedTypes.Name;
+        if (inputs.From.LibraryCount != 1 || inputs.To.LibraryCount != 1)
+        {
+            CommandError.Write(
+                $"{section} requires exactly one Library at each endpoint; "
+                + $"resolved {inputs.From.LibraryCount} before and "
+                + $"{inputs.To.LibraryCount} after.");
+            return 1;
+        }
+        return members
+            ? await ExecuteChangedMembersAsync(inputs, options, cancellationToken)
+            : await ExecuteChangedTypesAsync(inputs, options, cancellationToken);
+    }
+
+    static async Task<int> ExecuteChangedTypesAsync(
+        DiffInputs inputs,
+        DiffOptions options,
+        CancellationToken cancellationToken)
+    {
+        InspectionEnvelope<FindingDiffAnyLibraryDocument> inspection =
+            inputs.From.PackageScope is { } beforeScope
+                && inputs.To.PackageScope is { } afterScope
+                ? await FindingDiffAnyLibraryAdapter.ExecuteAsync(
+                    inputs.Name,
+                    inputs.FromLabel,
+                    inputs.ToLabel,
+                    FindingDiffAnyAxes.ApiAndBody,
+                    beforeScope,
+                    afterScope,
+                    cancellationToken)
+                : await FindingDiffAnyLibraryAdapter.ExecuteAsync(
+                    inputs.Name,
+                    inputs.FromLabel,
+                    inputs.ToLabel,
+                    FindingDiffAnyAxes.ApiAndBody,
+                    inputs.From.AssemblySet.Assemblies[0],
+                    inputs.To.AssemblySet.Assemblies[0],
+                    cancellationToken);
+
+        FindingDiffAnyLibraryDocument document = inspection.Content;
+        if (options.JsonOutput || options.EnvelopeOutput)
+        {
+            return FindingDiffAnyOutput.WriteJson(inspection, options)
+                && document.Outcome == FindingDiffAnyLibraryOutcomeKind.Compared
+                    ? 0
+                    : 1;
+        }
+        if (document.Outcome != FindingDiffAnyLibraryOutcomeKind.Compared)
+        {
+            CommandError.Write(
+                $"Changed Types not compared: {document.Detail}");
+            return 1;
+        }
+        if (options.Tabular || options.Tsv || options.Jsonl)
+        {
+            FindingDiffAnyOutput.WriteRows(
+                FindingDiffAnyLibraryInspection.Table(inspection).Content,
+                options);
+            return 0;
+        }
+        Console.WriteLine(FindingDiffAnyOutput.RenderMarkdown(document, options));
+        return 0;
+    }
+
+    static async Task<int> ExecuteChangedMembersAsync(
+        DiffInputs inputs,
+        DiffOptions options,
+        CancellationToken cancellationToken)
+    {
+        string type = options.TypeFilter.Single();
+        if (AssemblyContextTypeResolutionQuery.ParseTypeIdentity(type)
+            is not AssemblyContextTypeResolutionTypeIdentityResult.Valid)
+        {
+            CommandError.Write(
+                "Changed Members requires an exact escaped Type definition name "
+                + $"for --type, with nested Types spelled Outer+Inner; '{type}' is not one.");
+            return 1;
+        }
+        InspectionEnvelope<FindingDiffAnyTypeDocument> inspection =
+            inputs.From.PackageScope is { } beforeScope
+                && inputs.To.PackageScope is { } afterScope
+                ? await FindingDiffAnyLibraryAdapter.ExecuteTypeAsync(
+                    inputs.Name,
+                    inputs.FromLabel,
+                    inputs.ToLabel,
+                    type,
+                    beforeScope,
+                    afterScope,
+                    cancellationToken)
+                : await FindingDiffAnyLibraryAdapter.ExecuteTypeAsync(
+                    inputs.Name,
+                    inputs.FromLabel,
+                    inputs.ToLabel,
+                    type,
+                    inputs.From.AssemblySet.Assemblies[0],
+                    inputs.To.AssemblySet.Assemblies[0],
+                    cancellationToken);
+
+        FindingDiffAnyTypeDocument document = inspection.Content;
+        if (options.JsonOutput || options.EnvelopeOutput)
+        {
+            return FindingDiffAnyOutput.WriteJson(inspection, options)
+                && document.Outcome == FindingDiffAnyTypeOutcomeKind.Compared
+                    ? 0
+                    : 1;
+        }
+        if (document.Outcome != FindingDiffAnyTypeOutcomeKind.Compared)
+        {
+            CommandError.Write(
+                $"Changed Members not compared: {document.Detail}");
+            return 1;
+        }
+        if (options.Tabular || options.Tsv || options.Jsonl)
+        {
+            FindingDiffAnyOutput.WriteRows(
+                FindingDiffAnyTypeInspection.Table(inspection).Content,
+                options);
+            return 0;
+        }
+        Console.WriteLine(FindingDiffAnyOutput.RenderMarkdown(document, options));
+        return 0;
+    }
+
     static bool ValidateLibraryApiChangesFormat(DiffOptions options)
     {
         if (options.Tree)
@@ -1172,11 +1406,14 @@ public partial class DiffCommand
             // Library API Diff compares the one Library of each endpoint
             // through its participant; every other API view, and every
             // analysis set, reads the endpoint's merged participant surface.
+            // Changed Types and Changed Members read each endpoint's
+            // implementation participant.
             if (!runsAnalysisSet
-                && UsesSharedLibraryApiDiff(
-                    session.From.SurfaceParticipants.Length,
-                    session.To.SurfaceParticipants.Length,
-                    options))
+                && (SelectsFindingDiffAny(options)
+                    || UsesSharedLibraryApiDiff(
+                        session.From.SurfaceParticipants.Length,
+                        session.To.SurfaceParticipants.Length,
+                        options)))
             {
                 return (new DiffInputs(
                     new ApiSurfaceEndpoint(session.From),

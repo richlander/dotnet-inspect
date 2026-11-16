@@ -43,6 +43,7 @@ public static partial class TypeCommand
         new(StringComparer.OrdinalIgnoreCase)
         {
             SectionNames.AllocationFacts,
+            SectionNames.SafetyFacts,
             SectionNames.CalledTypes,
             SectionNames.ExceptionRegions,
         };
@@ -365,7 +366,12 @@ public static partial class TypeCommand
             }
         }
 
+        // An envelope request skips find-if-miss above, so a bare Type name is
+        // never classified here; the envelope admission below owns rejecting
+        // it. Explicit source-only envelope requests were already rejected by
+        // the parser's Type target admission.
         if (requireTypeSelector
+            && !options.EnvelopeOutput
             && options.Discover is null
             && string.IsNullOrWhiteSpace(options.TypeName)
             && string.IsNullOrWhiteSpace(options.TypeFilter))
@@ -516,14 +522,22 @@ public static partial class TypeCommand
 
             if (exactTypeOverview is { Format: var hierarchyFormat })
             {
-                int? hierarchyExitCode =
+                TypeOverviewHierarchyCommand.Execution hierarchy =
                     await TypeOverviewHierarchyCommand.TryExecuteAsync(
                         source,
                         options,
                         hierarchyFormat,
                         cancellationToken);
-                if (hierarchyExitCode is not null)
-                    return hierarchyExitCode.Value;
+                if (hierarchy.ExitCode is int hierarchyExitCode)
+                    return hierarchyExitCode;
+                if (hierarchy.Selection is { } completedSelection)
+                {
+                    resolvedLookup = new(
+                        source.TypeName!,
+                        new(null, completedSelection.Suggestions),
+                        null,
+                        Outcome: completedSelection.Outcome);
+                }
                 if (hierarchyFormat
                     == TypeOverviewHierarchyPresentationFormat.Mermaid)
                 {
@@ -706,7 +720,7 @@ public static partial class TypeCommand
             }
             else
             {
-                if (loadedSurface is null && preselectedType is null)
+                if (loadedSurface is null && preselectedType is null && resolvedLookup is null)
                 {
                     int? sharedExitCode = await TryExecuteResolvedExactTypeAsync(
                         options, plan, source, cancellationToken).ConfigureAwait(false);
@@ -771,7 +785,7 @@ public static partial class TypeCommand
                                 resolvedLookup: new(
                                     source.TypeName!,
                                     new(null, envelope.Content.Suggestions),
-                                    null),
+                                    null, Outcome: envelope.Content.Outcome),
                                 cancellationToken: cancellationToken).ConfigureAwait(false);
                         }
                         if (!envelope.Content.IsAvailable || target is null)
@@ -813,6 +827,14 @@ public static partial class TypeCommand
                                     ?? preselectedType.FullName,
                                 []),
                             preselectedType));
+                if (!lookupResult.Found
+                    && (lookupResult.Outcome == ExactTypeInspectionOutcome.Unavailable
+                        || lookupResult.Outcome == ExactTypeInspectionOutcome.Ambiguous
+                            && !TypeMatcher.IsTypeGlobPattern(typeName)))
+                {
+                    lookupResult.WriteNotFoundError();
+                    return 1;
+                }
                 if (lookupResult.ImpliedMember is not null)
                 {
                     lookupResult.WriteNotFoundError();
@@ -2136,7 +2158,7 @@ public static partial class TypeCommand
             SelectedTfm: renderSource.TargetFramework,
             ProjectAssetsPath: null,
             TempDir: null,
-            TypeName: exactType.FullName,
+            TypeName: definitionName.ToEscapedFullName(),
             PackageReplaySourceUrls: null,
             PackageReplayUsesOriginalSources: false,
             Context: new CommandContext(options.Verbose));
@@ -2144,7 +2166,8 @@ public static partial class TypeCommand
             options,
             plan,
             source,
-            loaded).ConfigureAwait(false);
+            loaded,
+            preselectedType: type).ConfigureAwait(false);
         return exitCode != 0 || !result.IsComplete
             ? 1
             : 0;
@@ -3127,15 +3150,11 @@ public static partial class TypeCommand
 
     private static List<ApiType> FindPrefixMatches(IEnumerable<ApiType> types, string query)
     {
-        var normalized = FqnParser.NormalizeTypeName(query.Trim());
+        var prefix = new TypePrefixPattern(query);
         return types
-            .Where(type => IsPrefixMatch(type.FullName, normalized) || IsPrefixMatch(type.Name, normalized))
+            .Where(type => prefix.Matches(type.FullName, type.Name))
             .ToList();
     }
-
-    private static bool IsPrefixMatch(string candidate, string prefix)
-        => candidate.Length > prefix.Length
-           && candidate.StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
 
     private static void AnnotateSurface(
         ApiSurface api,

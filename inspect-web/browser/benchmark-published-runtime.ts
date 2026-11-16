@@ -452,6 +452,8 @@ async function measurePackage(page: Page): Promise<{
       if (surface.inspectionError) {
         throw new Error(`Package inspection failed: ${surface.inspectionError}`);
       }
+      if (surface.totalMembers === null)
+        throw new Error("Package Member count is unavailable.");
       const assembly = surface.assemblies.find(
         candidate => candidate.id === surface.defaultAssemblyId,
       ) ?? surface.assemblies[0];

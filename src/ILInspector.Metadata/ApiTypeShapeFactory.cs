@@ -11,6 +11,28 @@ internal static class ApiTypeShapeFactory
     internal static ApiTypeShape? FromTypeNode(TypeNode type) =>
         FromTypeNode(type, depth: 0);
 
+    /// <summary>
+    /// The shape of a parameter's type: custom modifiers and a by-reference
+    /// wrapper (<c>ref</c>, <c>in</c>, <c>out</c>) are not part of it.
+    /// </summary>
+    internal static ApiTypeShape? FromParameterTypeNode(TypeNode type)
+    {
+        while (true)
+        {
+            switch (type)
+            {
+                case PassthroughTypeNode passthrough:
+                    type = passthrough.Inner;
+                    continue;
+                case ByRefTypeNode byRef:
+                    type = byRef.ElementType;
+                    continue;
+                default:
+                    return FromTypeNode(type);
+            }
+        }
+    }
+
     static ApiTypeShape? FromTypeNode(TypeNode type, int depth)
     {
         if (depth >= MetadataSafetyPolicy.MaxRelationshipNodes)

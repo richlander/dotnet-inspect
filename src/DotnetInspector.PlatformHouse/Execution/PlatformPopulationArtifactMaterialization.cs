@@ -332,7 +332,8 @@ public static class PlatformHousePopulationArtifactMaterializer
                                 scope.Register(
                                     new PlatformLibraryArtifactProvenance(
                                         library.Contribution,
-                                        library.Provenance),
+                                        library.Provenance,
+                                        library.ImplementationArtifactIdentity),
                                     library.OpenRead);
                             contributions.Add(contribution);
                             library.ArtifactIdentity =

@@ -124,7 +124,7 @@ The stack answers each question in stages, and each stage has one owner:
 
 For example, "Does type `T` have unsafe members?" runs as follows:
 
-1. The type Unsafe Members check
+1. The type Unsafe Code check
    (`UnsafeEvidencePresenceQuery.ExecuteExactTypes`) requests the unsafe
    member presence producer, closed with `Exists`, over `T`'s TypeDef.
 2. Producer Planning closes that producer's description: it reads
@@ -584,6 +584,13 @@ executes that request set; Research-owned `ILOffsetSemanticAnalysis` maps its
 detached results into coordinate projection inputs without acquiring a
 QuerySpace dependency. No semantic coordinate request opens
 `LibraryBodyAnalysisService`.
+
+The same Analysis operation now has separate encoded-body-size and
+sibling-invocation Rows associations for later Member Metrics orchestration.
+Their receipts map each selected lane to its focused producer participation.
+Body size reads only encoded IL length. Sibling invocation retains invocation
+operands, peeled MethodDef tokens, and typed targets without selecting safety,
+locals, Method Analysis, allocation, optimization, or the complete profile.
 
 Each adoption updates #8965's live drain map. A hub branch, request parameter,
 or feature is deleted when its final consumer moves, not when the first

@@ -107,6 +107,25 @@ public static class InspectionGraphCommandDefinitions
             Description = "Maximum call-graph nodes",
             DefaultValueFactory = _ => 25,
         };
+#if DEBUG
+        var evidenceEnvelopeOption = new Option<string?>("--evidence-envelope")
+        {
+            Description = "Write initial dependency demand and acquisition evidence to a JSON sidecar",
+            Arity = ArgumentArity.ExactlyOne,
+        };
+        command.Options.Add(evidenceEnvelopeOption);
+        command.Validators.Add(result =>
+        {
+            if (result.GetResult(evidenceEnvelopeOption) is { Implicit: false }
+                && !EvidenceEnvelopeOutput.TryResolvePath(
+                    result.GetValue(evidenceEnvelopeOption)!,
+                    out _,
+                    out string? error))
+            {
+                result.AddError(error!);
+            }
+        });
+#endif
 
         command.Arguments.Add(typeArgument);
         command.Arguments.Add(memberArgument);
@@ -272,6 +291,10 @@ public static class InspectionGraphCommandDefinitions
                         : null,
                     NoHeader = parseResult.GetValue(opts.NoHeaders),
                     Verbose = parseResult.GetValue(opts.Verbose),
+#if DEBUG
+                    EvidenceEnvelopePath =
+                        parseResult.GetValue(evidenceEnvelopeOption),
+#endif
                     SourceOptions =
                         opts.ParseNuGetSourceOptions(parseResult),
                 },

@@ -394,7 +394,17 @@ public class FindOptionsParserTests
             ],
             options.EffectiveRowSelection!.Operations.Select(operation =>
                 operation.Kind));
-        Assert.Null(options.QueryPlan.InputRows);
+        FindQuestion question = members
+            ? MemberFindQuestion.Create(
+                ["Thing"],
+                FindVisibility.Public)
+            : TypeFindQuestion.Create(
+                ["Thing*"],
+                FindVisibility.Public);
+        Assert.Null(
+            FindQuery.AssociateResultRows(
+                options.QueryPlan,
+                question).DelegatedInputRows);
     }
 
     [Fact]

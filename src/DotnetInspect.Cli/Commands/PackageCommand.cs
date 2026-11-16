@@ -40,7 +40,10 @@ public partial class PackageCommand
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(options);
-        var context = new CommandContext(options.Verbose);
+        var context = new CommandContext(options.Verbose)
+        {
+            CancellationToken = cancellationToken,
+        };
         return PackageReferenceAdmission.Contains(options.PackageArgs)
             ? ExecutePackageReferenceAsync(
                 options, context, cancellationToken: cancellationToken)
@@ -1317,7 +1320,15 @@ public partial class PackageCommand
                 || lightweightTargetFrameworks
                     && (target.IsLocalFile
                         || !options.Count
-                            && options.Format == OutputFormat.Markdown);
+                            && options.Format == OutputFormat.Markdown)
+                // Ecosystem recognition attributes its outcome to an exact
+                // coordinate. When the resolution cannot name one (a local
+                // archive whose file name is not a coordinate), the manifest is
+                // the remaining identity, so a malformed manifest must fail as
+                // its typed diagnostic rather than leave recognition
+                // unattributable.
+                || wantsEcosystemDependencies
+                    && !CanAttributePackageEcosystemRecognition(resolution);
             NuspecData? nuspec = needsLegacyNuspec
                 ? FindPackageNuspecForInspection(
                     extractPath,
@@ -1396,7 +1407,8 @@ public partial class PackageCommand
                     packageName,
                     version,
                     resolution,
-                    options);
+                    options,
+                    context.CancellationToken);
             }
 
             long? packageSize = null;
@@ -1492,13 +1504,13 @@ public partial class PackageCommand
                         discloseDiagnostics,
                         logger.Log);
                 }
-                else
-                {
-                    await ApplyPackageEcosystemDependenciesAsync(
+                else if (!await ApplyPackageEcosystemDependenciesAsync(
                         result,
                         resolution,
                         discloseDiagnostics,
-                        logger.Log);
+                        logger.Log))
+                {
+                    return 1;
                 }
             }
 
@@ -1618,6 +1630,11 @@ public partial class PackageCommand
             // Filter output based on options
             FilterResultForOutput(result, options);
 
+            if (options.OutputItems is { } itemBinding
+                && !itemBinding.TrySelect(result, options.OutputItemSelection, out result))
+            {
+                return 1;
+            }
             if (!TrySelectPackageFiles(
                     result,
                     options.PackageFileRowSelection))

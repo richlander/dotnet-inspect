@@ -215,7 +215,7 @@ public static class SectionNames
     public const string CallGraph = "Call Graph";
 
     /// <summary>Section for unsafe-relevant members in a type.</summary>
-    public const string UnsafeMembers = "Unsafe Members";
+    public const string UnsafeCode = "Unsafe Code";
 
     /// <summary>Type-level section ranking members by call-graph leverage (direct callers, fanout, depth, loop calls).</summary>
     public const string TopLeverage = "Top Leverage";
@@ -328,6 +328,13 @@ public static class SectionNames
     /// for the library view.
     /// </summary>
     public const string ApiInfo = "API Info";
+
+    /// <summary>
+    /// Section for the Library API Reference (docs/design/library-api-reference.md): one
+    /// self-describing JSON document holding every admitted Type and Member record of one Library.
+    /// It is a persistent batch artifact, not a view, so it is never an <c>Info</c> overview.
+    /// </summary>
+    public const string ApiReference = "API Reference";
 
     /// <summary>Section for scans that failed, so a partial inspection never reads as a clean one.</summary>
     public const string InspectionFailures = "Inspection Failures";

@@ -563,7 +563,7 @@ public static class ApiSectionDemandIndex
             SectionNames.ExplicitInterfaceImplementations,
             SectionNames.ExtensionMethods,
             "Events",
-            SectionNames.UnsafeMembers,
+            SectionNames.UnsafeCode,
             SectionNames.CalledTypes,
             SectionNames.AllocationFacts,
             SectionNames.SafetyFacts,

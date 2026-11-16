@@ -491,7 +491,8 @@ public partial class SymbolPackageDownloader
         CancellationToken cancellationToken = default,
         uint? portablePdbStamp = null,
         PortablePdbAcquisitionEvidenceCollector? evidence = null,
-        bool? nuGetOrgPackageProducer = null)
+        bool? nuGetOrgPackageProducer = null,
+        bool microsoftSymbolServerFallback = false)
     {
         try
         {
@@ -511,7 +512,8 @@ public partial class SymbolPackageDownloader
                     cancellationToken,
                     portablePdbStamp,
                     evidence,
-                    nuGetOrgPackageProducer)
+                    nuGetOrgPackageProducer,
+                    microsoftSymbolServerFallback)
                     .ConfigureAwait(false);
             evidence?.Complete(result);
             return result;
@@ -541,7 +543,8 @@ public partial class SymbolPackageDownloader
         CancellationToken cancellationToken,
         uint? portablePdbStamp,
         PortablePdbAcquisitionEvidenceCollector? evidence,
-        bool? nuGetOrgPackageProducer)
+        bool? nuGetOrgPackageProducer,
+        bool microsoftSymbolServerFallback)
     {
         cancellationToken.ThrowIfCancellationRequested();
         bool windowsPdbDetected = false;
@@ -666,6 +669,35 @@ public partial class SymbolPackageDownloader
                 windowsPdbDetected = true;
             storeFailure ??= symbolResult.StoreFailure;
             acquisitionFailure ??= symbolResult.AcquisitionFailure;
+        }
+
+        // A host-configured fallback provider for a NuGet.org-produced
+        // package (docs/pdb-acquisition.md#provider-policy): MSDL by exact
+        // Portable PDB identity, after .snupkg and the NuGet symbol server.
+        // The package name never selects it, and an earlier provider failure
+        // stays recorded unless this attempt supplies the PDB.
+        if (microsoftSymbolServerFallback
+            && !isMicrosoftPackage
+            && pdbFileNameUsable
+            && nuGetOrgAuthorized)
+        {
+            log?.Invoke("Trying the configured MSDL fallback provider");
+            var msdlResult = await TryLocateFromMsdlAsync(
+                pdbFileName, symbolKey, storeIdentity, pdbGuid, portablePdbStamp,
+                isPortable, log, cacheOnly, evidence, cancellationToken).ConfigureAwait(false);
+            evidence?.RecordObservations(
+                msdlResult.WindowsPdbDetected,
+                msdlResult.StoreFailure);
+            if (msdlResult.Pdb is not null)
+            {
+                return new PortablePdbAcquisitionResult.Acquired(
+                    msdlResult.Pdb,
+                    windowsPdbDetected || msdlResult.WindowsPdbDetected);
+            }
+            if (msdlResult.WindowsPdbDetected)
+                windowsPdbDetected = true;
+            storeFailure ??= msdlResult.StoreFailure;
+            acquisitionFailure ??= msdlResult.AcquisitionFailure;
         }
 
         log?.Invoke(cacheOnly ? "No cached Portable PDB available" : "No Portable PDB available");

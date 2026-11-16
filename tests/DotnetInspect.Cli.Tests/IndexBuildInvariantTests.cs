@@ -166,7 +166,7 @@ public class IndexBuildInvariantTests
             AssemblyPath = FixtureAssembly,
             IncludeSections =
             [
-                SectionNames.UnsafeMembers,
+                SectionNames.UnsafeCode,
                 SectionNames.CalledTypes,
                 SectionNames.TopLeverage,
                 SectionNames.AllocationFacts,
@@ -194,7 +194,7 @@ public class IndexBuildInvariantTests
         {
             TypeName = typeof(SampleUnsafeClass).FullName,
             AssemblyPath = typeof(SampleUnsafeClass).Assembly.Location,
-            Discover = [SectionNames.UnsafeMembers],
+            Discover = [SectionNames.UnsafeCode],
             CompanionOutput = CompanionOutput.None,
             Verbosity = Verbosity.Minimal,
             Tabular = true,
@@ -220,7 +220,7 @@ public class IndexBuildInvariantTests
             AssemblyName = fixture,
             IncludeSections =
             [
-                SectionNames.UnsafeMembers,
+                SectionNames.UnsafeCode,
                 SectionNames.TopLeverage,
                 SectionNames.MemberMetrics,
                 SectionNames.PerformanceTriage,
@@ -230,7 +230,16 @@ public class IndexBuildInvariantTests
             Rows = RowWindow.Head(25),
         }));
 
-        Assert.Equal(0, result.ExitCode);
+        // The ownership-flow fixture's Resource Triage is deliberately
+        // Incomplete (see ResourceTriageAndTopLeverage_
+        // KeepRequiredAndFocusedAnalysisSeparate); an exactly selected
+        // incomplete Array Pool Escapes section is disclosed and exits
+        // nonzero (#9164).
+        Assert.Equal(1, result.ExitCode);
+        Assert.Contains(
+            $"{SectionNames.ArrayPoolEscapes} inspection incomplete",
+            result.Error,
+            StringComparison.Ordinal);
         Assert.Equal(1, MethodBodyInspectionSession.OpenCountForTests);
     }
 
@@ -281,6 +290,9 @@ public class IndexBuildInvariantTests
                 Analysis = ["allocation"],
                 TypeFilter = ["DiffFixtureSample.DiffSample"],
                 MemberFilter = ["RegressesAllocInLoop"],
+                // A lone Transitions view defaults to TSV rows (#10550);
+                // explicit Markdown keeps the asserted Document table.
+                FormatExplicitlySet = true,
             }));
 
         Assert.Equal(0, result.ExitCode);

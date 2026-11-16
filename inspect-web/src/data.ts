@@ -83,8 +83,8 @@ const memberSectionRoutes = [
 
 const packageLensRoutes = [
   "overview",
-  "compare",
   "dependencies",
+  "compare",
   "hierarchy",
   "vulnerabilities",
 ] as const;
@@ -473,7 +473,7 @@ export interface AssemblyDescriptor {
   version?: string;
   culture?: string | null;
   publicKeyToken?: string | null;
-  publicMembers?: number;
+  publicMembers?: number | null;
   platformPack?: string | null;
 }
 

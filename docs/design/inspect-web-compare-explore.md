@@ -16,8 +16,9 @@ Its normative claim is:
 > lens, or history; closing it restores the same Compare state.
 
 The inline Member Diff owned by the Compare Experience is the detailed-result
-boundary: it shows the classified changes and the compact authored Source diff.
-Explore adds width and does not repeat the inline sections. The separately
+boundary: it shows the Member's annotated declaration diff under the
+[Member diff](member-diff.md) model. Explore adds width and the authored-Source
+**Text** mode, which the inline result does not include. The separately
 owned [Member Body Diff](inspect-web-member-body-diff.md) may use the same
 full-bleed shell to expand its retained C#/IL document; that expansion does not
 add a second comparison mode to this Public API destination.
@@ -104,6 +105,16 @@ added Member has a current side only and a removed Member a target side only;
 Text shows the present side beside an explicit **Not present on this side**
 endpoint.
 
+The two endpoints share package, framework, and assembly name, but they may
+select different compile assets of that library: a target without a build for
+the requested framework selects its nearest one, such as `lib/net10.0` for
+`net11.0`. The authored Source request names the current endpoint's asset,
+and the Source facade pairs the target asset with it by the
+[comparison counterpart](package-asset-selection-correspondence.md#comparison-counterparts)
+rule, as Library API Diff does. Endpoints that do not share one library, or a
+target without a unique counterpart, fail visibly when Source is requested,
+never while rendering.
+
 The Compare Experience places the **Explore** action. The Browser renders it
 only for a settled Member Diff result that carries a destination, never as a
 placeholder, a disabled action, or an action derived from display text.
@@ -144,8 +155,7 @@ current inspector state, the version control, or display text.
 **Text** mode consumes the authored-Source comparison the Compare Experience
 owns for the same request identity: it shows a settled result, attaches to a
 pending one, and otherwise starts that comparison, so one identity never has
-two comparisons in flight. Retention and sharing with the inline section are
-the Compare Experience's rules.
+two comparisons in flight. Retention is the Compare Experience's rule.
 
 Only the current authorized operation may publish a mode. Closing the viewer
 supersedes the viewer's own pending mode work, and a late completion
@@ -216,10 +226,8 @@ focused design.
    it and confirm one full-bleed dialog opens in **Text** mode with the
    header, no What changed or Declaration pane, and that the subject, lens,
    URL, and history are unchanged.
-2. Show the inline authored Source diff, then open Explore and confirm
-   **Text** mode shows the same result without a second request; open
-   Explore first on another Member and confirm the inline section then shows
-   the retained result.
+2. Open Explore's **Text** mode, close it, and reopen it for the same Member;
+   confirm the retained result shows without a second request.
 3. Confirm **Text** mode shows identical, changed, one-sided unavailable, and
    failed outcomes separately and never substitutes empty or decompiled text,
    and that the CLI's `-v:d` rendering of the same pair shows the same ranges

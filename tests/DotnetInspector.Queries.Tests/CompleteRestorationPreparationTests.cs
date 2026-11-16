@@ -9,6 +9,59 @@ namespace DotnetInspector.Queries.Tests;
 
 public sealed class CompleteRestorationPreparationTests
 {
+    internal const string OriginalPlatformPacket =
+        "eyJmIjoxLCJ0IjpbWyI6UGxhdGZvcm0iLCIxMS4wLjAtcmMuMS4yNjQyNS4xMjgiLCJuZXQxMS4wIixudWxsXV0sImciOltbMF1dLCJhIjowLCJ4IjowLCJ2Ijoib3ZlcnZpZXciLCJ5IjoiU3lzdGVtLlRleHQuSnNvbjpTeXN0ZW0uVGV4dC5Kc29uLkpzb25FbGVtZW50IiwibCI6WyJbXCJuZXRjb3JlLmFwcFwiLFwiU3lzdGVtLlRleHQuSnNvbi5kbGxcIl0iXX0";
+
+    [Fact]
+    public void OriginalPlatformLink_RequiresExplicitUpgradeBeforeConstruction()
+    {
+        var authority = new TestIntentAuthority();
+        var direct =
+            Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+                CompleteRestorationPreparation.FromPacket(
+                    OriginalPlatformPacket, authority,
+                    TestContext.Current.CancellationToken));
+        Assert.Equal(1,
+            Assert.IsType<CompleteRestorationFailure.UnsupportedVersion>(
+                direct.Failure).Version);
+        var upgraded =
+            Assert.IsType<CompleteRestorationPreparationResult.Ready>(
+                CompleteRestorationPreparation.UpgradeLegacyPlatformPacket(
+                    OriginalPlatformPacket, authority,
+                    TestContext.Current.CancellationToken));
+        var recipe = Assert.IsType<CompleteRestorationRecipe
+            .LegacyPlatformUpgrade>(upgraded.Plan.Recipe);
+        Assert.Equal("System.Text.Json.dll", recipe.AssetFileName);
+        Assert.Equal("System.Text.Json", recipe.AssemblyLabel);
+        Assert.Equal("System.Text.Json.JsonElement",
+            recipe.TypeName!.ToMetadataFullName());
+        Assert.IsType<WorkspaceMemberCoordinate.PlatformMember>(
+            Assert.Single(Assert.Single(
+                upgraded.Plan.WorkspacePlan.Contexts).Members));
+    }
+
+    [Theory]
+    [InlineData("\"m\":\"deadbeef01\",")]
+    [InlineData("\"c\":\"source\",")]
+    [InlineData("\"b\":\"net11.0\",")]
+    public void LegacyUpgrade_RejectsUnsupportedSelectors(string extra)
+    {
+        string original = WorkspaceSharePacketCodec.SerializeJson(
+            WorkspaceSharePacketCodec.Decode(
+                OriginalPlatformPacket, TestContext.Current.CancellationToken));
+        string edited = original.Replace(
+            "\"v\":\"overview\",", $"\"v\":\"overview\",{extra}",
+            StringComparison.Ordinal);
+        WorkspaceSharePacket packet = WorkspaceSharePacketCodec.ParseJson(
+            edited, TestContext.Current.CancellationToken);
+        var failure = Assert.IsType<CompleteRestorationPreparationResult.Failed>(
+            CompleteRestorationPreparation.UpgradeLegacyPlatformPacket(
+                WorkspaceSharePacketCodec.Encode(packet),
+                new TestIntentAuthority(),
+                TestContext.Current.CancellationToken));
+        Assert.IsType<CompleteRestorationFailure.InvalidPacket>(failure.Failure);
+    }
+
     [Theory]
     [InlineData(2, "net10.0")]
     [InlineData(3, "net10.0")]

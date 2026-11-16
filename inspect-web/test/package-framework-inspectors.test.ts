@@ -34,6 +34,6 @@ test("other package outcomes retain their inspectors and failure visibility", ()
     const pkg = packageContext(status);
     assert.equal(isEmptyPackageFramework(pkg), false);
     assert.deepEqual(packageLensesFor(pkg).map(([id]) => id),
-      ["overview", "compare", "dependencies", "vulnerabilities"]);
+      ["overview", "dependencies", "compare", "vulnerabilities"]);
   }
 });

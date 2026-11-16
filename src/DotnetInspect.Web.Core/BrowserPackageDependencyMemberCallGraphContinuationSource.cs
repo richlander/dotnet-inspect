@@ -1,6 +1,6 @@
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
 using DotnetInspector.PackageQueries;
@@ -65,10 +65,7 @@ internal sealed class
         if (TryCreateCurrentRuntimeTarget(
                 family,
                 targetFramework,
-                typeof(object).Assembly
-                    .GetCustomAttribute<
-                        AssemblyInformationalVersionAttribute>()
-                    ?.InformationalVersion,
+                RuntimeInformation.FrameworkDescription,
                 out PlatformFamilyTarget? currentRuntime))
         {
             return new PlatformTargetDiscoveryOutcome.Selected(
@@ -168,7 +165,7 @@ internal sealed class
     internal static bool TryCreateCurrentRuntimeTarget(
         PlatformFamily family,
         string targetFramework,
-        string? informationalVersion,
+        string? frameworkDescription,
         [NotNullWhen(true)] out PlatformFamilyTarget? target)
     {
         target = null;
@@ -176,13 +173,17 @@ internal sealed class
             || !PlatformTargetFramework.TryParse(
                 targetFramework,
                 out PlatformTargetFramework? framework)
-            || string.IsNullOrWhiteSpace(informationalVersion))
+            || frameworkDescription is null
+            || !frameworkDescription.StartsWith(
+                ".NET ",
+                StringComparison.Ordinal))
         {
             return false;
         }
 
         string versionText =
-            informationalVersion.Split('+', 2)[0];
+            frameworkDescription[".NET ".Length..]
+                .Split('+', 2)[0];
         if (!PlatformVersion.TryParse(
                 versionText,
                 out PlatformVersion? version)
@@ -223,10 +224,7 @@ internal sealed class
             || !TryCreateCurrentRuntimeTarget(
                 PlatformFamily.DotNetRuntime,
                 targetFramework,
-                typeof(object).Assembly
-                    .GetCustomAttribute<
-                        AssemblyInformationalVersionAttribute>()
-                    ?.InformationalVersion,
+                RuntimeInformation.FrameworkDescription,
                 out PlatformFamilyTarget? currentRuntime)
             || currentRuntime.Version != pruning.Target.Version)
         {
@@ -441,7 +439,7 @@ internal sealed class
                 request,
                 success,
                 new(
-                    success.Value.Frameworks.Length,
+                    sourceOperations: 1,
                     targetCandidates: 0,
                     success.Value.Libraries.Length,
                     xmlDocuments: 0,

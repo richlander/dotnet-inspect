@@ -18,6 +18,9 @@ internal static class NavigationWorkspaceSnapshotEquality
         && left.ActiveOccurrence == right.ActiveOccurrence
         && left.ActiveSubject == right.ActiveSubject
         && left.RetainedContext == right.RetainedContext
+        && left.AdmittedContext == right.AdmittedContext
+        && left.AdmittedInventory == right.AdmittedInventory
+        && Sequence(left.AdmittedTypes, right.AdmittedTypes)
         && left.TypeInventoryLibraryContext == right.TypeInventoryLibraryContext
         && Sequence(left.Packages, right.Packages)
         && Sequence(left.Hierarchy, right.Hierarchy)

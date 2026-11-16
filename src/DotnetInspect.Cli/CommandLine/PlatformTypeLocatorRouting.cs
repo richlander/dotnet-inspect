@@ -449,8 +449,8 @@ internal static class PlatformTypeLocatorRouting
             ImmutableArray.CreateBuilder<TypeDeclarationLocatorRequest>();
 
         AddTypeRequest(discoveryTarget, memberSelector: null);
-        foreach (ImpliedMemberTypeCandidate candidate in
-            ApiTypeLookupService.GetImpliedMemberTypeCandidates(discoveryTarget))
+        foreach (TypeMemberSelectionCandidate candidate in
+            ExactTypeInspectionOperation.GetTypeMemberCandidates(discoveryTarget))
         {
             cancellationToken.ThrowIfCancellationRequested();
             AddTypeRequest(

@@ -29,8 +29,19 @@ public static partial class MemberCommand
             SectionNames.CustomAttributes,
             SectionNames.DecompiledSource,
             SectionNames.ExceptionRegions,
+            SectionNames.Calls,
+            SectionNames.UnsafeOperations,
+            SectionNames.AllocationFacts,
+            SectionNames.SafetyFacts,
+            SectionNames.CostFacts,
             SectionNames.FidelityCauses,
             SectionNames.AppliedTaste,
+            SectionNames.AnnotatedSource,
+            SectionNames.AnnotatedSourceDocument,
+            SectionNames.FindingCensus,
+            SectionNames.CostOverlay,
+            SectionNames.SemanticsOverlay,
+            SectionNames.Facts,
         };
 
     internal static bool TryCreateSharedMemberRequest(
@@ -65,8 +76,7 @@ public static partial class MemberCommand
                 Verbosity.Quiet or Verbosity.Minimal)
             || options.VerbosityExplicitlySet
             || options.IncludeAll
-            || options.DocsExplicitlySet
-            || options.ShowSamples
+            || DocumentationEnricher.AuthorizesAuthoredDocumentation(options)
             || options.PreferRenderedUrls
             || options.Explanation is not null
             || options.CompanionOutput != CompanionOutput.None
@@ -77,7 +87,6 @@ public static partial class MemberCommand
             || options.KindFilter.Count > 0
             || options.UnsafeOnly
             || options.MemberGenericArity.HasValue
-            || options.Focus is not null
             || options.RequestAllTaste
             || options.RequestReadableLocalNames
             || options.SourceRepositories.Length > 0
@@ -90,6 +99,20 @@ public static partial class MemberCommand
         {
             return false;
         }
+
+        bool focusedOverlay =
+            options.Focus is not null
+            && !plan.Selection.ResolvedSections.IsEmpty
+            && plan.Selection.ResolvedSections.All(
+                static section =>
+                    section.Equals(
+                        SectionNames.CostOverlay,
+                        StringComparison.OrdinalIgnoreCase)
+                    || section.Equals(
+                        SectionNames.SemanticsOverlay,
+                        StringComparison.OrdinalIgnoreCase));
+        if (options.Focus is not null && !focusedOverlay)
+            return false;
 
         bool surfaceOnly =
             options.IncludeSections is null
@@ -139,7 +162,9 @@ public static partial class MemberCommand
         ResolvedMemberInspectionPlan plan,
         ExactTypeInspectionRequest request,
         SharedMemberPackageDemand demand,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<ApiSourceResult, ApiServices.LoadedApiSurface, ApiType,
+            ShareProjectionPlan>? resolvedMember = null)
     {
         var logger = new VerboseLogger(options.Verbose);
         await using var composition =
@@ -159,7 +184,8 @@ public static partial class MemberCommand
                 demand,
                 house,
                 composition.IssueSettlementOperation,
-                cancellationToken)
+                cancellationToken,
+                resolvedMember)
             .ConfigureAwait(false);
     }
 
@@ -171,7 +197,9 @@ public static partial class MemberCommand
         PackageHouse house,
         Func<CancellationToken, PackageSourceOperationLease>
             issueSourceOperation,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Action<ApiSourceResult, ApiServices.LoadedApiSurface, ApiType,
+            ShareProjectionPlan>? resolvedMember = null)
     {
         try
         {
@@ -179,9 +207,9 @@ public static partial class MemberCommand
                 new List<ExactTypeInspectionRequest> { request };
             var impliedMembers =
                 new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (ImpliedMemberTypeCandidate candidate
+            foreach (TypeMemberSelectionCandidate candidate
                 in options.ResolvedRouterTarget is null
-                    ? ApiTypeLookupService.GetImpliedMemberTypeCandidates(
+                    ? ExactTypeInspectionOperation.GetTypeMemberCandidates(
                         options.TypeName!)
                     : [])
             {
@@ -251,8 +279,6 @@ public static partial class MemberCommand
                         (MemberOptions)preamble.Options;
                 }
 
-                effectiveOptions =
-                    effectiveOptions with { ShowDocs = false };
                 ExactTypeInspectionRequest selectedRequest =
                     requests.First(candidate =>
                         candidate.Type.Equals(
@@ -270,12 +296,16 @@ public static partial class MemberCommand
                                     target.PackageAssetPath,
                             },
                             target,
+                            // The share wrapper strips ShareFormat before this
+                            // route and projects through resolvedMember, so the
+                            // same resolved content basis also projects Share.
                             (source, loaded) =>
-                                ExecuteWithShareAsync(
+                                ExecuteCoreAsync(
                                     effectiveOptions,
                                     effectivePlan,
                                     source,
                                     loaded,
+                                    resolvedMember,
                                     allowImplicitDocumentation:
                                         false,
                                     cancellationToken:
@@ -327,5 +357,8 @@ public static partial class MemberCommand
     static bool RequiresPortablePdbCompanion(
         IReadOnlyCollection<string> sections) =>
         sections.Contains(SectionNames.FidelityCauses)
-        || sections.Contains(SectionNames.AppliedTaste);
+        || sections.Contains(SectionNames.AppliedTaste)
+        || sections.Contains(SectionNames.AnnotatedSource)
+        || sections.Contains(SectionNames.AnnotatedSourceDocument)
+        || sections.Contains(SectionNames.FindingCensus);
 }

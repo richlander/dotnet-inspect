@@ -559,13 +559,22 @@ public partial class ApiCommand
                         if (!ApiOutputFormatter.TrySelectBodyShapeRows(view, mo4))
                             return 1;
                     }
+                    int? selectedBodyToken =
+                        mo4.OverloadIndex is { } ordinal
+                            ? ApiOutputFormatter.SelectBodyMethod(
+                                type,
+                                methods,
+                                ordinal - 1)?.MetadataToken
+                            : null;
                     var analysisInspection = new ApiMemberAnalysisInspection(
                         mo4.DllPath!,
                         methods,
                         requestedSections,
                         mo4.CallerScopeAssemblies,
                         mo4,
-                        memberCodeSourceAssembly);
+                        memberCodeSourceAssembly,
+                        memberCodeBindingPolicy,
+                        selectedBodyToken);
                     ApiOutputFormatter.PopulateIndexSectionsWithCancellation(view, type, methods, mo4.DllPath!,
                         mo4.OverloadIndex.HasValue ? mo4.OverloadIndex.Value - 1 : null,
                         requestedSections, analysisInspection, mo4.PdbPath,
@@ -606,14 +615,17 @@ public partial class ApiCommand
                     options.DllPath!, GetRequestedMemberSections(type, options), type, options, sourceAssembly);
 
             if (options.DllPath is not null
-                && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeMembers))
+                && GetRequestedMemberSections(type, options).Contains(SectionNames.UnsafeCode))
             {
                 ApiOutputFormatter.PopulateUnsafeMembers(
                     view,
-                    type,
+                    options is MemberOptions { MemberFilter.Count: > 0 }
+                        ? BuildFilteredTypeForBodyShapes(type, options)
+                        : type,
                     options.DllPath,
                     sourceAssembly,
-                    options.Verbose);
+                    options.Verbose,
+                    memberScope: options is MemberOptions { MemberFilter.Count: > 0 });
             }
 
             if (options is TypeOptions
@@ -1332,6 +1344,20 @@ public partial class ApiCommand
             {
                 sink.WriteLine("No inbound callers or outbound calls found for this method.");
             }
+            else if (options.Tree
+                && view.MemberCode?.CallGraphHierarchyInspection is { } callGraphHierarchy)
+            {
+                var labels = graph.Nodes.ToDictionary(
+                    static node => node.Key,
+                    static node => node.Label);
+                MemberCallGraphHierarchyPresentation.Write(
+                    callGraphHierarchy.Content,
+                    node => CallGraphSectionAdapter.HierarchyLabel(
+                        node,
+                        labels[node.Member.Id.ToString(
+                            System.Globalization.CultureInfo.InvariantCulture)]),
+                    sink);
+            }
             else
             {
                 IMarkoutFormatter formatter = options.Tree
@@ -1383,6 +1409,60 @@ public partial class ApiCommand
                 return 1;
             }
             return WriteSourceLineTable(sink, options, sourceLines);
+        }
+
+        if (options.Tabular
+            && view.MemberCode?.CallGraphTableInspection is { } callGraphTable
+            && view.MemberCode.CallGraph is { } tableGraph)
+        {
+            var table = CallGraphSectionAdapter.ToTable(
+                callGraphTable.Content,
+                tableGraph);
+            var renderedWriter = new StringWriter { NewLine = "\n" };
+            OutputFormatter.WriteProjectedTable(
+                renderedWriter,
+                !options.NoHeader,
+                options.Tsv,
+                options.Jsonl,
+                options.Columns,
+                options.Fields,
+                WriteTable);
+            RenderedSectionManifest manifest =
+                OutputFormatter.CaptureProjectedTableManifest(
+                    options.Tsv,
+                    options.Jsonl,
+                    options.Columns,
+                    options.Fields,
+                    WriteTable,
+                    GetTypeDocumentSchema(options),
+                    rootSection: SectionNames.CallGraph,
+                    lockRootScope: true);
+            MergeCallGraphRenderedFields(
+                manifest,
+                GetCallGraphEdgeTableRenderedFields(
+                    view,
+                    ApiOutputFormatter.BuildTypeWriterOptions(type, options)));
+            if (!DiagnoseProjection(
+                    manifest,
+                    options,
+                    GetTypeDocumentSchema(options),
+                    options.IncludeSections))
+            {
+                return 1;
+            }
+            sink.Write(renderedWriter.ToString());
+            ApiOutputFormatter.WriteCallGraphWarning(view);
+            return 0;
+
+            void WriteTable(
+                TextWriter output,
+                IMarkoutFormatter formatter,
+                MarkoutWriterOptions writerOptions)
+            {
+                var writer = new MarkoutWriter(output, formatter, writerOptions);
+                writer.WriteTable(table.Headers, table.Keys, table.Rows);
+                writer.Flush();
+            }
         }
 
         if (options.Tabular)

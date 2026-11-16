@@ -1,4 +1,8 @@
 using System.Collections.Immutable;
+using DotnetInspector.LibraryMetadata;
+using DotnetInspector.PlatformHouse;
+using DotnetInspector.PlatformHouse.Packages;
+using DotnetInspector.Platforms;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using NuGetFetch;
@@ -32,9 +36,36 @@ public sealed record CompleteRestorationExecutionOptions
     public ApiSurfaceProjectionLimits PlatformSurfaceLimits { get; init; } =
         NavigationPackageEvaluationFactory.DefaultSurfaceLimits;
 
+    /// <summary>
+    /// Supplies a physically admitted exact Platform population within the
+    /// unpublished Workspace. The acquisition owner settles unsuccessful
+    /// transfers; a successful receipt belongs to the Workspace lifetime.
+    /// </summary>
+    public Func<InspectionWorkspace, PlatformFamilyTarget, CancellationToken,
+        ValueTask<CompleteRestorationPlatformAdmission?>>? AdmitPlatform { get; init; }
+
+    public LibraryTypeDeclarationInventoryInspectionBounds NativeNameBounds
+        { get; init; } = new(
+            maximumAssemblyBytes: 512 * 1024 * 1024,
+            maximumRetainedDeclarations: 500_000,
+            maximumMetadataRows: 2_000_000,
+            maximumRetainedTextCharacters: 40_000_000);
+
     public CompleteRestorationProjectionProvider Projection { get; init; } =
         CompleteRestorationProjections.Classify;
 }
+
+/// <summary>Owner-issued physical and declaration admission for one target.</summary>
+public sealed record CompleteRestorationPlatformAdmission(
+    WorkspaceLibraryAdmissionReceipt Libraries,
+    WorkspaceDeclarationContext Context,
+    IReadOnlyList<CompleteRestorationPlatformAsset>? Assets = null);
+
+/// <summary>Source-owner asset evidence for an admitted physical Library.</summary>
+public sealed record CompleteRestorationPlatformAsset(
+    WorkspaceLibraryOccurrence Occurrence,
+    PlatformFamilyTarget Target,
+    string Path);
 
 public abstract record CompleteRestorationProjection
 {
@@ -184,6 +215,12 @@ public abstract record CompleteRestorationResolvedState
                         nameof(ActiveStateIndex));
     }
 
+    public sealed record Version6(
+        CommittedScenarioDefinitionSet Definitions,
+        ImmutableArray<CompleteRestorationResolvedViewState> States,
+        int? ActiveStateIndex)
+        : CompleteRestorationResolvedState;
+
     public sealed record RegistrationOnlyEcosystem(
         WorkspaceEcosystemRegistrationId Ecosystem,
         NavigationInitialization Initialization,
@@ -307,6 +344,8 @@ public static class CompleteRestorationProjections
                     version4.Definitions,
                 CompleteRestorationResolvedState.Version5 version5 =>
                     version5.Definitions,
+                CompleteRestorationResolvedState.Version6 version6 =>
+                    version6.Definitions,
                 _ => throw new InvalidOperationException(
                     "Unknown complete restoration resolved state."),
             };
@@ -452,6 +491,8 @@ public sealed record CompleteWorkspaceActivation
                 version4.Definitions,
             CompleteRestorationResolvedState.Version5 version5 =>
                 version5.Definitions,
+            CompleteRestorationResolvedState.Version6 version6 =>
+                version6.Definitions,
             CompleteRestorationResolvedState.RegistrationOnlyEcosystem =>
                 null,
             CompleteRestorationResolvedState
@@ -943,6 +984,8 @@ public static class CompleteRestorationCoordinator
         {
             return null;
         }
+        if (recipe is CompleteRestorationRecipe.LegacyPlatformUpgrade)
+            return null;
 
         CommittedScenarioDefinitionSet definitions = recipe switch
         {
@@ -954,6 +997,8 @@ public static class CompleteRestorationCoordinator
                 version4.Definitions,
             CompleteRestorationRecipe.Version5 version5 =>
                 version5.Definitions,
+            CompleteRestorationRecipe.Version6 version6 =>
+                version6.Definitions,
             _ => throw new InvalidOperationException(
                 "Unknown complete restoration recipe."),
         };
@@ -1054,10 +1099,60 @@ public static class CompleteRestorationCoordinator
                         plan.WorkspacePlan.Contexts.Length);
             var packageRoots =
                 ImmutableArray.CreateBuilder<PackageRootBinding>();
+            CompleteRestorationPlatformAdmission? nativeAdmission = null;
+            if (plan.Recipe is CompleteRestorationRecipe.Version6
+                or CompleteRestorationRecipe.LegacyPlatformUpgrade)
+            {
+                if (options.AdmitPlatform is null)
+                {
+                    return new CompleteWorkspacePreparationResult.Failed(
+                        new CompleteRestorationFailure.WorkspaceConstructionFailed(
+                            "Source-native Platform restoration requires physical "
+                                + "Library admission authority."));
+                }
+                WorkspaceContextInput input = plan.WorkspacePlan.Contexts.Single();
+                WorkspaceMemberCoordinate.PlatformMember member =
+                    AssertNativePlatformMember(input);
+                var target = new PlatformFamilyTarget(
+                    PlatformFamily.DotNetRuntime,
+                    PlatformTargetFramework.Parse(input.Framework!),
+                    PlatformVersion.Parse(member.Version!));
+                nativeAdmission = await options.AdmitPlatform(
+                    workspace, target, token).ConfigureAwait(false);
+                if (nativeAdmission is null
+                    || !ReferenceEquals(nativeAdmission.Libraries.Workspace,
+                        workspace.Identity)
+                    || !ReferenceEquals(nativeAdmission.Context.Receipt.Workspace,
+                        workspace.Identity)
+                    || nativeAdmission.Context.Receipt.Request
+                        is not WorkspaceDeclarationRequest.PlatformPopulation
+                            { Target: var admittedTarget }
+                    || admittedTarget != target
+                    || !nativeAdmission.Context.Receipt.IsRealized
+                    || nativeAdmission.Context.Receipt.Members.Length
+                        != nativeAdmission.Libraries.Occurrences.Length
+                    || nativeAdmission.Context.LibraryOccurrences.Length
+                        != nativeAdmission.Libraries.Occurrences.Length
+                    || Enumerable.Range(0,
+                        nativeAdmission.Libraries.Occurrences.Length).Any(
+                        index => !ReferenceEquals(
+                            nativeAdmission.Context.LibraryOccurrences[index],
+                            nativeAdmission.Libraries.Occurrences[index])))
+                {
+                    return new CompleteWorkspacePreparationResult.Failed(
+                        new CompleteRestorationFailure.WorkspaceConstructionFailed(
+                            "The exact Platform population was not physically "
+                                + "and declaratively admitted."));
+                }
+                contexts.Add(nativeAdmission.Context);
+                contextReceipts.Add(nativeAdmission.Context.Receipt);
+            }
             for (int index = 0;
                 index < plan.WorkspacePlan.Contexts.Length;
                 index++)
             {
+                if (nativeAdmission is not null)
+                    break;
                 token.ThrowIfCancellationRequested();
                 WorkspaceDeclarationContext context =
                     await WorkspaceContextLoader.LoadDeclarationContextAsync(
@@ -1097,7 +1192,9 @@ public static class CompleteRestorationCoordinator
             }
 
             ImmutableArray<WorkspaceContextLoadOutcome.Loaded> loadedContexts =
-                contextLoads.MoveToImmutable();
+                nativeAdmission is null
+                    ? contextLoads.MoveToImmutable()
+                    : contextLoads.ToImmutable();
             PackageNavigationRequestResolution packageRequests =
                 ResolvePackageNavigationRequests(
                     plan,
@@ -1152,6 +1249,7 @@ public static class CompleteRestorationCoordinator
                 roots,
                 packageRequests.Requests!,
                 options,
+                nativeAdmission,
                 token).ConfigureAwait(false);
             if (CurrentnessFailure(authority) is { } resolutionStale)
                 return PreparationForUnavailable(resolutionStale);
@@ -1192,6 +1290,7 @@ public static class CompleteRestorationCoordinator
                         options.FacetAvailability)
                     {
                         Ecosystem = resolved.Ecosystem,
+                        AdmittedLibrary = resolved.AdmittedLibrary,
                     },
                     options.Facets,
                     resolved.Initialization!);
@@ -1237,6 +1336,13 @@ public static class CompleteRestorationCoordinator
             CompleteRestorationInventory? inventory = null;
             if (options.CaptureInventory)
             {
+                if (nativeAdmission is not null)
+                {
+                    return new CompleteWorkspacePreparationResult.Failed(
+                        new CompleteRestorationFailure.ProjectionFailed(
+                            "Detached Platform surface inventory is not "
+                                + "available for source-native selected subjects."));
+                }
                 CompleteRestorationInventoryCapture captured =
                     CompleteRestorationInventories.Capture(
                         plan,
@@ -1252,11 +1358,27 @@ public static class CompleteRestorationCoordinator
                 inventory = captured.Inventory;
             }
 
+            CompleteRestorationResolvedState resolvedState = resolved.State!;
+            if (resolvedState is CompleteRestorationResolvedState.Version6
+                nativeState)
+            {
+                CompleteRestorationResolvedViewState nativeViewState =
+                    nativeState.States[1];
+                resolvedState = nativeState with
+                {
+                    States = nativeState.States.SetItem(1,
+                        new CompleteRestorationResolvedViewState(
+                            nativeViewState.Definition,
+                            nativeViewState.Initialization,
+                            preparedNavigation.Initialization.Result
+                                .LensResolution?.Activation)),
+                };
+            }
             var snapshot = new CompleteWorkspaceSnapshot(
                 snapshotAvailable.Value.Definition,
                 snapshotAvailable.Value.Scope,
                 contextReceipts.MoveToImmutable(),
-                resolved.State!,
+                resolvedState,
                 preparedNavigation.Initialization,
                 inventory);
             CompleteRestorationProjectionResult projectionResult =
@@ -1283,7 +1405,12 @@ public static class CompleteRestorationCoordinator
                 ((CompleteRestorationProjectionResult.Projected)
                     projectionResult).Projection;
             CompleteRestorationSubjectPreparation? selectedSubject =
-                resolved.SelectedTypeLibrary is { } selectedTypeLibrary
+                resolved.AdmittedLibrary is { } nativeSelected
+                    ? options.CaptureSelectedSubject
+                        ? CompleteRestorationSelectedSubjectOperation
+                            .PrepareNative(snapshot, nativeSelected)
+                        : null
+                : resolved.SelectedTypeLibrary is { } selectedTypeLibrary
                     ? CompleteRestorationSelectedSubjectOperation
                         .PreparePackageType(
                             snapshot,
@@ -1553,6 +1680,294 @@ public static class CompleteRestorationCoordinator
                     navigationId,
                     $"Navigation row '{navigationId}' {message}")));
 
+    private static WorkspaceMemberCoordinate.PlatformMember
+        AssertNativePlatformMember(WorkspaceContextInput input)
+    {
+        if (input.Members is not [
+            WorkspaceMemberCoordinate.PlatformMember
+            {
+                Family: "runtime", Assembly: null, Version: not null
+            } member]
+            || input.Framework is null || input.RuntimeIdentifier is not null)
+        {
+            throw new InvalidOperationException(
+                "A source-native definition requires one pinned Runtime Platform context.");
+        }
+        return member;
+    }
+
+    private static ResolvedPreparation ResolveNative(
+        CompleteRestorationPlan plan,
+        CommittedScenarioDefinitionSet definitions,
+        InspectionWorkspace workspace,
+        WorkspaceScopeSnapshot scope,
+        CompleteRestorationPlatformAdmission admission,
+        CompleteRestorationExecutionOptions options,
+        CancellationToken cancellationToken,
+        LibraryTypeDeclarationInventoryInspectionOutcome.Completed?
+            preparedInventory = null)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        CommittedViewStateDefinition selected = definitions.View!.States[1];
+        PortableLibraryIdentity libraryIdentity = selected.Context switch
+        {
+            PortableRetainedSubjectContext.Library library =>
+                library.LibraryIdentity,
+            PortableRetainedSubjectContext.Type type =>
+                type.LibraryIdentity,
+            _ => throw new InvalidOperationException(
+                "A native selected subject requires its full Library identity."),
+        };
+        AssemblyReferenceIdentity metadataIdentity =
+            PortableLibraryIdentityComparer.ToMetadataIdentity(libraryIdentity);
+        WorkspaceLibraryOccurrence[] libraries =
+        [
+            .. admission.Libraries.Occurrences.Where(occurrence =>
+                occurrence.Library.SourceCoordinate
+                    is ExactLibrarySourceCoordinate.Platform source
+                && source.Population.Family == PlatformFamily.DotNetRuntime
+                && AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    source.LibraryIdentity.Identity, metadataIdentity)
+                && occurrence.Library.ApiAssembly.AssemblyIdentity is { } api
+                && AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    api.Identity, metadataIdentity)),
+        ];
+        if (libraries.Length != 1)
+            return NativeFailure(libraries.Length == 0
+                ? CommittedSelectorResolutionFailureKind.LibraryMissing
+                : CommittedSelectorResolutionFailureKind.LibraryAmbiguous,
+                "The exact Runtime Platform Library identity is missing or ambiguous.");
+
+        WorkspaceLibraryOccurrence occurrence = libraries[0];
+        StructuralSubjectIdentity.AdmittedLibrarySubject librarySubject =
+            StructuralSubjectIdentity.ForAdmittedLibrary(
+                StructuralSubjectIdentity.ForWorkspace(workspace.Identity),
+                occurrence);
+        LibraryTypeDeclarationInventoryInspectionOutcome? inventory = null;
+        StructuralSubjectIdentity subject = librarySubject;
+        NavigationAdmittedSubjectContext context = new(librarySubject);
+        if (selected.Subject is PortableSubjectRequest.Type)
+        {
+            if (preparedInventory is not null)
+                inventory = preparedInventory;
+            else
+            {
+                WorkspaceLibraryOperationIssueOutcome issued =
+                    workspace.IssueLibraryOperation(occurrence);
+                if (issued is not WorkspaceLibraryOperationIssueOutcome.Issued ready)
+                    return NativeFailure(
+                        CommittedSelectorResolutionFailureKind.TypeInventoryUnavailable,
+                        "The exact Library operation is unavailable.");
+                using (ready.Lease)
+                {
+                    inventory = LibraryTypeDeclarationInventoryInspection.Execute(
+                        new(occurrence.Library, options.NativeNameBounds),
+                        ready.Lease, cancellationToken);
+                }
+            }
+
+            if (inventory is not LibraryTypeDeclarationInventoryInspectionOutcome.Completed
+                completed)
+            {
+                return NativeFailure(
+                    inventory is LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete
+                        ? CommittedSelectorResolutionFailureKind.TypeInventoryIncomplete
+                        : CommittedSelectorResolutionFailureKind.TypeInventoryUnavailable,
+                    $"The selected Library has no completed Name inventory ({inventory}).");
+            }
+            MetadataTypeDefinitionName requested =
+                ((PortableRetainedSubjectContext.Type)selected.Context!)
+                    .TypeIdentity;
+            AssemblyTypeDeclaration[] matches =
+            [
+                .. completed.Correspondence.Inventory.Declarations.Where(
+                    row => row.Kind == AssemblyTypeDeclarationKind.Definition
+                        && row.Name.Equals(requested)),
+            ];
+            if (matches.Length != 1)
+                return NativeFailure(matches.Length == 0
+                    ? CommittedSelectorResolutionFailureKind.TypeMissing
+                    : CommittedSelectorResolutionFailureKind.TypeAmbiguous,
+                    "The exact Type is missing or ambiguous in its complete "
+                        + "Library Name inventory.");
+            var typeSubject =
+                StructuralSubjectIdentity.ForAdmittedType(
+                    librarySubject, matches[0].Name);
+            subject = typeSubject;
+            context = new(librarySubject, typeSubject);
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        var evaluation = new NavigationAdmittedLibraryEvaluation(
+            admission.Libraries, occurrence, inventory);
+        var initialization = new NavigationInitialization(
+            subject, Lens: new NavigationLensIdentity(
+                subject, new ViewFacetId(selected.Facet!)))
+        {
+            AdmittedContext = context,
+        };
+        CompleteRestorationResolvedViewState[] states =
+        [
+            new(definitions.View.States[0],
+                new NavigationInitialization(
+                    StructuralSubjectIdentity.ForWorkspace(workspace.Identity)),
+                null),
+            new(selected, initialization, null),
+        ];
+        return new(initialization, null,
+            new CompleteRestorationResolvedState.Version6(
+                definitions, [.. states], 1),
+            ImmutableDictionary<string, NavigationPackageEvaluation>.Empty,
+            null)
+        {
+            AdmittedLibrary = evaluation,
+        };
+
+        static ResolvedPreparation NativeFailure(
+            CommittedSelectorResolutionFailureKind kind,
+            string message) =>
+            new(null, null, null, null,
+                new CompleteRestorationFailure.SelectorResolutionFailed(
+                    new(kind, 1, "t0", message)));
+    }
+
+    private static ResolvedPreparation ResolveLegacyPlatformUpgrade(
+        CompleteRestorationPlan plan,
+        CompleteRestorationRecipe.LegacyPlatformUpgrade legacy,
+        InspectionWorkspace workspace,
+        WorkspaceScopeSnapshot scope,
+        CompleteRestorationPlatformAdmission admission,
+        CompleteRestorationExecutionOptions options,
+        CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        WorkspaceShareTab tab = legacy.Packet.Tabs[0];
+        var target = new PlatformFamilyTarget(
+            PlatformFamily.DotNetRuntime,
+            PlatformTargetFramework.Parse(tab.Framework!),
+            PlatformVersion.Parse(tab.Version!));
+        WorkspaceLibraryOccurrence[] matches =
+        [
+            .. admission.Libraries.Occurrences.Where(occurrence =>
+                occurrence.Library.SourceCoordinate
+                    is ExactLibrarySourceCoordinate.Platform source
+                && source.Population.Family == PlatformFamily.DotNetRuntime
+                && occurrence.Library.ApiAssembly.AssemblyIdentity is { } api
+                && AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                    source.LibraryIdentity.Identity, api.Identity)
+                && SourceAssetMatches(occurrence)
+                && (legacy.AssemblyLabel is null
+                    || string.Equals(legacy.AssemblyLabel,
+                        api.Identity.Name, StringComparison.Ordinal))),
+        ];
+        if (matches.Length != 1)
+            return Failure(matches.Length == 0
+                ? CommittedSelectorResolutionFailureKind.LibraryMissing
+                : CommittedSelectorResolutionFailureKind.LibraryAmbiguous,
+                "The legacy Runtime asset has no unique physically admitted "
+                    + "Library correspondence.");
+        WorkspaceLibraryOccurrence selected = matches[0];
+        PortableLibraryIdentity library = PortableIdentityProjection
+            .FromAssembly(selected.Library.ApiAssembly.AssemblyIdentity!.Identity);
+        LibraryTypeDeclarationInventoryInspectionOutcome.Completed? inventory = null;
+        MetadataTypeDefinitionName? type = null;
+        if (legacy.TypeName is { } requested)
+        {
+            WorkspaceLibraryOperationIssueOutcome issued =
+                workspace.IssueLibraryOperation(selected);
+            if (issued is not WorkspaceLibraryOperationIssueOutcome.Issued ready)
+                return Failure(
+                    CommittedSelectorResolutionFailureKind.TypeInventoryUnavailable,
+                    "The legacy Library operation is unavailable.");
+            LibraryTypeDeclarationInventoryInspectionOutcome inspected;
+            using (ready.Lease)
+            {
+                inspected = LibraryTypeDeclarationInventoryInspection.Execute(
+                    new(selected.Library, options.NativeNameBounds),
+                    ready.Lease, cancellationToken);
+            }
+            if (inspected is not LibraryTypeDeclarationInventoryInspectionOutcome
+                .Completed completed)
+                return Failure(inspected
+                    is LibraryTypeDeclarationInventoryInspectionOutcome.Incomplete
+                        ? CommittedSelectorResolutionFailureKind.TypeInventoryIncomplete
+                        : CommittedSelectorResolutionFailureKind.TypeInventoryUnavailable,
+                    $"The legacy Type cannot be selected without a completed "
+                        + $"Library Name inventory ({inspected}).");
+            AssemblyTypeDeclaration[] types =
+            [
+                .. completed.Correspondence.Inventory.Declarations.Where(
+                    row => row.Kind == AssemblyTypeDeclarationKind.Definition
+                        && row.Name.Equals(requested)),
+            ];
+            if (types.Length != 1)
+                return Failure(types.Length == 0
+                    ? CommittedSelectorResolutionFailureKind.TypeMissing
+                    : CommittedSelectorResolutionFailureKind.TypeAmbiguous,
+                    "The legacy Type has no unique declaration.");
+            inventory = completed;
+            type = types[0].Name;
+        }
+
+        WorkspaceSharePacket canonical = WorkspaceSharePacket.CreateV6(
+            [tab], [new WorkspaceShareContext([0])], [], 0, 0,
+            [
+                new(null, new PortableSubjectRequest.Workspace(), null, null),
+                type is null
+                    ? new WorkspaceShareViewState(0,
+                        new PortableSubjectRequest.Library(),
+                        new PortableRetainedSubjectContext.Library(library),
+                        "library.types")
+                    : new WorkspaceShareViewState(0,
+                        new PortableSubjectRequest.Type(),
+                        new PortableRetainedSubjectContext.Type(library, type),
+                        "type.overview"),
+            ]);
+        CommittedScenarioDefinitionSet definitions =
+            WorkspaceSharePacketTransposer.ToCommittedDefinitions(
+                WorkspaceSharePacketCodec.Decode(
+                    WorkspaceSharePacketCodec.Encode(canonical),
+                    cancellationToken),
+                cancellationToken);
+        return ResolveNative(plan, definitions, workspace, scope,
+            admission, options, cancellationToken, inventory);
+
+        bool SourceAssetMatches(WorkspaceLibraryOccurrence occurrence)
+        {
+            if (occurrence.Library.ApiAssembly.Provenance
+                is PlatformLibraryArtifactProvenance
+                {
+                    Contribution.Target: var contributedTarget,
+                    SourceProvenance: PackageReferenceArtifactProvenance
+                        { Path: var sourcePath, Coordinate.Target: var packTarget }
+                }
+                && contributedTarget == target && packTarget == target)
+            {
+                return string.Equals(
+                    sourcePath[(sourcePath.LastIndexOf('/') + 1)..],
+                    legacy.AssetFileName,
+                    StringComparison.OrdinalIgnoreCase);
+            }
+            CompleteRestorationPlatformAsset[] sourceAssets =
+            [
+                .. (admission.Assets ?? []).Where(asset =>
+                    ReferenceEquals(asset.Occurrence, occurrence)
+                    && asset.Target == target),
+            ];
+            return sourceAssets is [var asset]
+                && string.Equals(
+                    Path.GetFileName(asset.Path),
+                    legacy.AssetFileName,
+                    StringComparison.OrdinalIgnoreCase);
+        }
+
+        static ResolvedPreparation Failure(
+            CommittedSelectorResolutionFailureKind kind,
+            string message) =>
+            new(null, null, null, null,
+                new CompleteRestorationFailure.SelectorResolutionFailed(
+                    new(kind, 1, "t0", message)));
+    }
+
     private static async ValueTask<ResolvedPreparation> ResolveAsync(
         CompleteRestorationPlan plan,
         InspectionWorkspace workspace,
@@ -1561,8 +1976,15 @@ public static class CompleteRestorationCoordinator
         IReadOnlyDictionary<string, PackageArtifactRootRequest>
             packageRequests,
         CompleteRestorationExecutionOptions options,
+        CompleteRestorationPlatformAdmission? nativeAdmission,
         CancellationToken cancellationToken)
     {
+        if (plan.Recipe is CompleteRestorationRecipe.Version6 native)
+            return ResolveNative(plan, native.Definitions, workspace,
+                scope, nativeAdmission!, options, cancellationToken);
+        if (plan.Recipe is CompleteRestorationRecipe.LegacyPlatformUpgrade legacy)
+            return ResolveLegacyPlatformUpgrade(plan, legacy, workspace,
+                scope, nativeAdmission!, options, cancellationToken);
         if (plan.Recipe
             is CompleteRestorationRecipe.RegistrationOnlyEcosystem ecosystem)
         {
@@ -1600,6 +2022,9 @@ public static class CompleteRestorationCoordinator
                 CompleteRestorationRecipe.Version5 version5 =>
                     (version5.Definitions,
                         InspectionDefinitionSchema.Version5),
+                CompleteRestorationRecipe.Version6 version6 =>
+                    (version6.Definitions,
+                        InspectionDefinitionSchema.Version6),
                 _ => throw new InvalidOperationException(
                     "Unknown complete restoration recipe."),
             };
@@ -2091,6 +2516,11 @@ public static class CompleteRestorationCoordinator
                     resolution.Definitions,
                     detachedStates,
                     detachedActiveStateIndex),
+            InspectionDefinitionSchema.Version6 =>
+                new CompleteRestorationResolvedState.Version6(
+                    resolution.Definitions,
+                    detachedStates,
+                    detachedActiveStateIndex),
             _ => throw new InvalidOperationException(
                 "Unknown committed definition schema version."),
         };
@@ -2266,6 +2696,7 @@ public static class CompleteRestorationCoordinator
             PackageEvaluations,
         CompleteRestorationFailure? Failure)
     {
+        public NavigationAdmittedLibraryEvaluation? AdmittedLibrary { get; init; }
         public NavigationEcosystemEvaluation? Ecosystem { get; init; }
 
         public PackageRootBinding? SelectedPackageRoot { get; init; }

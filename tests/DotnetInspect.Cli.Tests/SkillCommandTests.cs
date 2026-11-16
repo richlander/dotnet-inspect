@@ -18,7 +18,7 @@ public class SkillCommandTests
     }
 
     [Fact]
-    public async Task Execute_TeachesCapabilitySearchToProductionBinding()
+    public async Task Execute_TeachesCapabilitySearchAndResolvedExplanation()
     {
         var (exitCode, output, _) = await ConsoleCapture.RunAsync(
             () => Task.FromResult(SkillCommand.Execute()));
@@ -26,11 +26,9 @@ public class SkillCommandTests
         Assert.Equal(0, exitCode);
         Assert.Contains("explain literal", output);
         Assert.Contains("explain <path>", output);
-        Assert.Contains(
-            "find --packages Microsoft.Azure.SignalR "
-                + "--where \"library-literal=https://\" "
-                + "--tfm net8.0 --json",
-            output);
+        Assert.Contains("Follow its CLI binding and required context", output);
+        Assert.Contains("member Type Method --explain", output);
+        Assert.Contains("-E .tips", output);
     }
 
     [Fact]
@@ -214,7 +212,10 @@ public class SkillCommandTests
             "Use this workflow to reach the right package-authored skill",
             packageSkills);
 
-        foreach (string output in new[] { router, query, packageSkills }
+        Assert.Contains("restored project's inventory or an exact package pin", packageSkills);
+        Assert.Contains("`find --packages`, not API-symbol Find", packageSkills);
+
+        foreach (string output in new[] { router, query }
             .Select(text => string.Join(
                 ' ',
                 text.Split(
@@ -293,6 +294,9 @@ public class SkillCommandTests
             () => Task.FromResult(SkillCommand.ExecuteSkill("project-analysis")));
 
         Assert.Equal(0, exitCode);
+        output = string.Join(
+            ' ',
+            output.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
         Assert.Contains("### Learn", output);
         Assert.Contains("### Dependency risk", output);
         Assert.Contains("### Complexity and clustering", output);
@@ -327,8 +331,8 @@ public class SkillCommandTests
         Assert.Contains("The bare `library --package Id@v` output", output);
         Assert.Contains("depends --project <path> --tfm <restored-tfm>", output);
         Assert.Contains("-S \"Dependency Structure\" --json", output);
-        Assert.Contains("explainingTypeEdges", output);
-        Assert.Contains("explain library/sections/dependency-structure", output);
+        Assert.Contains("explaining Type edges", output);
+        Assert.Contains("Follow installed section explanations", output);
         Assert.Contains("-S \"Performance:*\"", output);
         Assert.Contains("-S \"Resource Triage\"", output);
         Assert.Contains("--namesake-library", output);
@@ -340,15 +344,9 @@ public class SkillCommandTests
         Assert.Contains("skill signals", output);
         Assert.Contains("skill performance", output);
         Assert.Contains("skill correctness", output);
-        foreach (string issue in new[]
-                 {
-                     "#7553", "#7805", "#8406", "#10071", "#10072",
-                     "#10073", "#10074", "#10075", "#10077", "#10080", "#10081",
-                     "#10082", "#10083", "#10084", "#10085", "#10086",
-                 })
-        {
-            Assert.Contains(issue, output);
-        }
+        Assert.Contains("--project-document ./App.csproj --envelope", output);
+        Assert.Contains("Authored constraints are not resolved versions", output);
+        Assert.Contains("no evaluation, restore or implicit acquisition", output);
     }
 
     [Fact]
@@ -359,14 +357,14 @@ public class SkillCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Contains(".NET unsafe-code best-practices guide", output);
-        Assert.Contains("-S \"Unsafe Members\" --jsonl", output);
+        Assert.Contains("-S \"Unsafe Code\" --jsonl", output);
         Assert.Contains("-S \"Resource Triage\" --jsonl", output);
         Assert.Contains(
             "Library `Custom Attributes` covers a filtered set of assembly- and module-level",
             output);
-        Assert.Contains("-S \"Custom Attributes\" --jsonl", output);
-        Assert.Contains("jq -s", output);
-        Assert.Contains("--slurpfile ownership", output);
+        Assert.Contains("`Custom Attributes`", output);
+        Assert.Contains("Slice machine rows locally with `jq`", output);
+        Assert.Contains("keep\nunsafe, ownership and interop evidence distinct", output);
         Assert.Contains("### Route the 26 guidance questions", output);
         Assert.Contains("| 20 | `ArrayPool<T>` and pooling |", output);
         Assert.Contains("whole-library discovery is unverified", output);
@@ -497,7 +495,7 @@ public class SkillCommandTests
 
         Assert.Equal(0, exitCode);
         Assert.Empty(error);
-        Assert.Contains("selection.", output);
+        Assert.Contains("a capability does not exist.", output);
         Assert.DoesNotContain(
             "name: dotnet-inspect-query",
             output);

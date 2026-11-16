@@ -198,6 +198,14 @@ internal static class MetadataMethodGroupInspection
             return CandidateKind.Selected;
         }
 
+        private byte? _typeNullableContext;
+
+        // The display spelling carries nullable annotations, as the Type
+        // document and API surface do.
+        private byte TypeNullableContext =>
+            _typeNullableContext ??=
+                NullabilityReader.GetTypeNullableContext(Reader, TypeHandle);
+
         internal bool ExtensionContainer() =>
             AttributeReader.HasExtensionAttribute(
                 Reader,
@@ -221,13 +229,13 @@ internal static class MetadataMethodGroupInspection
                     method,
                     receiver
                         is MetadataMethodReceiver.Extension);
-            ApiSignature documentationSignature =
+            (string displaySignature, ApiSignature documentationSignature, _) =
                 ApiSurfaceExtractor.GetMethodSignatureForIdentity(
                     Reader,
                     GenericContext.ForType(Reader, Type),
                     handle,
                     method,
-                    typeNullableContext: 0).Model;
+                    TypeNullableContext);
             XmlDocMemberIdentity documentationIdentity =
                 XmlDocumentationNotation.CreateMemberIdentity(
                     "M",
@@ -243,8 +251,7 @@ internal static class MetadataMethodGroupInspection
             return new(
                 MetadataTokens.GetToken(handle),
                 anchor,
-                MetadataDeclarationQuery.GetMethodSignatureText(
-                    declaration),
+                displaySignature,
                 anchor.CanonicalSignature,
                 documentationIdentity.Value,
                 anchor.Fingerprint,

@@ -2067,6 +2067,14 @@ public sealed class MethodDefinitionExecution
                     typeHandle,
                     typeDefinition);
             }
+            if (inScope && state.SettledTypes is { } settledTypes)
+            {
+                inScope = SourceTypeInScope(
+                    state,
+                    settledTypes,
+                    reader,
+                    typeHandle);
+            }
 
             state.TypeInScopeNow = inScope;
             anyInScope |= inScope && state.IsActive;
@@ -2252,6 +2260,32 @@ public sealed class MethodDefinitionExecution
         return false;
     }
 
+    /// <summary>
+    /// Whether the type's source Type is still open for a producer that
+    /// settles Types, recording it as the Type a settling fact closes.
+    /// </summary>
+    static bool SourceTypeInScope(
+        ProducerState state,
+        HashSet<TypeDefinitionHandle> settledTypes,
+        MetadataReader reader,
+        TypeDefinitionHandle typeHandle)
+    {
+        try
+        {
+            state.CurrentSourceType =
+                MethodDefinitionShapes.SourceType(reader, typeHandle);
+            return !settledTypes.Contains(state.CurrentSourceType);
+        }
+        catch (Exception ex)
+            when (LibraryMethodAnalysisRunner.IsRecoverableMethodFailure(ex))
+        {
+            // A Type whose nesting cannot be read stays open, so it is
+            // visited and settles only its own units.
+            state.CurrentSourceType = typeHandle;
+            return !settledTypes.Contains(typeHandle);
+        }
+    }
+
     static bool TypeInScope(
         ProducerState state,
         MetadataReader reader,
@@ -2394,6 +2428,12 @@ public sealed class MethodDefinitionExecution
             return;
 
         state.SettlingFacts++;
+        if (state.SettledTypes is { } settledTypes)
+        {
+            settledTypes.Add(state.CurrentSourceType);
+            state.TypeInScopeNow = false;
+        }
+
         if (state.Terminal == ProducerTerminal.Exists
             || state.RowLimit is int rowLimit
                 && state.SettlingFacts >= rowLimit)
@@ -2852,6 +2892,15 @@ public sealed class MethodDefinitionExecution
 
         /// <summary>Whether the type being visited is in this producer's scope.</summary>
         public bool TypeInScopeNow = true;
+
+        /// <summary>
+        /// The source Types a settling fact closed, for a producer that
+        /// settles Types; null otherwise.
+        /// </summary>
+        public HashSet<TypeDefinitionHandle>? SettledTypes;
+
+        /// <summary>The source Type of the type being visited, for a producer that settles Types.</summary>
+        public TypeDefinitionHandle CurrentSourceType;
 
         public bool HasBodyLayer { get; } =
             (layers & MethodDefinitionLayers.Body) != 0;

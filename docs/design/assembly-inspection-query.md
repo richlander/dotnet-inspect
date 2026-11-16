@@ -1267,6 +1267,44 @@ operation. CLI Package/Workspace selection and Browser exact activation share
 this primitive through that operation. Admission retains the existing
 caller-selected scopes while #10693 consolidates its own policy. Other routes
 retain their current selection until their adoption lands.
+Slice 3 adds a catalog adapter to the same operation for legacy CLI Type,
+Member, and Match. The producer supplies an already
+admitted catalog with settled forwarding and source associations; selection
+neither reacquires it nor rebuilds its member population. The shared query
+owns bounded Type/Member prefix search. Ambiguity and unavailable inspection
+stop that search, and issued definition identities use ordinal selection.
+Catalog pattern presentation remains distinct from exact query selection.
+The detached exact-Type presentation bridge passes the issued Type directly;
+it does not rerun the Type's display spelling as a query or reclassify retained
+partial evidence as a new lookup failure.
+External-call-graph roots execute the existing exact-Type core over their
+loaded Package participants, retaining source authorization, forwarding, and
+the defining assembly's MethodDef coordinate.
+Legacy Member routes also adopt the existing unavailable outcome for rejected
+declaration traversal whose affected name is unknown. They withhold a selected
+Member target instead of presenting partial body output as though subject
+uniqueness were established. `MemberSingleTypeSurfaceTests` gates agreement of
+the narrow and complete routes for rejected nesting and exported-Type rows.
+Slice 4 adds a bounded single-Library adapter to the same operation for compact
+CLI Tree/Mermaid queries. It consumes Metadata's complete declaration inventory
+and the existing exact-Type admission, then retains the issued structured
+definition for document projection inside the same Library lease. Presentation
+no longer pages an independent name catalog or chooses a matching candidate.
+Ambiguity, unavailable evidence, and completed projection failures are terminal;
+Tree does not retry those outcomes through a different catalog. A conclusive
+NotFound may enter the existing prefix-discovery presentation, carrying the
+completed lookup outcome so the subject is not selected again. Tree requests
+prefix availability from the same bounded admitted declaration inventory;
+only a real candidate permits the richer prefix catalog to be materialized.
+Metadata's `TypePrefixPattern` supplies the existing literal prefix grammar to
+both this availability probe and catalog presentation. An excluded exact name
+or a fuzzy suggestion alone does not authorize that work. The availability
+probe does not project Members, and definition activation and Mermaid do not
+request it. Browser
+overview activation already receives an
+issued definition and enters the operation's definition specialization, which
+composes the existing bounded ordinal document producer once. It does not add
+a query inventory or a duplicate identity probe before projection.
 This subsection extends the exact single-Type operation's selection
 contract to every consumer that resolves a user-written Type query. Assembly
 Inspection owns that shared operation; Metadata owns the name-selection
@@ -1419,8 +1457,43 @@ execution; `ExactTypeWorkspaceRouteTests` and Browser's `QueryTypeProjection_*`
 cases exercise the existing production consumers. CLI `LayeringTests` prevents
 the adopted exact-Type query from restoring its local arity-preserving tier
 predicate. The wider cross-entry-point gates above remain required and
-unverified until the remaining slices land; this adoption does not claim to
-fix the compact Tree or legacy Member admission discrepancies.
+unverified until the remaining slices land. Compact Tree now consumes the
+same transitional Public admission as the sectioned route; the eventual
+accessibility-only default remains with #10693.
+
+`ExactTypeCatalogSelectionTests` gates catalog-wide full-name precedence,
+coincident names in distinct sources, ordinal definition selection, complete
+Member remainders, and unavailable forwarding. Its executing CoreLib witness
+checks that the catalog consumes extraction's admission without adding an
+attribute rule. `ApiTypeLookupServiceTests` exercises the thin CLI adapter;
+`LegacyTypeLookupDelegatesSelectionAndMemberBoundariesToSharedOperation`
+guards that adapter's delegation. Catalog selection adds no narrow acquisition
+plan: existing exact-Type routes and Member fast paths retain their current
+demand, while the legacy caller continues to own its already requested catalog.
+
+`ExactTypeLibrarySelectionTests` gates compact query tiers, competing nested
+definitions, ordinal definition selection, exhausted inventory bounds,
+unresolved forwarders, and lease cleanup after a callback exception. Its pinned
+`Microsoft.NETCore.App.Runtime.linux-x64` **11.0.0-rc.3.26522.148** CoreLib
+control retains `CurrencyWrapper` as an IncludeAll hit and a Public miss under
+the current admission. The malformed-adjacency control verifies that an issued
+definition still projects available content and partial-evidence diagnostics
+without a preceding query inventory. `TypeOverviewHierarchyPresentationTests`
+and CLI `TypeHierarchy_*` gates exercise both formats, including ambiguity and
+hidden public admission; `CompactTypeOverviewDelegatesSelectionToSharedOperation`
+guards retirement of presentation-owned matching. Browser's
+`BrowserMemberDeclarationTests` retains package, uploaded, and platform overview
+coverage. These are focused PR-fast gates except the already classified CLI
+command class, whose focused pre-merge run owns this evidence. No new attribute
+reader or admission default is introduced by this slice.
+
+`TypePrefixPatternTests` checks typed-name and catalog-spelling agreement for
+literal prefixes, including nested and generic names, aliases, and close
+non-prefix cases. Library-selection gates keep prefix availability unset for
+definition activation and incomplete evidence, and false for a hidden exact
+name or fuzzy-only suggestion under Public admission. This gate answers only
+whether richer prefix discovery has a candidate; it does not change exact
+lookup or authorize a different declaration population.
 
 `eng/measure-type-lookup.cs` runs exact base/head NativeAOT CLI apphosts against
 an explicit JSON array of named argument lists. It rotates execution order,
@@ -2178,6 +2251,45 @@ access.
 and `CountSummaryTypes_DeclinesTypeForwarders` gate the accepted population,
 snapshot binding, and pathological decline. The Library inspection design owns
 the replacement CLI adoption gates.
+
+## Library-backed Type metadata projection
+
+The shared Type projection accepts either already extracted Metadata facts or
+one exact borrowed Library and structured Type identity. Both routes return an
+`InspectionEnvelope<T>` and use the existing Research Type projection.
+Source-native inspection does not manufacture a Package coordinate or require
+an assembly-context group.
+
+This is additional Type metadata, not a replacement for the complete
+[Type Signature](type-member-inspection-documents.md#complete-type-signature).
+Type lists retain Name demand, Type Info consumes the shared Signature, and
+Type Members consumes the compact Member-name document. A host may compose
+additional metadata and relationships beside those documents without making
+the cheaper questions depend on it.
+
+The Library request selects its exact Type before extraction by comparing
+structured namespace and nesting components, not a dotted display name.
+It does not extract Member declarations or composition. Incoming relationships
+are an explicit broader demand over the same Library. The current reference execution
+reads the Library's Type metadata, but not its Member inventory, for that demand.
+It does not claim least-work relationship execution or cross-Library coverage.
+Inspection bounds and failures remain visible; incomplete lookup evidence does
+not establish absence.
+
+`System.Text.Json@10.0.0` supplies the real-asset witness: `JsonElement` motivates
+selected-Type metadata, while `JsonNamingPolicy` has concrete derived policies
+in the same Library. Focused gates require selected-Type success with a one-Type
+retention bound and zero allowed Members, explicit relationship production,
+and visible non-success when a metadata bound prevents inspection.
+`StructuredSelection_DoesNotRetainCollidingDottedType` also requires the distinct
+ECMA definitions `A.B.C` and `A.B+C` to succeed independently under that one-Type
+bound; a namespace separator must not admit an unrelated nested definition.
+
+The CLI consumes the shared projection of already extracted facts. The
+source-native Web adopter under [#10983](https://github.com/richlander/dotnet-inspect/issues/10983)
+is the next consumer of the Library-backed overload. Its independent adoption
+must preserve rich Overview while publishing the Name-only Type list first;
+this producer does not claim Browser publication or deployment is complete.
 
 ## The sibling seam: method-body / coordinate inspection
 

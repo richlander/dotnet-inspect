@@ -2818,6 +2818,7 @@ public partial class SectionPipelineTests
         string[] expectedAboveCheap =
         [
             .. expectedQueryBodyIndexFamily,
+            SectionNames.ApiReference,
             SectionNames.CloneCandidates,
             SectionNames.DependencyStructure,
             SectionNames.LibraryMetrics,
@@ -2825,7 +2826,7 @@ public partial class SectionPipelineTests
             SectionNames.ArchitecturalFamilies,
             SectionNames.ArchitecturalFamilyTypes,
             SectionNames.TopLeverage,
-            SectionNames.UnsafeMembers,
+            SectionNames.UnsafeCode,
             IntegrationSectionNames.Integrations,
             IntegrationSectionNames.Opportunities,
             "Metadata: #Blob",

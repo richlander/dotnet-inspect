@@ -4,7 +4,7 @@ using Inspector.Findings;
 
 namespace ILInspector.Analysis.Tests;
 
-// Gates for comparing the census in Diff (docs/design/unsafe-members-section.md#diff).
+// Gates for comparing the census in Diff (docs/design/unsafe-code-section.md#diff).
 public sealed partial class UnsafeMemberFindingsTests
 {
     public sealed class Comparison
@@ -170,7 +170,7 @@ public sealed partial class UnsafeMemberFindingsTests
             Assert.IsType<FindingInspection<UnsafeMemberFinding>.Failed>(comparison.OldInspection.Value);
         }
 
-        // The summary is the Unsafe Members row's value: roles in inventory
+        // The summary is the Unsafe Code row's value: roles in inventory
         // order, a count for a repeated role, and distinct sorted callees.
         [Fact]
         public void SummaryIsTheRowValue()

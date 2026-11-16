@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Globalization;
+using DotnetInspector.LibraryMetadata;
 
 namespace DotnetInspector.Queries;
 
@@ -138,12 +139,17 @@ public sealed record NavigationEvaluationFacts(
     NavigationNonReadyPackageEvaluation? NonReadyPackage = null)
 {
     public NavigationEcosystemEvaluation? Ecosystem { get; init; }
+
+    public NavigationAdmittedLibraryEvaluation? AdmittedLibrary { get; init; }
 }
 
 public sealed record NavigationInitialization(
     StructuralSubjectIdentity? Subject = null,
     NavigationRetainedSubjectContext? Context = null,
-    NavigationLensIdentity? Lens = null);
+    NavigationLensIdentity? Lens = null)
+{
+    public NavigationAdmittedSubjectContext? AdmittedContext { get; init; }
+}
 
 public enum NavigationRestorationRejectionKind
 {
@@ -158,6 +164,8 @@ public enum NavigationRestorationFailureKind
 {
     PackageNotPrepared,
     IncompleteInventory,
+    LibraryInventoryNotPrepared,
+    LibraryInventoryUnsuccessful,
 }
 
 /// <summary>
@@ -223,18 +231,21 @@ public abstract record NavigationRestorationPreparationResult
             StructuralSubjectIdentity subject,
             NavigationRestorationFailureKind kind,
             string message,
-            NavigationTypeInventoryOutcome? inventory = null)
+            NavigationTypeInventoryOutcome? inventory = null,
+            LibraryTypeDeclarationInventoryInspectionOutcome? admittedInventory = null)
             : base(workspace, request)
         {
             ArgumentNullException.ThrowIfNull(subject);
             ArgumentException.ThrowIfNullOrWhiteSpace(message);
             if (!Enum.IsDefined(kind))
                 throw new ArgumentOutOfRangeException(nameof(kind));
-            if (kind == NavigationRestorationFailureKind.IncompleteInventory
-                && inventory is null)
+            if ((kind == NavigationRestorationFailureKind.IncompleteInventory
+                    && inventory is null && admittedInventory is null)
+                || (kind == NavigationRestorationFailureKind.LibraryInventoryUnsuccessful
+                    && admittedInventory is null))
             {
                 throw new ArgumentException(
-                    "An incomplete-inventory failure requires its exact evidence.",
+                    "An inventory failure requires its exact evidence.",
                     nameof(inventory));
             }
 
@@ -242,6 +253,7 @@ public abstract record NavigationRestorationPreparationResult
             Kind = kind;
             Message = message;
             Inventory = inventory;
+            AdmittedInventory = admittedInventory;
         }
 
         public StructuralSubjectIdentity Subject { get; }
@@ -251,6 +263,8 @@ public abstract record NavigationRestorationPreparationResult
         public string Message { get; }
 
         public NavigationTypeInventoryOutcome? Inventory { get; }
+
+        public LibraryTypeDeclarationInventoryInspectionOutcome? AdmittedInventory { get; }
     }
 
     public sealed record Rejected : NavigationRestorationPreparationResult

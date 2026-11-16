@@ -20,6 +20,20 @@ Never replace or shadow a centrally installed `dotnet`; when the required SDK
 is absent, install it only under the current worktree as the repository
 instructions specify.
 
+The repository selects stable .NET 11.0 SDKs, starting at `11.0.100`.
+`global.json` uses `latestFeature` roll-forward, accepting newer installed
+11.0 feature bands and patches but not prereleases or a newer major/minor.
+CI installs the latest stable `11.0.x` SDK. Record the exact selected SDK
+for reproducible evidence.
+
+The GA baseline includes runtime `11.0.0`, which retains the fix for the
+[Brotli decoder out-of-bounds write advisory
+GHSA-p3jp-9v83-76w9](https://github.com/advisories/GHSA-p3jp-9v83-76w9).
+Keep repository and CI SDK selection aligned so CoreCLR and NativeAOT builds
+use the patched runtime and compiler packs. This execution-toolchain pin does
+not update immutable inspection fixtures, package coordinates, or historical
+evidence; inspected assemblies remain unloaded.
+
 Build the normal graph with:
 
 ```bash

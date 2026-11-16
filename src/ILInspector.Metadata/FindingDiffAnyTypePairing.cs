@@ -62,9 +62,9 @@ public sealed record FindingDiffAnyTypeInventory(
 /// pairing's body reader, the walk by default. The pairing is the Type
 /// scenario's entry (<c>docs/design/diff-system.md#scenarios</c>): a host
 /// that opened an image pair pays the pairing once and each Type as it is
-/// asked for. Types present on one side only are not paired; their one-sided
-/// form is the Type level's (<c>docs/design/finding-diff-any.md#type</c>),
-/// which folds these rows into Member states under its ownership rules.
+/// asked for. Types present on one side only use <see cref="OneSidedMembers"/>,
+/// which partitions present facts without comparing metadata or reading IL
+/// (<c>docs/design/finding-diff-any.md#type</c>).
 /// </summary>
 public sealed partial class FindingDiffAnyTypePairing
 {
@@ -72,23 +72,49 @@ public sealed partial class FindingDiffAnyTypePairing
     readonly FindingDiffAny.Side _b;
     readonly FindingDiffAny.Work _work;
     readonly Dictionary<string, (FindingDiffAny.Unit A, FindingDiffAny.Unit B)> _paired = new(StringComparer.Ordinal);
+    readonly Dictionary<string, (FindingDiffAnySide Side, FindingDiffAny.Unit Unit)> _oneSided = new(StringComparer.Ordinal);
     readonly HashSet<string> _ambiguous = new(StringComparer.Ordinal);
     bool _released;
 
-    public FindingDiffAnyTypePairing(PEReader before, PEReader after, FindingDiffAnyBodyReader? bodyReader = null)
+    public FindingDiffAnyTypePairing(
+        PEReader before,
+        PEReader after,
+        FindingDiffAnyBodyReader? bodyReader = null,
+        FindingDiffAnyApiSettler? apiSettler = null)
+        : this(before, after, bodyReader, apiSettler, pairEveryType: true)
+    {
+    }
+
+    FindingDiffAnyTypePairing(
+        PEReader before,
+        PEReader after,
+        FindingDiffAnyBodyReader? bodyReader,
+        FindingDiffAnyApiSettler? apiSettler,
+        bool pairEveryType)
     {
         ArgumentNullException.ThrowIfNull(before);
         ArgumentNullException.ThrowIfNull(after);
         var interner = new SymbolKeyInterner<FindingDiffAnyPart>();
         _a = new FindingDiffAny.Side(before, interner);
         _b = new FindingDiffAny.Side(after, interner);
-        _work = new FindingDiffAny.Work { BodyReader = bodyReader };
+        _work = new FindingDiffAny.Work { BodyReader = bodyReader, ApiSettler = apiSettler };
+        if (!pairEveryType)
+        {
+            Types = [];
+            UnitsBefore = [];
+            UnitsAfter = [];
+            return;
+        }
+        FindingDiffAny.UnitTable unitsA = _a.Units();
         FindingDiffAny.UnitTable unitsB = _b.Units();
         var names = new List<string>();
-        foreach ((SymbolKey<FindingDiffAnyPart> key, FindingDiffAny.Unit unitA) in _a.Units().Entries)
+        foreach ((SymbolKey<FindingDiffAnyPart> key, FindingDiffAny.Unit unitA) in unitsA.Entries)
         {
             if (!unitsB.TryGetValue(key, out FindingDiffAny.Unit? unitB))
+            {
+                AddOneSided(unitA, FindingDiffAnySide.Before);
                 continue;
+            }
             // The Library level pairs rows by key and decides each; a display
             // name two paired rows share selects neither, so the pairing
             // withholds a decision for that name rather than guess a row.
@@ -97,11 +123,78 @@ public sealed partial class FindingDiffAnyTypePairing
             else
                 _ambiguous.Add(unitA.FullName);
         }
+        foreach ((SymbolKey<FindingDiffAnyPart> key, FindingDiffAny.Unit unitB) in unitsB.Entries)
+            if (!unitsA.TryGetValue(key, out _))
+                AddOneSided(unitB, FindingDiffAnySide.After);
         Types = names;
+        UnitsBefore = [.. unitsA.Entries.Select(static entry => entry.Unit.FullName)];
+        UnitsAfter = [.. unitsB.Entries.Select(static entry => entry.Unit.FullName)];
+
+        void AddOneSided(FindingDiffAny.Unit unit, FindingDiffAnySide side)
+        {
+            if (!_oneSided.TryAdd(unit.FullName, (side, unit)))
+                _ambiguous.Add(unit.FullName);
+        }
+    }
+
+    /// <summary>
+    /// Pairs one addressed Type by its identity: each side reads only the unit
+    /// of its selected row, so no other Type is keyed, extracted, or paired
+    /// (<c>docs/design/diff-capabilities.md#demand-shaped</c>). A nil handle is
+    /// the side the Type is absent from. The caller selects each row by exact
+    /// Type identity; a row whose key another row of its image shares is
+    /// <see cref="FindingDiffAnyState.Indeterminate"/>, as the whole-image
+    /// pairing decides it, and so is a reference to such a row.
+    /// </summary>
+    public static FindingDiffAnyTypePairing ForType(
+        PEReader before,
+        TypeDefinitionHandle beforeType,
+        PEReader after,
+        TypeDefinitionHandle afterType,
+        FindingDiffAnyBodyReader? bodyReader = null)
+    {
+        if (beforeType.IsNil && afterType.IsNil)
+            throw new ArgumentException("At least one endpoint must select a Type.");
+        var pairing = new FindingDiffAnyTypePairing(before, after, bodyReader, apiSettler: null, pairEveryType: false);
+        FindingDiffAny.Unit? unitA = beforeType.IsNil ? null : pairing._a.SelectedUnit(beforeType);
+        FindingDiffAny.Unit? unitB = afterType.IsNil ? null : pairing._b.SelectedUnit(afterType);
+        if ((!beforeType.IsNil && unitA is null) || (!afterType.IsNil && unitB is null))
+            throw new ArgumentException("Generated code has no Type level; select its declared owner.");
+        pairing.UnitsBefore = unitA is null ? [] : [unitA.FullName];
+        pairing.UnitsAfter = unitB is null ? [] : [unitB.FullName];
+        if (unitA is not null && unitB is not null)
+        {
+            bool malformed = unitA.Malformed || unitB.Malformed;
+            if (!malformed && !string.Equals(unitA.Identifier, unitB.Identifier, StringComparison.Ordinal))
+                throw new ArgumentException("The selected Types must have the same metadata identity.");
+            string name = unitA.Malformed ? unitB.FullName : unitA.FullName;
+            pairing._paired.Add(name, (unitA, unitB));
+            if (malformed)
+                pairing._ambiguous.Add(name);
+            pairing.Types = [name];
+            pairing.Selected = name;
+        }
+        else
+        {
+            FindingDiffAnySide side = unitA is null ? FindingDiffAnySide.After : FindingDiffAnySide.Before;
+            FindingDiffAny.Unit unit = (unitA ?? unitB)!;
+            pairing._oneSided.Add(unit.FullName, (side, unit));
+            pairing.Selected = unit.FullName;
+        }
+        return pairing;
     }
 
     /// <summary>The full names of the Types present in both images, in before-image row order.</summary>
-    public IReadOnlyList<string> Types { get; }
+    public IReadOnlyList<string> Types { get; private set; }
+
+    /// <summary>The name <see cref="ForType"/> admitted its addressed Type under; null for a whole-image pairing.</summary>
+    public string? Selected { get; private set; }
+
+    /// <summary>The Types the before side read as units, in row order: one for <see cref="ForType"/>, every Type otherwise.</summary>
+    public IReadOnlyList<string> UnitsBefore { get; private set; }
+
+    /// <summary>The Types the after side read as units, in row order.</summary>
+    public IReadOnlyList<string> UnitsAfter { get; private set; }
 
     /// <summary>Paired methods whose bodies were read so far, as the Library receipt counts them.</summary>
     public int BodiesCompared => _work.Bodies;
@@ -116,7 +209,7 @@ public sealed partial class FindingDiffAnyTypePairing
     public FindingDiffAnyTypeInventory Inventory(string fullName)
         => Read(fullName, null);
 
-    FindingDiffAnyTypeInventory Read(string fullName, MemberFold? fold)
+    FindingDiffAnyTypeInventory Read(string fullName, MemberFold? fold, List<(MethodDefinitionHandle Before, MethodDefinitionHandle After)>? deferredBodies = null)
     {
         ArgumentNullException.ThrowIfNull(fullName);
         if (_released)
@@ -168,6 +261,11 @@ public sealed partial class FindingDiffAnyTypePairing
             {
                 if (!methodsB.TryGetValue(key, out MethodDefinitionHandle methodB))
                     continue;
+                if (deferredBodies is not null)
+                {
+                    deferredBodies.Add((methodA, methodB));
+                    continue;
+                }
                 FindingDiffAnyState state;
                 try
                 {

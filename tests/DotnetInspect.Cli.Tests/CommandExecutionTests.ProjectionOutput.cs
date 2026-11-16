@@ -1027,7 +1027,7 @@ public partial class CommandExecutionTests
         string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         var (renderExit, renderOutput, renderError) = await RunAppAsync(
             "library", assemblyPath,
-            "-S", SectionNames.UnsafeMembers,
+            "-S", SectionNames.UnsafeCode,
             "--count");
 
         Assert.Equal(0, renderExit);
@@ -1038,15 +1038,15 @@ public partial class CommandExecutionTests
 
         var (exit, output, error) = await RunAppAsync(
             "library", assemblyPath,
-            "-D", SectionNames.UnsafeMembers,
+            "-D", SectionNames.UnsafeCode,
             "--count",
-            "-S", SectionNames.UnsafeMembers,
+            "-S", SectionNames.UnsafeCode,
             "--trace");
 
         Assert.Equal(0, exit);
         Assert.True(int.Parse(output.Trim(), CultureInfo.InvariantCulture) > 0);
         Assert.Contains("trace: library", error);
-        Assert.DoesNotContain(UnsafeMemberCensusQuery.Definition.Name, error);
+        Assert.DoesNotContain(FindingUnsafeAnyQuery.Definition.Name, error);
         Assert.DoesNotContain("body index", error);
 
         var (bareExit, rawOutput, bareError) = await RunAppAsync(
@@ -1056,7 +1056,7 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, bareExit);
         Assert.Contains(
-            $"| {SectionNames.UnsafeMembers} | section |",
+            $"| {SectionNames.UnsafeCode} | section |",
             rawOutput);
         Assert.Contains(
             UnsafeEvidencePresenceQuery.Definition.Name,
@@ -1078,7 +1078,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.DoesNotContain(
-                $"| {SectionNames.UnsafeMembers} | section |",
+                $"| {SectionNames.UnsafeCode} | section |",
                 output);
         }
         finally
@@ -1102,7 +1102,7 @@ public partial class CommandExecutionTests
             Assert.Equal(1, exit);
             Assert.Empty(output);
             Assert.Contains(
-                $"Could not determine {SectionNames.UnsafeMembers} applicability",
+                $"Could not determine {SectionNames.UnsafeCode} applicability",
                 error);
             Assert.Contains(
                 "Unsafe evidence presence is incomplete",
@@ -1234,7 +1234,7 @@ public partial class CommandExecutionTests
             Assert.Equal(0, exit);
             Assert.Empty(error);
             Assert.Contains(SectionNames.References, output);
-            Assert.Contains(SectionNames.UnsafeMembers, output);
+            Assert.Contains(SectionNames.UnsafeCode, output);
             Assert.DoesNotContain(
                 SectionNames.IdentifierConfusion,
                 output);

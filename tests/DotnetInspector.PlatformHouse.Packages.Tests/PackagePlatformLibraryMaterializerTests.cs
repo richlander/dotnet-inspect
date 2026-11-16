@@ -5,12 +5,14 @@ using DotnetInspector.EcosystemLoading;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.Libraries;
 using DotnetInspector.LibraryMetadata;
+using DotnetInspector.Packages;
 using DotnetInspector.Platforms;
 using DotnetInspector.Platforms.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using Inspector.Artifacts;
+using Inspector.Artifacts.Workspaces;
 using Inspector.Resources;
 
 namespace DotnetInspector.PlatformHouse.Packages.Tests;
@@ -1142,6 +1144,138 @@ public sealed class PackagePlatformLibraryMaterializerTests
         await completed.Population.Owners[1].DisposeAsync();
         await artifactRetirement.WaitAsync(cancellationToken);
         Assert.Empty(completed.Artifacts.CleanupFailures);
+    }
+
+    [Fact]
+    public async Task
+        PackageImplementationCorrespondence_PreservesOverlappingSourceMember()
+    {
+        byte[] image = PackagePlatformTestData.Assembly("System.Text.Json");
+        await using PackagePlatformTestEnvironment environment =
+            CorrespondenceEnvironment(image);
+        var first = await ImplementationCertificate(environment);
+        var repeated = await ImplementationCertificate(environment);
+        var support = await ImplementationCertificate(
+            environment,
+            new PlatformFamilyTarget(
+                PlatformFamily.AspNetCore,
+                PlatformTargetFramework.Parse("net11.0"),
+                PlatformVersion.Parse(PackagePlatformTestEnvironment.Version)));
+
+        Assert.NotSame(first.Content.Generation, support.Content.Generation);
+        Assert.NotSame(first.Content.Registration, support.Content.Registration);
+        Assert.Equal(first.Identity, repeated.Identity);
+        Assert.Equal(first.Identity, support.Identity);
+        Assert.Single(
+            new HashSet<PlatformImplementationArtifactIdentity>
+            {
+                first.Identity,
+                repeated.Identity,
+                support.Identity,
+            });
+        await environment.AssertSettledAsync();
+    }
+
+    [Fact]
+    public async Task
+        PackageImplementationCorrespondence_SeparatesAuthorityAndChangedImage()
+    {
+        byte[] image =
+            [.. PackagePlatformTestData.Assembly("System.Text.Json"), 0];
+        await using PackagePlatformTestEnvironment environment =
+            CorrespondenceEnvironment(image);
+        await using PackagePlatformTestEnvironment foreignEnvironment =
+            CorrespondenceEnvironment(image);
+        var original = await ImplementationCertificate(environment);
+        var foreign = await ImplementationCertificate(foreignEnvironment);
+        image[^1] = 1;
+        environment.Store = new InMemoryPackageStore();
+        var changed = await ImplementationCertificate(environment);
+
+        Assert.NotEqual(original.Identity, foreign.Identity);
+        Assert.NotEqual(original.Identity, changed.Identity);
+        Assert.True(AssemblyReferenceIdentity.EquivalentComparer.Equals(
+            original.Identity.AssemblyIdentity,
+            changed.Identity.AssemblyIdentity));
+        await environment.AssertSettledAsync();
+        await foreignEnvironment.AssertSettledAsync();
+    }
+
+    static PackagePlatformTestEnvironment CorrespondenceEnvironment(byte[] image) =>
+        PackagePlatformTestEnvironment.Create(
+            [
+                TestSourceBehavior.CreatePackages(
+                    (
+                        PackagePlatformTestEnvironment.RuntimeImplementationPackageId,
+                        PackagePlatformTestEnvironment.Version,
+                        PackagePlatformTestData.RuntimePackEntries(
+                            "Microsoft.NETCore.App",
+                            PackagePlatformTestData.RuntimeConfiguration(),
+                            PackagePlatformTestData.DependencyManifest(
+                                "System.Text.Json.dll"),
+                            ("System.Text.Json.dll", image))),
+                    (
+                        PackagePlatformTestEnvironment.AspNetImplementationPackageId,
+                        PackagePlatformTestEnvironment.Version,
+                        PackagePlatformTestData.RuntimePackEntries(
+                            "Microsoft.AspNetCore.App",
+                            PackagePlatformTestData.RuntimeConfiguration(
+                                (
+                                    "Microsoft.NETCore.App",
+                                    PackagePlatformTestEnvironment.Version,
+                                    "Disable")),
+                            PackagePlatformTestData.DependencyManifest(
+                                "Microsoft.AspNetCore.Hosting.dll"),
+                            ("Microsoft.AspNetCore.Hosting.dll",
+                                PackagePlatformTestData.Assembly(
+                                    "Microsoft.AspNetCore.Hosting"))))),
+            ]);
+
+    static async Task<(
+        PlatformImplementationArtifactIdentity Identity,
+        ArtifactContentReference Content)> ImplementationCertificate(
+            PackagePlatformTestEnvironment environment,
+            PlatformFamilyTarget? target = null)
+    {
+        CancellationToken cancellationToken =
+            TestContext.Current.CancellationToken;
+        PackagePlatformHouseAdapter adapter = Adapter(environment);
+        PlatformHouseRequest request = PopulationRequest(
+            adapter,
+            cancellationToken,
+            PlatformViewDemand.Implementation,
+            target);
+        var implementation = Assert.IsType<
+            PackagePlatformHouseResult<
+                PackageImplementationRealization>.Succeeded>(
+                    await adapter.RealizeImplementationAsync(
+                        request,
+                        "linux-x64",
+                        environment.IssueOperation(
+                            cancellationToken,
+                            operationTimeout: request.Work.MaxDuration)));
+        var completed = Assert.IsType<
+            PlatformPopulationArtifactMaterializationOutcome.Completed>(
+                await PackagePlatformLibraryMaterializer
+                    .MaterializeImplementationPopulationAsync(
+                        request,
+                        implementation,
+                        Consumed(implementation.Value)));
+        ArtifactContentReference content = Assert.Single(
+                completed.Population.Value.Members,
+                static member => member.PlatformLibrary.Library.ApiAssembly
+                    .AssemblyIdentity!.Identity.Name == "System.Text.Json")
+            .PlatformLibrary.Library.ApiAssembly.ArtifactReference;
+        PlatformImplementationArtifactIdentity identity =
+            Assert.IsAssignableFrom<PlatformImplementationArtifactIdentity>(
+                Assert.IsType<PlatformLibraryArtifactProvenance>(
+                        content.Provenance)
+                    .ImplementationArtifactIdentity);
+        Task retirement = completed.Artifacts.DisposeAsync().AsTask();
+        foreach (LibraryContentOwner owner in completed.Population.Owners)
+            await owner.DisposeAsync();
+        await retirement.WaitAsync(cancellationToken);
+        return (identity, content);
     }
 
     [Fact]
@@ -2617,7 +2751,8 @@ public sealed class PackagePlatformLibraryMaterializerTests
         PackagePlatformHouseAdapter adapter,
         CancellationToken cancellationToken,
         PlatformViewDemand view =
-            PlatformViewDemand.ReferenceAndImplementation)
+            PlatformViewDemand.ReferenceAndImplementation,
+        PlatformFamilyTarget? target = null)
     {
         var selections = new List<PlatformSourceSelection>();
         if (view is PlatformViewDemand.Reference
@@ -2642,7 +2777,7 @@ public sealed class PackagePlatformLibraryMaterializerTests
         return
         new(
             PlatformHouseRequestIdentity.Create("package-population"),
-            new PlatformTargetDemand.Exact(Target()),
+            new PlatformTargetDemand.Exact(target ?? Target()),
             new PlatformHouseRequestOrigin.Standalone(
                 PlatformStandaloneOperationIdentity.Create("test")),
             new PlatformHouseOperation.Realize(

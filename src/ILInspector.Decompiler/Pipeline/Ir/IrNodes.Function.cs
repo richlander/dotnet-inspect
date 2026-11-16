@@ -36,7 +36,7 @@ public sealed class IrFunction : IrNode
     public int MetadataToken { get; set; }
     internal MetadataMethodAddress? SourceMethodAddress { get; init; }
     public TypeRef? BaseType { get; set; }
-    public MethodSignature Signature { get; }
+    public MethodSignature Signature { get; internal set; }
     internal Parameter? ReceiverParameter { get; }
     public ImmutableArray<string> DeclaringTypeGenericParameterNames { get; set; } = [];
     public ImmutableArray<GenericParameterConstraintInfo> DeclaringTypeParameters { get; set; } = [];
@@ -399,15 +399,20 @@ public sealed class IrFunction : IrNode
     /// </summary>
     internal static IEnumerable<IrNode> NodesSharingLocalScope(IrNode node)
     {
-        if (node is Lambda { NeedsIsolatedLocalScope: true })
-            yield break;
-        if (node is LocalFunctionStatement { NeedsIsolatedLocalScope: true })
-            yield break;
-        yield return node;
-        foreach (var child in node.Children)
+        // Pre-order with an explicit stack: a recursive iterator re-yields every
+        // node through each ancestor, costing O(nodes * depth) per walk.
+        var stack = new Stack<IrNode>();
+        stack.Push(node);
+        while (stack.Count > 0)
         {
-            foreach (var scopedNode in NodesSharingLocalScope(child))
-                yield return scopedNode;
+            var current = stack.Pop();
+            if (current is Lambda { NeedsIsolatedLocalScope: true }
+                || current is LocalFunctionStatement { NeedsIsolatedLocalScope: true })
+                continue;
+            yield return current;
+            var children = current.Children;
+            for (int i = children.Count - 1; i >= 0; i--)
+                stack.Push(children[i]);
         }
     }
 
@@ -427,6 +432,25 @@ public sealed class IrFunction : IrNode
 
     internal void ValidateEliminatedLocalSlots()
     {
+        if (_eliminatedLocalSlots.IsEmpty)
+            return;
+
+        // One walk records each eliminated slot's first reference in pre-order,
+        // the same node a per-slot LocalSlotReferencesInScope walk would find.
+        var firstReferences = new Dictionary<int, IrNode>();
+        foreach (var scopedNode in NodesSharingLocalScope(this))
+        {
+            AnyBoundLocalSlot(
+                scopedNode,
+                (Eliminated: _eliminatedLocalSlots, First: firstReferences, Node: scopedNode),
+                static (slot, state) =>
+                {
+                    if (state.Eliminated.Contains(slot))
+                        state.First.TryAdd(slot, state.Node);
+                    return false;
+                });
+        }
+
         foreach (int index in _eliminatedLocalSlots.Order())
         {
             if (index < 0 || index >= Locals.Length)
@@ -435,7 +459,7 @@ public sealed class IrFunction : IrNode
                     $"Invariant violated: eliminated local slot {index} is out of range for function '{Name}' with {Locals.Length} local slot(s).");
             }
 
-            if (LocalSlotReferencesInScope(this, index).FirstOrDefault() is { } reference)
+            if (firstReferences.TryGetValue(index, out var reference))
             {
                 throw new InvalidOperationException(
                     $"Invariant violated: '{reference.Describe()}' references eliminated local slot {index} in function '{Name}'.");
@@ -463,25 +487,52 @@ public sealed class IrFunction : IrNode
     /// <c>fixed</c> over a stack slot names a stack-slot index, not a local, so it is
     /// matched only when it binds a metadata local.
     /// </summary>
-    static bool NodeBindsLocalSlot(IrNode node, int index) => node switch
+    static bool NodeBindsLocalSlot(IrNode node, int index)
+        => AnyBoundLocalSlot(node, index, static (slot, index) => slot == index);
+
+    /// <summary>
+    /// Whether <paramref name="match"/> accepts any local slot that
+    /// <paramref name="node"/> binds or reads directly. This is the single list of
+    /// slot-binding node kinds behind <see cref="NodeBindsLocalSlot"/>.
+    /// </summary>
+    static bool AnyBoundLocalSlot<TState>(IrNode node, TState state, Func<int, TState, bool> match)
     {
-        LoadLocal load => load.Index == index,
-        StoreLocal store => store.Index == index,
-        LoadLocalAddress address => address.Index == index,
-        NullCoalescingAssignment nullCoalescing => nullCoalescing.LocalIndex == index,
-        ForeachStatement foreachStatement => foreachStatement.LocalIndex == index,
-        UsingStatement usingStatement =>
-            usingStatement.DeclaresResourceVariable && usingStatement.LocalIndex == index,
-        Fixed fixedStatement => fixedStatement.LocalIndex == index,
-        IsPattern isPattern => isPattern.LocalIndex == index,
-        RecursivePropertyDeclarationPattern recursiveProperty => recursiveProperty.LocalIndex == index,
-        UnionSwitchExpressionArm unionArm => unionArm.LocalIndex == index,
-        PatternSwitchExpressionArm patternArm =>
-            patternArm.LocalIndex == index || patternArm.Subpattern?.LocalIndex == index,
-        CatchClause catchClause => catchClause.VariableIndex == index,
-        DeconstructionAssignment deconstruction => deconstruction.LocalIndices.Contains(index),
-        _ => false,
-    };
+        switch (node)
+        {
+            case LoadLocal load:
+                return match(load.Index, state);
+            case StoreLocal store:
+                return match(store.Index, state);
+            case LoadLocalAddress address:
+                return match(address.Index, state);
+            case NullCoalescingAssignment nullCoalescing:
+                return match(nullCoalescing.LocalIndex, state);
+            case ForeachStatement { LocalIndex: int slot }:
+                return match(slot, state);
+            case UsingStatement { DeclaresResourceVariable: true, LocalIndex: int slot }:
+                return match(slot, state);
+            case Fixed { LocalIndex: int slot }:
+                return match(slot, state);
+            case IsPattern isPattern:
+                return match(isPattern.LocalIndex, state);
+            case RecursivePropertyDeclarationPattern recursiveProperty:
+                return match(recursiveProperty.LocalIndex, state);
+            case UnionSwitchExpressionArm { LocalIndex: int slot }:
+                return match(slot, state);
+            case PatternSwitchExpressionArm patternArm:
+                return (patternArm.LocalIndex is int armSlot && match(armSlot, state))
+                    | (patternArm.Subpattern?.LocalIndex is int subpatternSlot && match(subpatternSlot, state));
+            case CatchClause { VariableIndex: int slot }:
+                return match(slot, state);
+            case DeconstructionAssignment deconstruction:
+                bool any = false;
+                foreach (int slot in deconstruction.LocalIndices)
+                    any |= match(slot, state);
+                return any;
+            default:
+                return false;
+        }
+    }
 
     /// <summary>
     /// Source names for the entries in <see cref="Locals"/>, by logical local index,

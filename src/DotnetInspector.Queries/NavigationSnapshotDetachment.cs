@@ -12,20 +12,33 @@ internal static class NavigationSnapshotDetachment
     internal static NavigationWorkspaceSnapshot Detach(NavigationWorkspaceSnapshot snapshot)
     {
         NavigationSubjectInventory? inventory = snapshot.Inventory;
-        if (inventory is null || !inventory.Types.Evidence.Any(NeedsDetachment))
+        if (inventory is null)
+            return snapshot.AdmittedContext is null
+                ? snapshot
+                : Copy(snapshot, inventory: null);
+        if (!inventory.Types.Evidence.Any(NeedsDetachment))
             return snapshot;
         ImmutableArray<NavigationLibraryInventory> libraries =
             [.. inventory.Libraries.Select(library =>
                 new NavigationLibraryInventory(library.Subject, library.IsPrimary, Detach(library.Types)))];
         ImmutableArray<NavigationInventoryEvidence> evidence = [.. libraries.SelectMany(library => library.Types.Evidence)];
         NavigationTypeInventoryOutcome types = WithEvidence(inventory.Types, evidence);
-        return new(
+        return Copy(
+            snapshot,
+            new(inventory.Package, libraries, types, inventory.InitialCandidates));
+    }
+
+    static NavigationWorkspaceSnapshot Copy(
+        NavigationWorkspaceSnapshot snapshot,
+        NavigationSubjectInventory? inventory) =>
+        new(
             snapshot.Scope, snapshot.Workspace, snapshot.ActiveOccurrence, snapshot.ActiveSubject,
             snapshot.RetainedContext, snapshot.TypeInventoryLibraryContext,
             snapshot.Packages, snapshot.Hierarchy, snapshot.Libraries, snapshot.Types, snapshot.Members,
             snapshot.Lenses, snapshot.LensOutcome,
-            new(inventory.Package, libraries, types, inventory.InitialCandidates), snapshot.DescendantLenses);
-    }
+            inventory, snapshot.DescendantLenses,
+            snapshot.Ecosystem, snapshot.AdmittedContext, snapshot.AdmittedTypes,
+            snapshot.AdmittedInventory, snapshot.AdmittedEvaluation);
 
     internal static NavigationTypeInventoryOutcome Detach(NavigationTypeInventoryOutcome inventory) =>
         inventory.Evidence.Any(NeedsDetachment)

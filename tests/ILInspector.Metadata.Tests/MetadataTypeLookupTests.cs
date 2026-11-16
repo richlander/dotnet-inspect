@@ -142,7 +142,7 @@ public sealed class MetadataTypeLookupTests
     [Trait("Speed", "Slow")]
     public void PinnedCoreLib_SelectionRetainsTheAdmittedPopulation()
     {
-        // Microsoft.NETCore.App.Runtime.linux-x64 11.0.0-rc.1.26425.128,
+        // Microsoft.NETCore.App.Runtime.linux-x64 11.0.0-rc.3.26522.148,
         // already pinned by this suite. Admission stays with the extractor.
         string path = Path.Combine(AppContext.BaseDirectory, "PinnedArtifacts", "System.Private.CoreLib.dll");
         using var stream = File.OpenRead(path);

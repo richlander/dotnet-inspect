@@ -67,6 +67,58 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Library_TypeHierarchy_ItemLimitPreservesTreeAndSelectsTypes()
+    {
+        var bare = await RunAppAsync("library", LibraryTypeHierarchyFixturePath);
+        Assert.Equal(0, bare.Exit);
+        string[] TypeRows(string output) => output.Split('\n')
+            .Where(line => System.Text.RegularExpressions.Regex.IsMatch(
+                line, @"(?:class|struct|interface|enum|delegate) | \(forwarded\)$"))
+            .Select(line => System.Text.RegularExpressions.Regex.Replace(
+                line, @"^[│├└─ ]+", ""))
+            .ToArray();
+        string[] types = TypeRows(bare.Output);
+        Assert.True(types.Length > 2);
+
+        (string[] Arguments, string[] Expected)[] cases =
+        [
+            (["-n", "2"], types.Take(2).ToArray()),
+            (["-2"], types.Take(2).ToArray()),
+            (["--rows", "1..2"], types.Take(2).ToArray()),
+            (["-n", "2", "--tail"], types.TakeLast(2).ToArray()),
+        ];
+        foreach (var (arguments, expected) in cases)
+        {
+            var limited = await RunAppAsync(
+                ["library", LibraryTypeHierarchyFixturePath, .. arguments]);
+            Assert.Equal(0, limited.Exit);
+            Assert.Empty(limited.Error);
+            Assert.StartsWith("DotnetInspector.Fixtures.dll (File)\n", limited.Output);
+            Assert.Equal(expected, TypeRows(limited.Output));
+            Assert.DoesNotContain("Library Info", limited.Output);
+            Assert.True(limited.Output.Split('\n', StringSplitOptions.RemoveEmptyEntries).Length > 2);
+        }
+    }
+
+    [Fact]
+    public async Task Library_TypeHierarchy_LineLimitPreservesTreeAndMatchesHeadTail()
+    {
+        var bare = await RunAppAsync("library", LibraryTypeHierarchyFixturePath);
+        Assert.Equal(0, bare.Exit);
+        string[] lines = bare.Output.TrimEnd('\n').Split('\n');
+        foreach (bool tail in new[] { false, true })
+        {
+            var limited = await RunAppAsync(
+                ["library", LibraryTypeHierarchyFixturePath, "-n", "6", "--lines",
+                    .. tail ? new[] { "--tail" } : []]);
+            Assert.Equal(0, limited.Exit);
+            Assert.Empty(limited.Error);
+            string expected = string.Join('\n', tail ? lines.TakeLast(6) : lines.Take(6)) + "\n";
+            Assert.Equal(expected, limited.Output);
+        }
+    }
+
+    [Fact]
     public async Task Library_Mermaid_LowersTypeHierarchy()
     {
         var (exit, output, error) = await RunAppAsync(

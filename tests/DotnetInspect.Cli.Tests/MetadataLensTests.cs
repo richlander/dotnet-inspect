@@ -5,6 +5,7 @@ using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
 using System.Security.Cryptography;
 using DotnetInspect.Cli.Commands;
+using DotnetInspector.Fixtures;
 using DotnetInspector.MetadataRendering;
 using DotnetInspect.Cli.Models;
 using DotnetInspector.Sections;
@@ -627,17 +628,18 @@ public partial class CommandExecutionTests
     [InlineData("-v:d")]
     public async Task MetadataLens_NoVerbosity_RendersAnyMetadataSection(string verbosity)
     {
-        var (exit, output, _) = await RunAppAsync("library", TestAssemblyPath, verbosity);
+        string assemblyPath = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
+        var (exit, output, _) = await RunAppAsync("library", assemblyPath, verbosity, "--markdown");
 
         Assert.Equal(0, exit);
         Assert.DoesNotContain(MetadataHeadingPrefix, output, StringComparison.Ordinal);
 
         foreach (var category in new[] { SectionCategoryNames.Library, SectionCategoryNames.Surface })
         {
-            var (categoryExit, categoryOutput, _) = await RunAppAsync(
-                "library", TestAssemblyPath, verbosity, "-S", category);
+            var (categoryExit, categoryOutput, categoryError) = await RunAppAsync(
+                "library", assemblyPath, verbosity, "-S", category, "--markdown");
 
-            Assert.Equal(0, categoryExit);
+            Assert.True(categoryExit == 0, categoryError);
             Assert.DoesNotContain(MetadataHeadingPrefix, categoryOutput, StringComparison.Ordinal);
         }
     }
@@ -651,8 +653,9 @@ public partial class CommandExecutionTests
     [Fact]
     public async Task MetadataLens_ExactName_RendersOnlyThatTable()
     {
+        string assemblyPath = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
         var (exit, output, _) = await RunAppAsync(
-            "library", TestAssemblyPath, "-S", "Metadata: TypeRef", "--rows", "5", "--markdown");
+            "library", assemblyPath, "-S", "Metadata: TypeRef", "--rows", "5", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Contains("## Metadata: TypeRef", output, StringComparison.Ordinal);
@@ -1451,11 +1454,12 @@ public partial class CommandExecutionTests
     [InlineData("-v:d")]
     public async Task MetadataLens_NoVerbosity_RendersAnyHeapListing(string verbosity)
     {
+        string assemblyPath = FixtureCatalog.AnalysisCallerGraphTarget.AssemblyPath();
         foreach (var args in new[]
                  {
-                     new[] { "library", TestAssemblyPath, verbosity },
-                     new[] { "library", TestAssemblyPath, verbosity, "-S", SectionCategoryNames.Library },
-                     new[] { "library", TestAssemblyPath, verbosity, "-S", SectionCategoryNames.Surface },
+                     new[] { "library", assemblyPath, verbosity, "--markdown" },
+                     new[] { "library", assemblyPath, verbosity, "-S", SectionCategoryNames.Library, "--markdown" },
+                     new[] { "library", assemblyPath, verbosity, "-S", SectionCategoryNames.Surface, "--markdown" },
                  })
         {
             var (exit, output, _) = await RunAppAsync(args);

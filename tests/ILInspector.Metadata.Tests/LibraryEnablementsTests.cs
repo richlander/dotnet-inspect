@@ -12,7 +12,7 @@ namespace ILInspector.Metadata.Tests;
 
 /// <summary>
 /// Gates for docs/design/library-enablements.md over pinned
-/// Microsoft.NETCore.App 11.0.0-rc.1.26425.128 assets and fixtures.
+/// Microsoft.NETCore.App 11.0.0-rc.3.26522.148 assets and fixtures.
 /// </summary>
 public sealed class LibraryEnablementsTests
 {

@@ -311,7 +311,10 @@ test("Library navigation moves locally and commits only on Enter", () => {
 
   bindLibrarySubjectNav(
     fakeDom.parentNode(new FakeRoot(list)),
-    { onSelect: value => selections.push(value) });
+    {
+      onSelect: value => selections.push(value),
+      onReveal: () => selections.push("reveal"),
+    });
 
   const down = keyEvent("ArrowDown");
   list.onkeydown?.(down.event);
@@ -328,4 +331,8 @@ test("Library navigation moves locally and commits only on Enter", () => {
   list.onblur?.();
   assert.equal(list.attributes.get("aria-activedescendant"),
     "library-subject-option-0");
+
+  // Re-activating the selected row reveals it without a new selection.
+  list.onkeydown?.(keyEvent("Enter").event);
+  assert.deepEqual(selections, ["Example.Core", "reveal"]);
 });

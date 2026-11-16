@@ -2,6 +2,7 @@ using System.CommandLine;
 using System.CommandLine.Parsing;
 using DotnetInspect.Cli.CommandLine;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Models;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspect.Cli.Sections;
@@ -73,6 +74,61 @@ public static class PackageOptionsParser
     /// Successfully parsed options ready for execution.
     /// </summary>
     public record Success(InspectionOptions Options, Verbosity Verbosity) : PackageParseResult;
+
+    /// <summary>The guidance for the removed <c>package search</c> subcommand.</summary>
+    internal const string RemovedSearchError =
+        "'package search' has been removed. Use 'find --packages <ID>' "
+        + "for an exact package or 'find --packages <PREFIX>*' for "
+        + "package-prefix discovery.";
+
+    /// <summary>
+    /// The focused diagnostic for package input that exceeds the single
+    /// Package coordinate, or <c>null</c> when the surplus coordinate itself
+    /// is the failure.
+    /// </summary>
+    /// <remarks>
+    /// The <c>package</c> command accepts one optional Package coordinate
+    /// (docs/design/cli-option-value-validation.md#positional-ownership), so a
+    /// second positional input is surplus and the parser rejects it before
+    /// the command action runs. The action would have answered the removed
+    /// <c>search</c> subcommand, a removed or unrecognized option, or an exact
+    /// Package reference beside another input with a focused diagnostic; this
+    /// answers those the same way instead of naming the surplus token.
+    /// Plural Package inspection stays removed: every outcome is an error.
+    /// </remarks>
+    /// <param name="inputs">Package-owned positional inputs in command-line order.</param>
+    /// <param name="failingInput">The index in <paramref name="inputs"/> the diagnostic names.</param>
+    internal static string? GetSurplusInputError(
+        IReadOnlyList<string> inputs,
+        out int failingInput)
+    {
+        ArgumentNullException.ThrowIfNull(inputs);
+        failingInput = 0;
+        if (inputs.Count < 2)
+            return null;
+
+        if (inputs[0].Equals("search", StringComparison.OrdinalIgnoreCase))
+            return RemovedSearchError;
+
+        for (int index = 0; index < inputs.Count; index++)
+        {
+            string input = inputs[index];
+            if (input.Length < 2 || input[0] != '-')
+                continue;
+
+            failingInput = index;
+            return ArgumentPreprocessor.GetRemovedPackageOptionError(input)
+                ?? $"Unrecognized option '{input}'.";
+        }
+
+        if (PackageReferenceAdmission.Contains(inputs))
+        {
+            failingInput = 1;
+            return PackageCommand.PackageReferenceCombinationError;
+        }
+
+        return null;
+    }
 
     internal static string? GetUnrecognizedOption(
         ParseResult parseResult,
@@ -159,16 +215,14 @@ public static class PackageOptionsParser
 
     /// <summary>
     /// Returns the coordinate validator's reason when <paramref name="packageArg"/>
-    /// cannot be a package reference (a local file or directory, a .nupkg path,
-    /// or ID[@version-or-range]), or <see langword="null"/> when it can.
+    /// cannot be a package reference (a .nupkg path or ID[@version-or-range]),
+    /// or <see langword="null"/> when it can.
     /// </summary>
     private static string? InvalidPackageReferenceReason(string packageArg)
     {
         if (PackageReferenceAdmission.IsCandidate(packageArg))
             return null;
-        if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase)
-            || File.Exists(packageArg)
-            || Directory.Exists(packageArg))
+        if (packageArg.EndsWith(".nupkg", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
@@ -201,18 +255,23 @@ public static class PackageOptionsParser
         if (badOption != null)
             return new UnrecognizedOption(badOption);
 
-        // Every positional is a package reference: a local file or directory,
-        // a .nupkg path, or ID[@version-or-range]. A token that cannot be one
+        // Every positional is a package reference: a .nupkg path or
+        // ID[@version-or-range]. A token that cannot be one
         // (for example a section name) fails here with the real reason instead
         // of flowing into feed selection.
         foreach (string packageArg in packageArgs)
         {
             if (InvalidPackageReferenceReason(packageArg) is { } reason)
             {
+                string guidance =
+                    packageArg.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase)
+                        ? $"Use 'dotnet-inspect project \"{packageArg}\"' for restored-project documents, "
+                            + $"or --project \"{packageArg}\" with API commands."
+                        : "Correct the package command input and retry. "
+                            + $"To select a section, use -S \"{packageArg}\".";
                 return new InvalidArguments(
                     $"'{packageArg}' is not a valid package ID. {reason} "
-                        + "Correct the package command input and retry. "
-                        + $"To select a section, use -S \"{packageArg}\".");
+                        + guidance);
             }
         }
 
@@ -323,6 +382,10 @@ public static class PackageOptionsParser
                 parseResult,
                 opts,
                 args);
+        var outputItems = ResolveOutputItems(parseResult, opts, args);
+        bool selectsOutputItems = outputItems is not null
+            && CliOutputItemSelection.ResolveProjection(parseResult.GetValue(opts.Print))
+                == OutputItemProjection.Items;
         bool selectsPackageTfms =
             IsPackageTfmRowSelection(
                 parseResult,
@@ -358,6 +421,7 @@ public static class PackageOptionsParser
             selectsVersionPopulation
             || selectsSourceLinkFiles
             || selectsPackageFiles
+            || selectsOutputItems
             || selectsPackageTfms
             || selectsEcosystemDependencies
             || selectsCloneCandidateRows;
@@ -395,6 +459,31 @@ public static class PackageOptionsParser
         {
             return new InvalidArguments(
                 packageFileRowSelectionError!);
+        }
+        RowSelectionIntent<string>? outputItemSelection = null;
+        if (selectsOutputItems)
+        {
+            if (!CliRowSelectionCommandRegistry.TryGetPreparedSemanticIntent(
+                    parseResult,
+                    outputItems!.Name,
+                    out outputItemSelection,
+                    out string? outputItemSelectionError))
+            {
+                return new InvalidArguments(outputItemSelectionError!);
+            }
+            outputItemSelection =
+                DependencyQueryOptions.AppendLegacyRows(
+                    parseResult,
+                    opts,
+                    outputItemSelection,
+                    out _);
+            if (outputItemSelection is { Operations.Count: > 0 }
+                && opts.IsJsonDocumentOutput(parseResult)
+                && CliOutputItemSelection.GetDocumentItemSelectionError(outputItems)
+                    is { } documentItemSelectionError)
+            {
+                return new InvalidArguments(documentItemSelectionError);
+            }
         }
 
         RowSelectionIntent<string>? packageTfmRowSelection = null;
@@ -581,6 +670,8 @@ public static class PackageOptionsParser
             VersionRowSelection = versionRowSelection,
             SourceLinkFileRowSelection = sourceLinkFileRowSelection,
             PackageFileRowSelection = packageFileRowSelection,
+            OutputItems = outputItems,
+            OutputItemSelection = outputItemSelection,
             PackageFilePredicates = filePredicates,
             PackageTfmRowSelection = packageTfmRowSelection,
             EcosystemDependencyRowSelection =
@@ -730,7 +821,8 @@ public static class PackageOptionsParser
     internal static bool IsPackageFileRowSelection(
         CommandResult result,
         SharedOptions opts,
-        PackageCommandArgs args)
+        PackageCommandArgs args,
+        string section = Views.PackageSections.Files)
     {
         string[] packageArgs = GetPackageArgs(result, args);
         if (packageArgs.Length != 1
@@ -791,8 +883,20 @@ public static class PackageOptionsParser
             return false;
         }
 
-        return selected.Contains(
-            Views.PackageSections.Files);
+        return selected.Contains(section);
+    }
+
+    internal static OutputItemBinding<InspectionResult>? ResolveOutputItems(
+        ParseResult result,
+        SharedOptions opts,
+        PackageCommandArgs args)
+    {
+        foreach (var (section, binding) in PackageOutputItemBindings.FileInventories)
+        {
+            if (IsPackageFileRowSelection(result.CommandResult, opts, args, section))
+                return binding;
+        }
+        return null;
     }
 
     internal static bool IsEcosystemDependencyRowSelection(

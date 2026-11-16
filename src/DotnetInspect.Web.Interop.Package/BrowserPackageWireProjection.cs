@@ -1,5 +1,6 @@
 using System.Runtime.Versioning;
 using DotnetInspector.InspectionContracts;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -23,8 +24,39 @@ internal static class BrowserPackageWireProjection
             baseline.Content,
             baseline.Share,
             baseline.Diagnostics,
-            new([
-                .. inspection.Evidence.Acquisitions.Select(acquisition => new BrowserPackageAcquisitionEvidenceEntry(
+            Project(inspection.Evidence));
+    }
+
+    internal static BrowserReferencePackageSupplierEvidenceInspection Project(
+        EvidenceInspectionEnvelope<BrowserReferencePackageSupplierOutcome, PackageAcquisitionEvidence> inspection) =>
+        new(
+            inspection.Inspection.Content switch
+            {
+                BrowserReferencePackageSupplierOutcome.Available available =>
+                    new("available", Project(available.Suppliers), Failure: null),
+                BrowserReferencePackageSupplierOutcome.Failed failed =>
+                    new("failed", Suppliers: null, new(failed.Kind, failed.Detail.ToString())),
+                _ => throw new InvalidOperationException("Unknown Package supplier inspection outcome."),
+            },
+            Project(inspection.Inspection.Share),
+            [.. inspection.Inspection.Diagnostics.Select(Project)],
+            Project(inspection.Evidence));
+
+    internal static BrowserReferencePackageSupplier[] Project(
+        PackageAssemblyReferenceSupplierCoordinate[] suppliers) =>
+        [
+            .. suppliers.Select(supplier => new BrowserReferencePackageSupplier(
+                supplier.Name,
+                supplier.Version,
+                supplier.Culture,
+                supplier.PublicKeyToken,
+                supplier.Supplier?.PackageId,
+                supplier.Supplier?.Version)),
+        ];
+
+    private static BrowserPackageAcquisitionEvidence Project(PackageAcquisitionEvidence evidence) =>
+        new([
+                .. evidence.Acquisitions.Select(acquisition => new BrowserPackageAcquisitionEvidenceEntry(
                     acquisition.PackageId,
                     acquisition.Version,
                     acquisition.Authority,
@@ -43,8 +75,7 @@ internal static class BrowserPackageWireProjection
                         acquisition.Transfer.RequestCount,
                         acquisition.Transfer.BytesReceived,
                         acquisition.Transfer.IsTruncated))),
-            ]));
-    }
+            ]);
 
     internal static string ImplementationComparisonRuntimeIdentifier(
         BrowserPackageCoordinate coordinate) =>

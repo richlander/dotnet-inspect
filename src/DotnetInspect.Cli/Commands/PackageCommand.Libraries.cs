@@ -149,7 +149,8 @@ public partial class PackageCommand
         string packageName,
         string version,
         PackageExtractionResult extraction,
-        InspectionOptions options)
+        InspectionOptions options,
+        CancellationToken cancellationToken)
     {
         var packageReference = isLocalFile
             ? packageArg
@@ -191,13 +192,12 @@ public partial class PackageCommand
                 extraction.NupkgPath,
                 extraction.FromCache,
                 extraction.ProducerKey ?? packageName);
-            PackageSourceCoordinate coordinate =
+            PackageSourceCoordinate? coordinate =
                 extraction.HouseSettlement?.Result.Evidence.Acquisition?
                     .Candidate.Coordinate
-                ?? PackageSourceCoordinate.Create(
-                    PackageExtractor.ParsePackageReference(packageName).name,
-                    version);
-            if (await PackageToolDeclarationEvidence.TryCreateAsync(
+                ?? TryCreateRequestedPackageCoordinate(packageName, version);
+            if (coordinate is null
+                || await PackageToolDeclarationEvidence.TryCreateAsync(
                     coordinate,
                     content).ConfigureAwait(false) is null)
             {
@@ -270,7 +270,8 @@ public partial class PackageCommand
                 selected.TargetFramework,
                 selected.RuntimeIdentifier,
                 selectedPath),
-            extraction).ConfigureAwait(false);
+            extraction,
+            cancellationToken).ConfigureAwait(false);
     }
 
     private static async Task<int> ExecutePackageAllLibrariesAsync(
@@ -1089,6 +1090,7 @@ public partial class PackageCommand
             Schema = options.Schema,
             Count = options.Count,
             OutputPath = options.OutputPath,
+            AllDeclarations = options.ApiReferenceAllDeclarations,
             Print = options.Print,
             Value = options.Value,
             Urls = options.Urls,
@@ -1105,6 +1107,8 @@ public partial class PackageCommand
             BodyShapeRowSelection = options.BodyShapeRowSelection,
             ReferenceRowSelection =
                 options.ReferenceRowSelection,
+            OutputItems = options.LibraryOutputItems,
+            OutputItemSelection = options.LibraryOutputItemSelection,
             EcosystemDependencyRowSelection =
                 options.EcosystemDependencyRowSelection,
             NameFamilyPopulation =
@@ -1545,9 +1549,7 @@ public partial class PackageCommand
         PackageSourceCoordinate? coordinate =
             extraction.HouseSettlement?.Result.Evidence.Acquisition?
                 .Candidate.Coordinate
-            ?? PackageSourceCoordinate.Create(
-                PackageExtractor.ParsePackageReference(packageName).name,
-                version);
+            ?? TryCreateRequestedPackageCoordinate(packageName, version);
         return PackageLibraryPopulationSelector.Evaluate(
             content,
             packageName,
@@ -1556,6 +1558,29 @@ public partial class PackageCommand
                 : PackageCompileAssetSelectionPolicy.ExplicitTarget,
             targetFramework,
             coordinate: coordinate);
+    }
+
+    /// <summary>
+    /// Returns the exact package coordinate named by the requested package name
+    /// and version, or null when they do not form one. A local archive's file
+    /// name is display identity, not a coordinate, so it never makes Library
+    /// selection throw; only coordinate-bound tool declaration evidence is then
+    /// unavailable.
+    /// </summary>
+    internal static PackageSourceCoordinate? TryCreateRequestedPackageCoordinate(
+        string packageName,
+        string version)
+    {
+        string packageId = PackageExtractor.ParsePackageReference(packageName).name;
+        // NuGet version parsing tolerates surrounding whitespace; a coordinate
+        // does not, so a padded file-name version is not a coordinate either.
+        return PackageExtractor.IsValidPackageId(packageId)
+            && version.AsSpan().Trim().Length == version.Length
+            && PackageExtractor.TryNormalizePackageVersion(
+                version,
+                out string normalizedVersion)
+                ? PackageSourceCoordinate.Create(packageId, normalizedVersion)
+                : null;
     }
 
     private static void ReportPackageLibraryPopulationFailure(

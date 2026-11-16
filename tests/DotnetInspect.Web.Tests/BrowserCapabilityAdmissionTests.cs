@@ -3,6 +3,7 @@ using CoreHttpClientFactory = DotnetInspector.Networking.HttpClientFactory;
 using System.Text.Json;
 using DotnetInspect.Web.Interop.Package;
 using DotnetInspect.Web.Interop.Metadata;
+using DotnetInspector.Diff;
 using DotnetInspector.Queries;
 using DotnetInspector.ResearchSections;
 using DotnetInspector.Sections;
@@ -73,7 +74,7 @@ public sealed class BrowserCapabilityAdmissionTests : IDisposable
             Assert.Single(first.Catalog.Routes);
             InspectionEngine.InitializeCapabilityComposition();
             var second = BrowserCapabilityComposition.CreateSearchComposition();
-            Assert.Equal(2, second.Catalog.Routes.Length);
+            Assert.Equal(4, second.Catalog.Routes.Length);
             Assert.NotSame(first.Catalog, second.Catalog);
             Assert.NotSame(first.Explanation, second.Explanation);
         }
@@ -94,6 +95,61 @@ public sealed class BrowserCapabilityAdmissionTests : IDisposable
             BrowserCompareCapabilityBinding.Binding.ExposedAnalyses);
         Assert.Empty(catalog.StructuralBindings);
         Assert.Empty(catalog.StructuralCatalogs);
+    }
+
+    [Fact]
+    public void BrowserFindingDiffAnyBindingConsumesTheLibraryRoute()
+    {
+        // The queryLibraryFindingDiffAny Worker operation is the Browser
+        // consumer of Finding Diff Any's Library route, so the composed
+        // catalog has no Browser adoption gap for it.
+        InspectionCapabilityCatalog catalog = BrowserCapabilityComposition.CreateSearchComposition().Catalog;
+        Assert.Same(FindingDiffAnyLibraryCapability.Route, BrowserFindingDiffAnyCapabilityBinding.Binding.Route);
+        Assert.Equal(InspectionConsumerKind.Browser, BrowserFindingDiffAnyCapabilityBinding.Binding.Descriptor.Kind);
+        Assert.Equal("queryLibraryFindingDiffAny", BrowserFindingDiffAnyCapabilityBinding.Binding.Descriptor.Gesture);
+        Assert.Contains(BrowserFindingDiffAnyCapabilityBinding.Binding, catalog.Bindings);
+        Assert.Contains(FindingDiffAnyLibraryCapability.Route, catalog.Routes);
+        Assert.DoesNotContain(catalog.AdoptionGaps, static gap =>
+            ReferenceEquals(gap.Route, FindingDiffAnyLibraryCapability.Route)
+            && gap.ConsumerKind == InspectionConsumerKind.Browser);
+        var own = BrowserFindingDiffAnyCapabilityBinding.Catalog;
+        Assert.Equal(
+            [FindingDiffAnyLibraryCapability.Document, FindingDiffAnyTypeCapability.Document],
+            own.Documents);
+        Assert.Equal(
+            [BrowserFindingDiffAnyCapabilityBinding.Binding, BrowserFindingDiffAnyCapabilityBinding.TypeBinding],
+            own.Bindings);
+        Assert.Empty(own.AdoptionGaps.Where(static gap => gap.ConsumerKind == InspectionConsumerKind.Browser));
+    }
+
+    [Fact]
+    public void BrowserFindingDiffAnyTypeBindingConsumesTheTypeRoute()
+    {
+        // The queryTypeFindingDiffAny Worker operation, behind the Type
+        // view's Member cues, is the Browser consumer of the Type route.
+        InspectionCapabilityCatalog catalog = BrowserCapabilityComposition.CreateSearchComposition().Catalog;
+        Assert.Same(FindingDiffAnyTypeCapability.Route, BrowserFindingDiffAnyCapabilityBinding.TypeBinding.Route);
+        Assert.Equal(InspectionConsumerKind.Browser, BrowserFindingDiffAnyCapabilityBinding.TypeBinding.Descriptor.Kind);
+        Assert.Equal("queryTypeFindingDiffAny", BrowserFindingDiffAnyCapabilityBinding.TypeBinding.Descriptor.Gesture);
+        Assert.Contains(BrowserFindingDiffAnyCapabilityBinding.TypeBinding, catalog.Bindings);
+        Assert.Contains(FindingDiffAnyTypeCapability.Route, catalog.Routes);
+        Assert.DoesNotContain(catalog.AdoptionGaps, static gap =>
+            ReferenceEquals(gap.Route, FindingDiffAnyTypeCapability.Route)
+            && gap.ConsumerKind == InspectionConsumerKind.Browser);
+    }
+
+    [Fact]
+    public void SearchExportFindsTheFindingDiffAnyDocumentWithItsBrowserBinding()
+    {
+        using JsonDocument json = JsonDocument.Parse(PackageExports.SearchCapabilities("finding diff any", 100));
+        JsonElement result = Assert.Single(json.RootElement.GetProperty("content").GetProperty("results")
+            .EnumerateArray(), static candidate =>
+                candidate.GetProperty("resourcePath").GetString() == "finding-diff-any");
+        JsonElement binding = Assert.Single(result.GetProperty("productionBindings").EnumerateArray());
+        Assert.Equal(BrowserFindingDiffAnyCapabilityBinding.BindingIdentity,
+            binding.GetProperty("identity").GetString());
+        Assert.Equal("Browser", binding.GetProperty("consumerKind").GetString());
+        Assert.Equal(0, _requests);
     }
 
     [Theory]

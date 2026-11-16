@@ -694,15 +694,21 @@ public static partial class ApiSurfaceExtractor
     /// reads (<see cref="MetadataFindings.CompareApi"/>). Memory-safety facts
     /// and accessor semantics are not projected, so the image's memory-safety
     /// index is never built. When <paramref name="includeMembers"/> is given,
-    /// only the selected Members are projected beside each Type's own row.
+    /// only the Members it names, by their method, field, property, or event
+    /// definition, are projected beside each Type's own row.
     /// </summary>
     internal static ApiSurface ExtractApiEquality(
         PEReader peReader,
         ApiSurfaceExtractionScope scope,
         Func<TypeDefinitionHandle, bool> includeType,
-        ApiMemberNameSelection? includeMembers)
+        IReadOnlySet<EntityHandle>? includeMembers)
     {
         ArgumentNullException.ThrowIfNull(includeType);
+        IReadOnlySet<EntityHandle>? equalityMembers = includeMembers is null
+            ? null
+            : IncludeApiEqualitySemanticMethods(
+                MetadataFormatAdmission.GetMetadataReader(peReader),
+                includeMembers);
         return Extract(
             peReader,
             scope,
@@ -712,8 +718,47 @@ public static partial class ApiSurfaceExtractor
             budget: null,
             constraintResolution: null,
             includeType: includeType,
-            includeMembers: includeMembers,
+            includeMembers: equalityMembers,
             projectMemorySafety: false);
+    }
+
+    private static IReadOnlySet<EntityHandle> IncludeApiEqualitySemanticMethods(
+        MetadataReader reader,
+        IReadOnlySet<EntityHandle> includeMembers)
+    {
+        HashSet<EntityHandle>? expanded = null;
+        foreach (EntityHandle member in includeMembers)
+        {
+            switch (member.Kind)
+            {
+                case HandleKind.PropertyDefinition:
+                    foreach (MethodDefinitionHandle other in
+                        reader.GetPropertyDefinition(
+                            (PropertyDefinitionHandle)member)
+                            .GetAccessors()
+                            .Others)
+                    {
+                        Add(other);
+                    }
+                    break;
+                case HandleKind.EventDefinition:
+                    EventAccessors accessors = reader.GetEventDefinition(
+                        (EventDefinitionHandle)member).GetAccessors();
+                    Add(accessors.Raiser);
+                    foreach (MethodDefinitionHandle other in accessors.Others)
+                        Add(other);
+                    break;
+            }
+        }
+        return expanded ?? includeMembers;
+
+        void Add(MethodDefinitionHandle method)
+        {
+            if (method.IsNil)
+                return;
+            expanded ??= new(includeMembers);
+            expanded.Add(method);
+        }
     }
 
     /// <summary>
@@ -1070,7 +1115,7 @@ public static partial class ApiSurfaceExtractor
         MetadataOperationContext? operationContext = null,
         Func<ApiType, bool>? stopAfterType = null,
         Func<TypeDefinitionHandle, bool>? includeType = null,
-        ApiMemberNameSelection? includeMembers = null,
+        IReadOnlySet<EntityHandle>? includeMembers = null,
         bool projectMemorySafety = true)
     {
         if (!Enum.IsDefined(scope))
@@ -1114,31 +1159,8 @@ public static partial class ApiSurfaceExtractor
                 ? ReadAccessorMemorySafety(
                     reader, GetMemorySafetyIndex(), moduleVersionId, accessorHandles)
                 : null;
-        MetadataStringHeap? memberNames = includeMembers is null
-            ? null
-            : new MetadataStringHeap(reader);
-        bool IncludesMember(
-            StringHandle name,
-            MethodDefinitionHandle first = default,
-            MethodDefinitionHandle second = default,
-            MethodDefinitionHandle third = default)
-        {
-            if (includeMembers is null)
-                return true;
-            if (includeMembers.Contains(memberNames!.Bytes(name)))
-                return true;
-            foreach (MethodDefinitionHandle accessor
-                in (ReadOnlySpan<MethodDefinitionHandle>)[first, second, third])
-            {
-                if (!accessor.IsNil
-                    && includeMembers.Contains(
-                        memberNames!.Bytes(reader.GetMethodDefinition(accessor).Name)))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
+        bool IncludesMember(EntityHandle member)
+            => includeMembers is null || includeMembers.Contains(member);
         Action<string>? observeText =
             budget is null ? null : budget.ObservePendingText;
         var materializationContext = new AttributeDecoder.MaterializationContext(
@@ -1760,7 +1782,7 @@ public static partial class ApiSurfaceExtractor
                     }
                     tokens.Add(MetadataTokens.GetToken(methodHandle));
                 }
-                if (!IncludesMember(method.Name))
+                if (!IncludesMember(methodHandle))
                     continue;
                 var methodAccess = method.Attributes & MethodAttributes.MemberAccessMask;
                 bool isExplicitInterfaceImplementation =
@@ -2060,7 +2082,7 @@ public static partial class ApiSurfaceExtractor
             {
                 var prop = reader.GetPropertyDefinition(propHandle);
                 var accessors = prop.GetAccessors();
-                if (!IncludesMember(prop.Name, accessors.Getter, accessors.Setter))
+                if (!IncludesMember(propHandle))
                     continue;
 
                 MethodAttributes bestAccess = PropertyAccess(
@@ -2299,8 +2321,6 @@ public static partial class ApiSurfaceExtractor
                     continue;
                 }
 
-                if (!IncludesMember(field.Name))
-                    continue;
                 string fieldName = DecodeString(
                     reader,
                     field.Name,
@@ -2319,6 +2339,9 @@ public static partial class ApiSurfaceExtractor
                         observeDecodeWork).Text;
                     continue;
                 }
+
+                if (!IncludesMember(fieldHandle))
+                    continue;
 
                 List<string?> jsonPropertyNames =
                     AttributeReader.ReadJsonPropertyNames(
@@ -2550,7 +2573,7 @@ public static partial class ApiSurfaceExtractor
             {
                 var evt = reader.GetEventDefinition(eventHandle);
                 var accessors = evt.GetAccessors();
-                if (!IncludesMember(evt.Name, accessors.Adder, accessors.Remover, accessors.Raiser))
+                if (!IncludesMember(eventHandle))
                     continue;
 
                 if (EventAccess(
@@ -2594,6 +2617,7 @@ public static partial class ApiSurfaceExtractor
                     typeContext,
                     evt,
                     adder,
+                    typeNullableContext,
                     observeText,
                     observeDecodeWork);
                 var adderAttributes = adder.Attributes;
