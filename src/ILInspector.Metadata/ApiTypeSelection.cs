@@ -113,8 +113,10 @@ public sealed class ApiTypeSelection
     /// <summary>
     /// Returns the full names of the top-level Types that declare an
     /// extension, in this image, whose receiver is a Type named by
-    /// <paramref name="receivers"/>, or null when a name, a receiver's
-    /// extension relations, or a declaring Type cannot be read completely.
+    /// <paramref name="receivers"/>, hidden, obsolete, and non-public
+    /// extensions included, or null when a name, a receiver's extension
+    /// relations, or a declaring Type cannot be read completely; with null,
+    /// <see cref="PairWith"/> keeps both projections complete.
     /// When a named Type itself declares an extension, returns every
     /// extension-declaring Type instead, so <see cref="PairWith"/> keeps both
     /// projections complete as it does for any selection of such a Type: its
@@ -165,14 +167,22 @@ public sealed class ApiTypeSelection
                                 typeName,
                                 MetadataTypeDefinitionAddress.FromHandle(reader, handle)),
                             new MetadataOperationPolicy(int.MaxValue),
-                            rows: new MetadataExtensionRelationPopulationRowsRequest(0, int.MaxValue)),
+                            rows: new MetadataExtensionRelationPopulationRowsRequest(0, int.MaxValue),
+                            // The complete comparison pairs with every
+                            // extension it projects, hidden, obsolete, and
+                            // non-public ones included.
+                            includeNonPublic: true),
                         CancellationToken.None);
                 if (outcome is not MetadataExtensionRelationPopulationOutcome.Available
                     {
-                        Result.Rows: MetadataExtensionRelationPopulationRowsOutcome.Read
+                        Result:
                         {
-                            NextOrdinal: null,
-                        } rows,
+                            Disposition: MetadataRelationFamilyDisposition.Complete,
+                            Rows: MetadataExtensionRelationPopulationRowsOutcome.Read
+                            {
+                                NextOrdinal: null,
+                            } rows,
+                        },
                     })
                 {
                     return null;

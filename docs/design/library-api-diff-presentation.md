@@ -185,20 +185,26 @@ A host that knows the exact Types it will present loads them with
 
 > An exact Type load gives each selected Type the changed-Type subject the
 > complete comparison gives it, and pairs with only the Types that declare an
-> extension for a selected Type, so its work follows the selected Types and
-> their extensions rather than the Library.
+> extension for a selected Type, so its projection follows the selected Types
+> and their extensions rather than the Library.
+
+The metadata scans that find those extensions still read the whole image; they
+decode no Type's projection.
 
 Pairing differs from a predicate selection in one place. Before projecting
 either side, each endpoint reads the canonical same-image extension relation
 population of every selected Type, which holds extension methods and
 properties, and the comparison pairs the selection with the union of the
-top-level Types that declare those extensions. A Type that declares no
+top-level Types that declare those extensions. The read includes hidden,
+obsolete, and non-public extensions, because the complete comparison projects
+them and pairs a moved instance member with them. A Type that declares no
 extension for a selected Type is not projected. When a selected Type itself
 declares an extension, the endpoint returns every extension-declaring Type
 instead, and the comparison keeps both projections complete, as it does for
 any selection of such a Type: its extensions pair with members of the Types
-they extend, which an exact load cannot name in advance. An unreadable name or
-relation population also returns every extension-declaring Type.
+they extend, which an exact load cannot name in advance. An unreadable name,
+or a relation population that is not read completely, also keeps both
+projections complete.
 
 The load presents only the selected Types.
 `LibraryApiDiffPresentationAdapter.Create(result, typeDisplays)` drops the
@@ -209,6 +215,9 @@ the selected Types. Completeness stays operation-scoped, as above.
 side of both fixture pairs, at the Public, IncludeAll, and API axis scopes,
 the exact load's subject equals the complete comparison's, and an extension
 receiver projects itself and its extension-declaring Type only.
+`ExactTypeLoadExtensionPairingTests` gates the same agreement for instance
+members moved to obsolete, editor-hidden, internal, plain, and C# 14 block
+extensions, and for generic and nested receivers.
 `eng/measure-type-api-exact.cs` checks the same agreement for every Type of a
 Library pair and measures each load under NativeAOT.
 

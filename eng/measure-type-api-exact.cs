@@ -2,7 +2,7 @@
 #:project ../src/DotnetInspector.Presentation/DotnetInspector.Presentation.csproj
 
 // Measures the exact Type load of the selected-Library API comparison
-// (docs/design/library-api-diff-presentation.md#type-scoped-comparison) over
+// (docs/design/library-api-diff-presentation.md#exact-type-load) over
 // one Library image pair, at the Browser's API axis scope.
 // Usage: measure-type-api-exact <before.dll> <after.dll> [iterations] [predicateSample]
 //
@@ -44,8 +44,10 @@ AssemblyContextApiComparisonResult Compare(ApiTypeSelection? selection)
     => AssemblyContextApiComparisonQuery.Execute(
         beforeGroup, beforeParticipant, afterGroup, afterParticipant, Scope, limits, selection);
 
-LibraryApiDiffOutcome.Available Present(AssemblyContextApiComparisonResult result)
-    => LibraryApiDiffPresentationAdapter.Create(result) as LibraryApiDiffOutcome.Available
+LibraryApiDiffOutcome.Available Present(
+    AssemblyContextApiComparisonResult result,
+    IReadOnlySet<string>? typeDisplays = null)
+    => LibraryApiDiffPresentationAdapter.Create(result, typeDisplays) as LibraryApiDiffOutcome.Available
         ?? throw new InvalidOperationException("The comparison has no available presentation.");
 
 static double Median(List<double> values)
@@ -97,7 +99,7 @@ for (int index = 0; index < names.Length; index++)
     {
         long start = Stopwatch.GetTimestamp();
         result = Compare(selection);
-        Present(result);
+        Present(result, selection.FullNames);
         samples.Add(Stopwatch.GetElapsedTime(start).TotalMilliseconds);
     }
     double ms = Median(samples);
@@ -112,7 +114,7 @@ for (int index = 0; index < names.Length; index++)
     }
 
     var expected = subjects.GetValueOrDefault(name) ?? [];
-    var actual = Present(result).Document.Comparison.Subjects
+    var actual = Present(result, selection.FullNames).Document.Comparison.Subjects
         .Where(subject => subject.Display == name)
         .ToArray();
     if (expected.Length > 0)

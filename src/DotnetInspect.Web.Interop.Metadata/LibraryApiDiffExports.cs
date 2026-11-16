@@ -245,9 +245,12 @@ public static partial class MetadataExports
         // A Type or Member request reuses the retained whole-Library
         // comparison when there is one, and otherwise loads only its Types
         // (library-api-diff-presentation.md#exact-type-load); only a Library
-        // request computes and retains the whole comparison.
-        bool loadTargetTypes = selection.Surface != AnalysisReportSurfaceKind.Library
-            && !LibraryApiComparisonMemo.Contains(comparisonKey);
+        // request computes and retains the whole comparison. The value is
+        // read once, so a replaced entry cannot make a Type request compute.
+        LibraryApiComparison retained = default!;
+        bool narrow = selection.Surface != AnalysisReportSurfaceKind.Library;
+        bool loadTargetTypes = narrow
+            && !LibraryApiComparisonMemo.TryGet(comparisonKey, out retained);
         InspectionEnvelope<DiffAnalysisDocument> inspection =
             targetScope.UseSurfaceParticipant(
                 targetParticipant,
@@ -291,9 +294,11 @@ public static partial class MetadataExports
                                     BrowserHostUnavailability(selection)),
                                 loadTargetTypes
                                     ? null
-                                    : compute => LibraryApiComparisonMemo.GetOrCompute(
-                                        comparisonKey,
-                                        compute))));
+                                    : narrow
+                                        ? _ => retained
+                                        : compute => LibraryApiComparisonMemo.GetOrCompute(
+                                            comparisonKey,
+                                            compute))));
         cancellationToken.ThrowIfCancellationRequested();
 
         return BrowserLibraryApiDiffWireProjection.Project(

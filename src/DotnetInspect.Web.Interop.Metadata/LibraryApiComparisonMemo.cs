@@ -49,16 +49,22 @@ static class LibraryApiComparisonMemo
     }
 
     /// <summary>
-    /// Whether the comparison of this endpoint pair is retained. A Type or
-    /// Member request uses it when it is, and otherwise loads only its Types
-    /// rather than computing it.
+    /// Reads the retained comparison of this endpoint pair, if any. A Type or
+    /// Member request uses the value it read, and otherwise loads only its
+    /// Types rather than computing the comparison.
     /// </summary>
-    internal static bool Contains(Key key)
+    internal static bool TryGet(Key key, out LibraryApiComparison value)
     {
         lock (Gate)
         {
-            return s_entry is { } entry && entry.Key == key;
+            if (s_entry is { } entry && entry.Key == key)
+            {
+                value = entry.Value;
+                return true;
+            }
         }
+        value = default!;
+        return false;
     }
 
     internal static LibraryApiComparison GetOrCompute(
