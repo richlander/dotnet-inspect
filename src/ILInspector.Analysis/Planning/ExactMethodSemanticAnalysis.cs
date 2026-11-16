@@ -122,14 +122,22 @@ public static class ExactMethodSemanticAnalysis
         string subjectName,
         IEnumerable<int> methodTokens,
         ExactMethodSemanticProducts products,
-        CancellationToken cancellationToken = default) =>
-        ExecuteCore(
-            session,
-            subjectName,
-            methodTokens,
-            products,
-            scope: null,
-            cancellationToken);
+        CancellationToken cancellationToken = default)
+    {
+        ExactMethodSemanticAnalysisResult result =
+            ExecuteCore(
+                session,
+                subjectName,
+                methodTokens,
+                products,
+                scope: null,
+                cancellationToken);
+        if (result.Failures.FirstOrDefault() is { } failure)
+        {
+            throw new InvalidOperationException(failure.Message);
+        }
+        return result;
+    }
 
     public static ExactMethodSemanticAnalysisResult Execute(
         AssemblyInspectionSession session,

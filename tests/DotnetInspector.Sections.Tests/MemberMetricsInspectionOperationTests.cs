@@ -475,6 +475,65 @@ public sealed class MemberMetricsInspectionOperationTests
     }
 
     [Fact]
+    public async Task IncompleteCountPublishesSiblingBodyDiagnostic()
+    {
+        byte[] image =
+            CorruptTrailingInstruction(
+                Compile(),
+                "Overloads",
+                "M",
+                parameterCount: 0);
+        await using LibraryInspectionTestLibrary library =
+            await LibraryInspectionTestLibrary.CreateAsync(
+                image,
+                LibraryInspectionTestLibrary.Identity(image));
+        MemberOverloadPopulationContent population =
+            Population(library);
+        PortableQueryIntent incomingPredicate =
+            PortableQueryIntent.Create(
+                [
+                    new(
+                        MemberMetricsQuery.IncomingSiblingCallersKey,
+                        PortableQueryOperator.AtLeast,
+                        "1"),
+                ],
+                [],
+                [],
+                []);
+
+        InspectionEnvelope<MemberMetricsInspectionContent> envelope =
+            Execute(
+                library,
+                population,
+                MemberMetricEvidenceKind.SiblingCalls,
+                [],
+                incomingPredicate,
+                QuerySpaceTerminalRequirement.Count);
+        MemberMetricsCompletedContent completed = Completed(envelope);
+
+        Assert.Equal(
+            MemberMetricsCompletion.Incomplete,
+            completed.Completion);
+        Assert.Equal(
+            0,
+            Assert.IsType<MemberMetricsPopulationResult.Count>(
+                completed.Result).Value);
+        InspectionDiagnostic diagnostic =
+            Assert.Single(envelope.Diagnostics);
+        Assert.Equal(
+            "member-metrics.sibling-calls-incomplete",
+            diagnostic.Code);
+        Assert.Equal(
+            InspectionDiagnosticSeverity.Warning,
+            diagnostic.Severity);
+        Assert.Equal(
+            "0x06000001",
+            diagnostic.Correspondence?.ToString());
+
+        await library.RetireAsync();
+    }
+
+    [Fact]
     public async Task PredicateOnly_RowsAndCountAgreeWithoutProjection()
     {
         byte[] image = Compile();

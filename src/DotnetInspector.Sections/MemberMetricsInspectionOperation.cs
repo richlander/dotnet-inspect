@@ -353,6 +353,7 @@ public static class MemberMetricsInspectionOperation
                     failure.Message,
                     failure.Product.ToString()));
         }
+        AddProducerDiagnostics(analysis, diagnostics);
         AddSourceDiagnostics(analysis, diagnostics);
 
         foreach (MemberOverloadShape member in members)
@@ -835,6 +836,48 @@ public static class MemberMetricsInspectionOperation
                             .ReachedAtMethodToken ?? 0:x8}."));
         }
     }
+
+    private static void AddProducerDiagnostics(
+        ExactMethodSemanticAnalysisResult analysis,
+        ImmutableArray<InspectionDiagnostic>.Builder diagnostics)
+    {
+        if (analysis.BodySize is { } bodySize)
+        {
+            foreach (ExactMethodBodySize body in bodySize.Result.Bodies)
+            {
+                if (body.Diagnostic is { } diagnostic)
+                {
+                    AddProducerDiagnostic(
+                        "member-metrics.body-size-incomplete",
+                        diagnostic,
+                        diagnostics);
+                }
+            }
+        }
+        if (analysis.SiblingCalls is { } siblingCalls)
+        {
+            foreach (AnalysisDiagnostic diagnostic
+                in siblingCalls.Result.Bodies.SelectMany(
+                    static body => body.Diagnostics))
+            {
+                AddProducerDiagnostic(
+                    "member-metrics.sibling-calls-incomplete",
+                    diagnostic,
+                    diagnostics);
+            }
+        }
+    }
+
+    private static void AddProducerDiagnostic(
+        string code,
+        AnalysisDiagnostic diagnostic,
+        ImmutableArray<InspectionDiagnostic>.Builder diagnostics) =>
+        diagnostics.Add(
+            new(
+                code,
+                InspectionDiagnosticSeverity.Warning,
+                diagnostic.Message,
+                $"0x{diagnostic.MethodToken:X8}"));
 
     private static bool TryValidatePopulation(
         MemberOverloadPopulationContent population,
