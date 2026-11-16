@@ -97,6 +97,12 @@ health incidents while a newer retained candidate may recover the repository.
 Release-candidate qualification remains a separate exact-SHA consumer of the
 reusable Deep Inspect workflow.
 
+The Actions run name identifies the selected evidence scope: main
+verification, a named scheduled lane, or an explicit input lane. A green run
+claims success only for that named scope; skipped jobs do not broaden it into
+whole-workflow evidence. Any unclassified route says so in the run name rather
+than appearing as an unqualified Deep Inspect success.
+
 - `ci.yml` runs one Release solution build and a bounded smoke population for
   CLI routes, inspection queries, InertText, dependency policy, and the
   package-manifest verifier. It also runs the complete fast portable query

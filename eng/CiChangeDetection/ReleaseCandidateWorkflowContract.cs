@@ -78,6 +78,14 @@ internal static class ReleaseCandidateWorkflowContract
             "Release candidate contract accepted a caller without Deep Inspect package access.");
         AssertMutationRejected(
             deepInspect,
+            "  github.event.schedule == '0 9 * * 1' && " +
+            "'package discovery' ||\n",
+            "  github.event.schedule == '0 9 * * 1' && " +
+            "'authored corpus' ||\n",
+            ValidateDeepInspectAdoption,
+            "Deep Inspect contract accepted an ambiguous package-sweep run name.");
+        AssertMutationRejected(
+            deepInspect,
             "  push:\n" +
             "    branches:\n" +
             "      - main\n",
@@ -403,6 +411,18 @@ internal static class ReleaseCandidateWorkflowContract
     private static void ValidateDeepInspectAdoption(string workflow)
     {
         YamlMappingNode root = LoadRoot(workflow, "Deep Inspect workflow");
+        RequireScalarValue(
+            root,
+            "run-name",
+            "Deep Inspect · ${{ "
+                + "inputs.lane != '' && format('lane: {0}', inputs.lane) || "
+                + "github.event_name == 'push' && 'main verification' || "
+                + "github.event.schedule == '0 9 * * 1' && 'package discovery' || "
+                + "github.event.schedule == '0 9 * * *' && 'authored corpus' || "
+                + "github.event.schedule == '30 11 * * *' && 'daily test fallback' || "
+                + "github.event.schedule == '0 13 * * *' && 'Inspect Web' || "
+                + "'unclassified event' }}",
+            "Deep Inspect run name");
         YamlMappingNode trigger = GetRequiredMapping(root, "on", "Deep Inspect workflow");
         RequireExactKeys(
             trigger,
