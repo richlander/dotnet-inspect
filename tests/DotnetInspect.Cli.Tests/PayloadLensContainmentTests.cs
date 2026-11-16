@@ -337,8 +337,7 @@ public class PayloadLensContainmentTests : IDisposable
     }
 
     /// <summary>
-    /// A package whose README carries rendering hazards and whose Markdown entry
-    /// name carries one too.
+    /// A valid-coordinate package carrying hostile metadata, README, and entry names.
     /// </summary>
     private sealed class HostilePackage : IDisposable
     {
@@ -354,17 +353,18 @@ public class PayloadLensContainmentTests : IDisposable
 
         public static HostilePackage Create()
         {
+            const string packageName = "HOSTILE.MARKERPACKAGE";
             string directory = System.IO.Path.Combine(
                 System.IO.Path.GetTempPath(), "lens-" + Guid.NewGuid().ToString("N"));
             System.IO.Directory.CreateDirectory(directory);
 
-            string path = System.IO.Path.Combine(directory, "Hostile.Lens.1.0.0.nupkg");
+            string path = System.IO.Path.Combine(directory, $"{packageName}.1.0.0.nupkg");
             using (var archive = ZipFile.Open(path, ZipArchiveMode.Create))
             {
-                WriteEntry(archive, "Hostile.Lens.nuspec", $"""
+                WriteEntry(archive, $"{packageName}.nuspec", $"""
                     <?xml version="1.0" encoding="utf-8"?>
-                    <package><metadata><id>HOSTILE{Bidi}MARKERPACKAGE</id><version>1.0.0</version>
-                    <description>d</description><authors>a</authors>
+                    <package><metadata><id>{packageName}</id><version>1.0.0</version>
+                    <description>d</description><authors>HOSTILE{Bidi}MARKERAUTHORS</authors>
                     <repository type="git" url="https://example.test/HOSTILE{ZeroWidthSpace}MARKERREPOSITORY" />
                     </metadata></package>
                     """);

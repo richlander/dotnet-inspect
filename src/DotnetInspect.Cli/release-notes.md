@@ -1,5 +1,50 @@
 # Release Notes
 
+## v0.29.0 (unreleased)
+
+### Focused inspection and comparison
+
+- Lists Types with unsafe code in Inspect Web's Library Unsafe tab through
+  Finding Unsafe Any, sharing the CLI's Library-grain operation. Unknown
+  Types remain visible; Type and Member tabs retain their census evidence
+  (#11023).
+- Partitions added and removed Types into Member changes and residual Type
+  presence, with present-side anchors. API-only comparisons do not read IL;
+  Browser adoption of this one-sided partition remains separate (#11116).
+- Settles the Browser Finding Diff Any export's residual API evidence inline
+  again, avoiding repeated per-Type preparation without changing results
+  (#11129).
+- Associates API Find's selected row plan before execution so finite producer
+  bounds depend on proof that producer order is final semantic order (#11127).
+- Plans exact implementation-profile families through focused Method Query
+  Source analysis rather than monolithic whole-Library analysis (#11026).
+
+### Browser workspaces and call graphs
+
+- Restores retained Package text using the Browser's retained-text ceiling
+  while preserving other Navigation limits and visible truncation. This
+  repairs the OpenAI 2.15.0 dependency hierarchy and API surface (#11126).
+- Coalesces source-certified duplicate implementations from overlapping
+  Runtime and ASP.NET Core populations in shared Package call graphs.
+  Genuine ambiguity remains an error; this does not certify complete
+  traversal or repair the separate Browser resource-budget limitation
+  (#11109).
+- Presents Package References before Compare without changing other subjects
+  (#11118).
+
+### Decompilation and maintenance
+
+- Counts classic async branch targets once per method instead of once per
+  await splice, reducing repeated reconstruction work without changing output
+  (#11130).
+- Raises folded union Boolean-pattern returns and escapes keyword by-address
+  argument receivers, including the `namespace` receiver in
+  Microsoft.CodeAnalysis.CSharp 5.0.0 (#11045, #11122).
+- Retires unadopted call-graph document adapters and their orphaned composer;
+  live graph execution and implementation-profile producers remain (#11132).
+- Aligns the Package positional-section test with unary command arity
+  (#11011).
+
 ## v0.28.0
 
 ### Runtime and packaging

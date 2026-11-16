@@ -31,6 +31,10 @@ import {
   registerEngineWorkerTypeExplorerOperation,
   type EngineWorkerTypeExplorerFacade,
 } from "./engine-worker-type-explorer.ts";
+import {
+  registerEngineWorkerSpotlightTypeFindOperation,
+  type EngineWorkerSpotlightTypeFindFacade,
+} from "./engine-worker-spotlight-type-find.ts";
 import { registerEngineWorkerStartupOperations } from "./engine-worker-startup.ts";
 import {
   registerEngineWorkerOrdinaryOperations,
@@ -120,6 +124,15 @@ registerEngineWorkerTypeExplorerOperation(operations, () => {
   }
   return sourceFacade;
 });
+let spotlightTypeFindFacade: EngineWorkerSpotlightTypeFindFacade | undefined;
+registerEngineWorkerSpotlightTypeFindOperation(operations, () => {
+  if (spotlightTypeFindFacade === undefined) {
+    throw new Error(
+      "Spotlight Type Find facade is unavailable before Worker readiness.",
+    );
+  }
+  return spotlightTypeFindFacade;
+});
 let packageQueryFacade: EngineWorkerPackageQueryFacade | undefined;
 registerEngineWorkerPackageQueryOperation(operations, () => {
   if (packageQueryFacade === undefined) {
@@ -189,6 +202,7 @@ const bootstrapWorker = async (value: string): Promise<void> => {
     import("/inspect-web-catalog.js"),
   ]);
   sourceFacade = loadedSourceFacade;
+  spotlightTypeFindFacade = catalogFacade;
   packageQueryFacade = packageFacade;
   packageChangesFacade = packageFacade;
   libraryPerformanceFacade = analysisFacade;

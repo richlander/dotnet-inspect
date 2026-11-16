@@ -3,6 +3,7 @@ using System.Collections.Immutable;
 using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
+using DotnetInspector.PackageQueries;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
@@ -157,6 +158,8 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 await CloseAsync(workspace, stores).ConfigureAwait(false);
                 return null;
             }
+            PackageRootBinding surfaceBinding =
+                binding.WithAssetDemand(PackageAssetDemand.Surface);
             WorkspaceScopeReadResult read =
                 await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
             if (read is WorkspaceScopeReadResult.Unavailable unavailable)
@@ -172,7 +175,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 await workspace.AddPackagesAsync(
                     ((WorkspaceScopeReadResult.Available)read)
                         .Snapshot.Revision,
-                    [binding],
+                    [surfaceBinding],
                     DateTimeOffset.UtcNow.AddMinutes(5),
                     cancellationToken).ConfigureAwait(false);
             if (admission
@@ -199,13 +202,13 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
 
             log?.Invoke(
                 $"Using committed package Root for search: "
-                + $"{binding.Root.PackageId}@{binding.Root.PackageVersion} "
-                + $"({binding.Root.AssetSelection?.Status.ToString() ?? "Library selection not requested"}; payload {origin}).");
+                + $"{surfaceBinding.Root.PackageId}@{surfaceBinding.Root.PackageVersion} "
+                + $"({surfaceBinding.Root.AssetSelection?.Status.ToString() ?? "Library selection not requested"}; payload {origin}).");
             return new(
                 workspace,
                 correspondence,
                 ready.Generation,
-                $"{binding.Root.PackageId}@{binding.Root.PackageVersion}",
+                $"{surfaceBinding.Root.PackageId}@{surfaceBinding.Root.PackageVersion}",
                 new(
                     targetFramework,
                     requestedRuntimeIdentifier: null),
@@ -431,12 +434,8 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
     }
 
     /// <summary>
-    /// Acquires the exact package through the House with ranged access: an
-    /// authorized cache answers first, an uncached archive is read by range
-    /// for exactly the compile realization's selection, and a source that
-    /// cannot range falls back to the complete download. When the Root's own
-    /// compatible selection reaches past what the ranged read materialized,
-    /// the complete archive is acquired instead so the search stays whole.
+    /// Declares the compile-library surface required by search and leaves
+    /// package acquisition and fallback to PackageHouse.
     /// </summary>
     static async ValueTask<(PackageRootBinding? Binding, PackagePayloadOrigin Origin)>
         AcquireRootAsync(
@@ -463,126 +462,79 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
 
         await using var composition =
             new DesktopPackageSourceComposition(httpClient.Timeout);
-        (PackageRootBinding? binding, AcquiredPackageSourcePayload? payload) =
-            await AcquireAndBindAsync(
-                composition,
-                stores,
-                member,
-                request,
-                target,
-                targetFramework,
-                log,
-                PackagePayloadAccess.Ranged,
-                cancellationToken).ConfigureAwait(false);
-        if (payload is null)
-            return (null, default);
-        PackageCompileAssetSelection selection = binding?.Root.AssetSelection
-            ?? throw new InvalidOperationException(
-                "Package search requires a realized Library selection.");
-        if (payload.Content is RangedPackageContent ranged
-            && !CoversSelection(selection, ranged))
-        {
-            log?.Invoke(
-                $"The ranged read of {member.PackageId}@{member.Version} did not "
-                + "materialize the Root's compile selection; acquiring the complete archive.");
-            (binding, payload) = await AcquireAndBindAsync(
-                composition,
-                stores,
-                member,
-                request,
-                target,
-                targetFramework,
-                log,
-                PackagePayloadAccess.Complete,
-                cancellationToken).ConfigureAwait(false);
-            if (payload is null)
-                return (null, default);
-        }
-
-        return (binding, payload.Origin);
-    }
-
-    static async Task<(PackageRootBinding? Binding, AcquiredPackageSourcePayload? Payload)>
-        AcquireAndBindAsync(
-            DesktopPackageSourceComposition composition,
-            SearchPackageStores stores,
-            WorkspaceMemberCoordinate.PackageMember member,
-            AssemblySetRequest request,
-            PackageHouseTargetContext target,
-            string targetFramework,
-            Action<string>? log,
-            PackagePayloadAccess access,
-            CancellationToken cancellationToken)
-    {
-        ConfiguredPackagePayloadResult result =
-            await composition.AcquirePinnedAsync(
-                member.PackageId,
-                member.Version!,
+        PackageHouse house =
+            composition.CreateDependencyContentQueryHouse(
                 stores.GetStore,
                 request.SourceOptions,
-                log,
-                cancellationToken,
-                limits: PackagePayloadLimits.Default,
-                compileTargetContext: target,
-                access: access,
-                assetDemand: PackageAssetDemand.Surface).ConfigureAwait(false);
-        if (result.Payload is not { } payload)
+                log);
+        PackageHouseOperation operation = composition.CreateHouseOperation(
+            PackageHouseOperationProfile.Realize);
+        PackageHouseRequest houseRequest =
+            PackageHouseRequest.CompileLibraries(
+                new PackageHouseDemand.Exact(
+                    PackageSourceCoordinate.Create(
+                        member.PackageId,
+                        member.Version!)),
+                operation,
+                target,
+                PackageAssetDemand.Surface);
+        PackageHouseSettlement settlement = await house.ExecuteAsync(
+            houseRequest,
+            composition.IssueSettlementOperation(cancellationToken))
+            .ConfigureAwait(false);
+        PackageHouseRootContributionOutcome contribution =
+            PackageHouseRootContributionAdapter.Create(
+                settlement,
+                member.PackageId);
+        if (contribution
+            is PackageHouseRootContributionOutcome.Contributed contributed)
         {
-            CommandError.WriteWarning(
-                $"Could not load package Root '{member.PackageId}@{member.Version}': "
-                + Describe(result));
-            return (null, null);
+            if (settlement
+                is not PackageHouseSettlement.Acquired acquiredSettlement)
+            {
+                throw new InvalidOperationException(
+                    "A PackageHouse Root contribution did not retain its acquired payload.");
+            }
+            return (
+                contributed.Contribution.Binding,
+                acquiredSettlement.Payload.Origin);
         }
 
-        PackageRootBinding binding =
-            PackageRootBinding.CreateFromSourceWithCompatibleSelection(
-                payload,
-                targetFramework,
-                member.PackageId);
-        if (binding.Root.AssetSelection?.Status
-                == PackageCompileAssetSelectionStatus.NoMatchingTargetFramework
-            && PackageAssetSelector.Select(payload.Content, targetFramework)
-                is PackageAssetSelection.Selected compatible)
+        if (PackageHouseRootContributionAdapter
+            .TryCreateUnselectedSurfaceBinding(
+                settlement,
+                member.PackageId,
+                out PackageRootBinding? emptySurfaceBinding))
         {
-            // The requested framework has no exact compile selection; the
-            // compatible implementation universe is the selection target,
-            // while the acquired coordinate keeps the requested framework.
-            binding = PackageRootBinding.CreateFromSourceWithCompatibleSelection(
-                payload,
-                compatible.Universe.TargetFramework,
-                member.PackageId);
+            PackagePayloadOrigin origin =
+                ((PackageHouseSettlement.Acquired)settlement)
+                    .Payload.Origin;
+            return (emptySurfaceBinding, origin);
         }
-        // Search reads the public surface only: the Root admits no
-        // implementation role, so nothing beyond the surface folder is read.
-        return (binding.WithAssetDemand(PackageAssetDemand.Surface), payload);
+
+        var noContribution =
+            (PackageHouseRootContributionOutcome.NoContribution)
+                contribution;
+        CommandError.WriteWarning(
+            $"Could not load package Root '{member.PackageId}@{member.Version}': "
+            + $"{noContribution.Reason}: "
+            + Describe(contribution.Result));
+        return (null, default);
     }
 
-    static bool CoversSelection(
-        PackageCompileAssetSelection selection,
-        RangedPackageContent ranged) =>
-        !selection.IsSelected
-        || selection.Assets.All(asset => ranged.IsMaterialized(asset.Path));
-
-    static string Describe(ConfiguredPackagePayloadResult result)
-    {
-        if (result.Failures.Count > 0)
+    static string Describe(PackageHouseResult result) =>
+        result switch
         {
-            return string.Join(
-                "; ",
-                result.Failures.Select(failure =>
-                    $"{failure.Kind}: {failure.Message}"));
-        }
-        if (result.NotFoundAuthorities.Count > 0)
-        {
-            return "the package was not found on "
-                + string.Join(
-                    ", ",
-                    result.NotFoundAuthorities.Select(authority =>
-                        PackageSourceDisplay.ForDiagnostics(authority.Source)))
-                + ".";
-        }
-        return "no configured package source supplied the package archive.";
-    }
+            PackageHouseResult.Settled => "settled",
+            PackageHouseResult.NotFound value => value.Reason.ToString(),
+            PackageHouseResult.NoMatch value => value.Reason.ToString(),
+            PackageHouseResult.Ambiguous value => value.Reason.ToString(),
+            PackageHouseResult.Rejected value => value.Reason.ToString(),
+            PackageHouseResult.Unavailable value => value.Reason.ToString(),
+            PackageHouseResult.Incomplete value => value.Reason.ToString(),
+            PackageHouseResult.Failed value => value.Reason.ToString(),
+            _ => result.GetType().Name,
+        };
 
     static string Describe(WorkspaceScopeOperationResult result) =>
         result switch

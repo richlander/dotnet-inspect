@@ -481,7 +481,7 @@ the adopted size goal.
 
 ## Adoption sequence
 
-Seven steps lead from design to observable behavior in both hosts:
+Eight steps lead from design to observable behavior in both hosts:
 
 1. **Design — implemented.** This artifact owner and its selective
    Integration-symbol, coverage, equivalence, and performance contracts.
@@ -498,16 +498,20 @@ Seven steps lead from design to observable behavior in both hosts:
 5. **Host-neutral Type inspection — implemented.** One completed Type-only
    operation returns the portable indexed semantic result in an
    `InspectionEnvelope<TContent>`; the CLI is its first adopter.
-6. **Inspect Web operation and transport — implemented; Spotlight composition
-   planned.** Inspect Web publishes the exact per-Ecosystem artifacts, admits
+6. **Inspect Web operation and transport — implemented.** Inspect Web publishes
+   the exact per-Ecosystem artifacts, admits
    them from the retained Workspace plan, invokes the host-neutral indexed
    inspection under Browser operation authority, and transports its unchanged
-   semantic content through the ordinary Worker. Spotlight action association,
-   ranking, selection, and presentation remain planned.
-7. **Freshness lane — planned.** Scheduled regenerate-and-compare reporting
+   semantic content through the ordinary Worker.
+7. **Spotlight indexed Type composition — implemented.** Spotlight evaluates
+   the indexed phase before resident Workspace Type Find, associates each
+   exact package-backed Type with an opaque managed action, coalesces only the
+   same stable managed Type identity at first occurrence, and preserves
+   selection and incomplete-phase evidence when resident rows arrive.
+8. **Freshness lane — planned.** Scheduled regenerate-and-compare reporting
    coordinate, scanner, symbol, coverage, size, and performance drift.
 
-Steps 3 through 6 are focused adoptions by existing owners, not
+Steps 3 through 7 are focused adoptions by existing owners, not
 responsibilities absorbed into this artifact design. The implementation
 tracker keeps them separate unless one qualifies for the one-first-adopter
 exception in
