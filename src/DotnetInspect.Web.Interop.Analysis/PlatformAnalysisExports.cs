@@ -11,32 +11,18 @@ using DotnetInspect.Web.Interop.Analysis;
 namespace DotnetInspect.Web.Interop.Analysis;
 
 /// <summary>
-/// Platform Analysis results. Platform performance is an explicitly unavailable capability rather
-/// than a missing binding: the operation stays exported and rejects with its existing error.
+/// Platform Analysis results for one selected participant in the cumulative platform group.
 /// </summary>
 /// <remarks>
-/// <para>
-/// These are product API gaps, not host shortcuts. Inspecting a participant requires a session or
-/// its image snapshot, and <c>AssemblyContextGroup</c>'s access to both is internal to
-/// <c>DotnetInspector.Queries</c> and its companion query assembly. A consumer therefore inspects
-/// only through a public query that owns those lifetimes, and the unsupported operation below
-/// waits for its own query rather than opening a session, a metadata source, an analysis index, or
-/// a retained descriptor.
-/// </para>
-/// <para>
-/// The exact queries required are listed in <c>inspect-web/README.md</c> under
-/// "Required workspace queries", and each has a tracking issue named there.
-/// </para>
+/// Inspecting a participant requires a session or its image snapshot, and
+/// <c>AssemblyContextGroup</c>'s access to both is internal to <c>DotnetInspector.Queries</c> and
+/// its companion query assembly. Each export therefore inspects only through a public
+/// participant-scoped query that owns those lifetimes, never by opening a session, a metadata
+/// source, an analysis index, or a retained descriptor itself.
 /// </remarks>
 [SupportedOSPlatform("browser")]
 public static partial class AnalysisExports
 {
-    const string NoPlatformProjection =
-        "no group-scoped product query projects this evidence from a platform participant";
-
-    static NotSupportedException Unavailable(string operation, string capability) =>
-        new($"{operation} is not available in this engine build: {capability}");
-
     [JSExport]
     public static async Task<string> QueryPlatformIntegrations(
         string targetFramework,
@@ -396,11 +382,59 @@ public static partial class AnalysisExports
                 .BrowserTypeMethodLeverage);
     }
 
+    /// <summary>
+    /// Product-ranked optimization-opportunity members for one selected
+    /// platform participant, over the same participant-scoped query and
+    /// Browser projection as <see cref="QueryPackagePerformance"/>. A platform
+    /// scope holds only runtime-pack implementation assemblies, so the analyzed
+    /// assembly also names the rows, as the Platform Type list names its Types.
+    /// </summary>
     [JSExport]
-    public static Task<string> QueryPlatformPerformance(
+    public static async Task<string> QueryPlatformPerformance(
         string targetFramework,
         string platformVersion,
         string assemblyFileName,
-        string pack) =>
-        throw Unavailable("Platform performance", NoPlatformProjection);
+        string pack)
+    {
+        BrowserPackagePerformance performance;
+        await using (BrowserPlatformScopeResolution resolution =
+            await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                targetFramework,
+                platformVersion,
+                assemblyFileName,
+                pack))
+        {
+            string assembly =
+                resolution.Participant.Participant.Assembly.Identity.Name;
+            AssemblyContextOptimizationOpportunitiesResult result =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    AssemblyContextOptimizationOpportunitiesQuery
+                        .ExecuteParticipant);
+            AssemblyContextEntry<SyncCallsInAsyncResult> syncCallsResult =
+                resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    SyncCallsInAsyncParticipant);
+            performance = ProjectPerformance(
+                result,
+                syncCallsResult,
+                failures: [],
+                new BrowserPerformanceSurfaceNaming(
+                    assembly,
+                    assembly,
+                    assembly,
+                    BrowserPlatformWorkspace.Pack(
+                        resolution.Coordinate.Family)),
+                () => resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    ImplementationApiSurface),
+                BrowserAnalysisWireProjection.Project(
+                    BrowserCompileLibraryProjection.Selected(
+                        resolution.Scope.Framework)));
+        }
+
+        return JsonSerializer.Serialize(
+            performance,
+            BrowserAnalysisJsonContext.Default.BrowserPackagePerformance);
+    }
 }

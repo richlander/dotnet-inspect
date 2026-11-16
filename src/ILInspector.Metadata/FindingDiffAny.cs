@@ -764,9 +764,12 @@ public static partial class FindingDiffAny
         /// prefix, cannot be decoded.
         /// </summary>
         int TargetIndex(int[] starts, int count, int target)
+            => TargetIndex(starts, _admitted, count, target);
+
+        internal static int TargetIndex(int[] starts, bool[] admitted, int count, int target)
         {
             int index = Array.BinarySearch(starts, 0, count, target);
-            if (index < 0 || !_admitted[index])
+            if (index < 0 || !admitted[index])
                 throw new BadImageFormatException($"Branch target IL_{target:X4} does not align with an instruction.");
             return index;
         }
@@ -775,7 +778,7 @@ public static partial class FindingDiffAny
         /// The next opcode, which ECMA-335 must define: an undefined opcode cannot
         /// be stepped over, so the body is one canonical comparison cannot decode.
         /// </summary>
-        static ILOpCode ReadOpCode(ref ILReader reader)
+        internal static ILOpCode ReadOpCode(ref ILReader reader)
         {
             ILOpCode opCode = reader.ReadILOpcode();
             if (!opCode.IsValid())
@@ -784,10 +787,10 @@ public static partial class FindingDiffAny
         }
 
         /// <summary>Every <c>ldc.i4</c> form, which fold to the value loaded.</summary>
-        static bool IsLoadInt32(ILOpCode opCode) => opCode is >= ILOpCode.Ldc_i4_m1 and <= ILOpCode.Ldc_i4;
+        internal static bool IsLoadInt32(ILOpCode opCode) => opCode is >= ILOpCode.Ldc_i4_m1 and <= ILOpCode.Ldc_i4;
 
         /// <summary>The value every <c>ldc.i4</c> form loads.</summary>
-        static int LoadedInt32(ILOpCode opCode, ref ILReader reader) => opCode switch
+        internal static int LoadedInt32(ILOpCode opCode, ref ILReader reader) => opCode switch
         {
             ILOpCode.Ldc_i4_s => (sbyte)reader.ReadILByte(),
             ILOpCode.Ldc_i4 => (int)reader.ReadILUInt32(),
@@ -795,7 +798,7 @@ public static partial class FindingDiffAny
         };
 
         /// <summary>A short branch belongs to the family of its long form.</summary>
-        static ILOpCode Family(ILOpCode opCode) => opCode switch
+        internal static ILOpCode Family(ILOpCode opCode) => opCode switch
         {
             >= ILOpCode.Br_s and <= ILOpCode.Blt_un_s
                 => (ILOpCode)((int)opCode - (int)ILOpCode.Br_s + (int)ILOpCode.Br),
@@ -826,7 +829,7 @@ public static partial class FindingDiffAny
         /// not a Type (such as Roslyn's vararg call site, whose parent is the
         /// method definition), or a method specification of such a reference.
         /// </summary>
-        static void RequireOperandKind(OperandKind operand, Side side, EntityHandle handle)
+        internal static void RequireOperandKind(OperandKind operand, Side side, EntityHandle handle)
         {
             bool admitted = operand switch
             {
@@ -2038,6 +2041,12 @@ public static partial class FindingDiffAny
             return lengthA == lengthB
                 && new ReadOnlySpan<byte>(x.CurrentPointer, lengthA)
                     .SequenceEqual(new ReadOnlySpan<byte>(y.CurrentPointer, lengthB));
+        }
+
+        internal unsafe void WriteValue(int token, BodyIdentityWriter writer)
+        {
+            BlobReader entry = Entry(token, out int length);
+            writer.Bytes(new ReadOnlySpan<byte>(entry.CurrentPointer, length));
         }
 
         /// <summary>The heap positioned at an entry's code units, with their byte length.</summary>

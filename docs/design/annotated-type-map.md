@@ -283,13 +283,14 @@ A host that needs the partition asks for the diff.
 ### Implementation
 
 Both forms are one implementation: the registered families, and a comparison
-over two sides' contributions. Today a pair resolves each side's contributions
-and generation compares them by key. Exists stops that comparison at its first
-shape transition; it does not stop either side's extraction at its first
-difference. Rows compares fact streams only for the Members it lists. Planning
-may later add a pair-scoped adapter that walks both images in lockstep and
-stops extraction early if adoption steps 3 and 5 show that route is cheaper;
-both routes produce the same map diff. Whether either route also builds the
+over the families' evidence. Rows and Count resolve each side's complete
+contributions and generation compares them by key. Rows compares fact streams
+only for the Members it lists. Exists does not use that boundary: stopping
+only the later comparison would still perform complete extraction. The
+terminal-native pair evidence of
+[#11166](https://github.com/richlander/dotnet-inspect/issues/11166) must walk
+both images under the same API and Body equalities and stop producer work at
+its first shape transition. Whether either route also builds the
 fact census only for listed Members, which needs the shape comparison before
 the census demand, is what those steps measure. It never runs a
 separate walk that decides changes another way, and it never compares two
@@ -377,8 +378,9 @@ persistent artifact and is offered only as one. A Member's findings are the
 detail of its row, not a narrower scope.
 
 A Type's Exists in the map diff is the shape comparison stopped at its first
-difference: Finding Diff Any's Library-level state for that Type. The map runs
-no second walk to answer it.
+difference: Finding Diff Any's Library-level state for that Type. The
+terminal-native route of #11166 reuses that equality and evidence; the map
+adds no second definition of changed.
 
 ## Disclosure ladder
 
@@ -462,7 +464,11 @@ Each step is its own focused effort:
    [Annotated Type Map planning](annotated-type-map-planning.md). The map diff
    reads both; planning also serves a family contribution request for one
    family's facts outside a map, and each family's producer constructs only
-   that family.
+   that family. The
+   [API shape family](annotated-type-map-api-family.md) and
+   [Body-shape family](annotated-type-map-body-family.md) supersede this step's
+   placeholder producer and adapter mechanics. This document continues to own
+   the facts' map semantics and comparison.
 3. **Fact census without text.** The Annotated Source owner produces one
    method's whole fact stream and fact comparison, for each method a Member
    owns including generated methods, without the text comparison or the C#

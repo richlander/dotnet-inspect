@@ -818,6 +818,22 @@ hidden.
 
 ### Type Metadata
 
+Automatic Type metadata projection is admitted only for the active Type
+subject's Overview or Metadata surface. A remembered Type or Type lens while
+Workspace, Package, Library, or Member is active is navigation state, not a
+request to inspect that Type. Existing in-flight completion caching is
+unchanged when the user leaves a Type surface.
+
+The motivating real asset is the `OpenAI@2.15.0`, `net10.0` shared
+Package dependency hierarchy from #11125. On deployed `39efb56`, the Browser
+restored Package focus but submitted a hidden Type projection taking about
+19 seconds. #11207 corrects that admission. The real-Wasm
+`loads Type metadata only after choosing the Type subject`
+gate restores the format-3 packet and checks Package and Library routes before
+explicit Type navigation,
+then verifies that Type Overview metadata still loads through the production
+Worker.
+
 Type Metadata uses the full area to the right of Type navigation. It does not
 retain a centered document column or the large type hero. The persistent
 subject path remains the owner of the selected package and type hierarchy.
