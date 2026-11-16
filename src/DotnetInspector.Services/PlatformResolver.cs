@@ -160,30 +160,43 @@ public static class PlatformResolver
     }
 
     /// <summary>
-    /// Whether the named framework family's shared runtime is installed, for
-    /// example <c>runtime</c> (any version) or <c>aspnetcore@11.0.0</c> (that
-    /// version). Unknown families are not installed.
+    /// Resolves an assembly from the installed shared runtime of one framework
+    /// family at exactly <paramref name="version"/> (ordinal, case-insensitive
+    /// directory name; never a prefix or substring match). Returns no path and
+    /// no error when that exact runtime version is not installed.
     /// </summary>
-    public static bool HasInstalledRuntimeFramework(string frameworkSpec)
+    public static (string? AssemblyPath, string? Framework, string? Version, string? Error)
+        ResolveExactRuntimeAssembly(
+            string assemblyName,
+            string frameworkName,
+            string version)
     {
-        ArgumentException.ThrowIfNullOrWhiteSpace(frameworkSpec);
-        int at = frameworkSpec.LastIndexOf('@');
-        string name = at > 0 ? frameworkSpec[..at] : frameworkSpec;
-        string? version = at > 0 ? frameworkSpec[(at + 1)..] : null;
-        if (!SharedFrameworkMappings.TryGetValue(name, out string? sharedName)
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(frameworkName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        if (!SharedFrameworkMappings.TryGetValue(frameworkName, out string? sharedName)
             || GetSharedDirectory() is not { } shared)
         {
-            return false;
+            return (null, null, null, null);
         }
 
         string frameworkPath = Path.Combine(shared, sharedName);
-        if (!Directory.Exists(frameworkPath))
-            return false;
-        return string.IsNullOrEmpty(version)
+        string? exact = Directory.Exists(frameworkPath)
             ? Directory.EnumerateDirectories(frameworkPath)
-                .Select(Path.GetFileName)
-                .Any(installed => installed is { Length: > 0 } && char.IsDigit(installed[0]))
-            : Directory.Exists(Path.Combine(frameworkPath, version));
+                .FirstOrDefault(directory => string.Equals(
+                    Path.GetFileName(directory),
+                    version,
+                    StringComparison.OrdinalIgnoreCase))
+            : null;
+        if (exact is null)
+            return (null, null, null, null);
+
+        if (!assemblyName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            assemblyName += ".dll";
+        string? assemblyPath = FindAssemblyCaseInsensitive(exact, assemblyName);
+        return assemblyPath is null
+            ? (null, null, null, $"Library '{assemblyName}' not found in {frameworkName} runtime {version}")
+            : (assemblyPath, frameworkName, Path.GetFileName(exact), null);
     }
 
     /// <summary>

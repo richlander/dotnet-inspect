@@ -1315,29 +1315,25 @@ public partial class LibraryCommand
             if (source.Selector
                 is SourceSelector.PlatformLibrary platform)
             {
-                var (resolvedPath, framework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
-                    platform.Name,
-                    context.HttpClient,
-                    logger.Log,
-                    options.PlatformFramework,
-                    useRuntimeAssemblies: true,
-                    platformVersion: options.PlatformVersion,
-                    sourceOptions: options.SourceOptions);
-                // Installed shared runtime first. Only when the named family (at
-                // the named version, if any) has no installed runtime does the
-                // Library come from that family's reference pack: the same
-                // Platform pack authority as Type and Member --platform,
-                // acquired only in that case.
-                if (error != null
-                    && options.PlatformFramework is { Length: > 0 } selectedFramework
-                    && options.PlatformVersion is null
-                    && !PlatformResolver.HasInstalledRuntimeFramework(selectedFramework))
+                string? resolvedPath, framework, version, error;
+                if (options.RouterPlatformLibrary is { } routedLibrary)
+                {
+                    (resolvedPath, framework, version, error, tempDir) =
+                        await ResolveRouterPlatformLibraryAsync(
+                                routedLibrary,
+                                context,
+                                options.SourceOptions)
+                            .ConfigureAwait(false);
+                }
+                else
                 {
                     (resolvedPath, framework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
                         platform.Name,
                         context.HttpClient,
                         logger.Log,
-                        selectedFramework,
+                        options.PlatformFramework,
+                        useRuntimeAssemblies: true,
+                        platformVersion: options.PlatformVersion,
                         sourceOptions: options.SourceOptions);
                 }
 
@@ -5299,6 +5295,66 @@ public partial class LibraryCommand
     /// A shared framework's target framework, from its major and minor
     /// version: <c>10.0.3</c> is <c>net10.0</c>.
     /// </summary>
+    // Router handoff of a whole-name Platform Library: exactly the realized
+    // family version, never a prefix match. An installed shared runtime at that
+    // exact version is used; otherwise that exact reference pack is acquired
+    // through the configured package source composition (the selected
+    // sources, including local folder feeds) that realized the Router's
+    // population. A miss is a bounded error, never another version or source.
+    private static async Task<(
+        string? Path,
+        string? Framework,
+        string? Version,
+        string? Error,
+        string? TempDir)>
+        ResolveRouterPlatformLibraryAsync(
+            RouterResolvedLibrary library,
+            CommandContext context,
+            NuGetSourceOptions? sourceOptions)
+    {
+        var installed = PlatformResolver.ResolveExactRuntimeAssembly(
+            library.Name, library.FrameworkName, library.Version);
+        if (installed.AssemblyPath is not null || installed.Error is not null)
+        {
+            return (installed.AssemblyPath, installed.Framework,
+                installed.Version, installed.Error, null);
+        }
+
+        string packId = PlatformResolver.FrameworkMappings[library.FrameworkName];
+        PackageExtractionOutcome outcome =
+            await PackageExtractor.ExtractPinnedPackageAsync(
+                    context.HttpClient,
+                    packId,
+                    library.Version,
+                    context.Logger.Log,
+                    "inspect-platform-library",
+                    sourceOptions,
+                    context.CreatePackageSourceComposition)
+                .ConfigureAwait(false);
+        if (!outcome.IsSuccess)
+            return (null, null, null, outcome.ErrorMessage, null);
+
+        PackageExtractionResult extracted = outcome.Result!;
+        string referenceRoot = System.IO.Path.Combine(extracted.ExtractPath, "ref");
+        string fileName = library.Name + ".dll";
+        string[] matches = Directory.Exists(referenceRoot)
+            ?
+            [
+                .. Directory.EnumerateFiles(
+                        referenceRoot, "*.dll", SearchOption.AllDirectories)
+                    .Where(path => string.Equals(
+                        System.IO.Path.GetFileName(path),
+                        fileName,
+                        StringComparison.OrdinalIgnoreCase)),
+            ]
+            : [];
+        return matches.Length == 1
+            ? (matches[0], library.FrameworkName, library.Version, null, extracted.TempDir)
+            : (null, null, null,
+                $"Library '{library.Name}' not found in {packId} {library.Version}",
+                extracted.TempDir);
+    }
+
     private static string PlatformTargetFramework(string? version) =>
         Version.TryParse(version?.Split('-', '+')[0], out Version? parsed)
             ? $"net{parsed.Major}.{parsed.Minor}"

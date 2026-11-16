@@ -4,6 +4,7 @@ using DotnetInspector.Packages;
 using DotnetInspector.PlatformHouse;
 using DotnetInspector.Platforms;
 using DotnetInspector.Sections;
+using DotnetInspector.Services;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Tests;
@@ -21,18 +22,7 @@ public sealed class PlatformTypeLocatorRoutingTests
         // a local feed holding the restored Microsoft.NETCore.App.Ref package
         // for the versionless package-backed default (net10.0, at least 10.0.1).
         const string version = "10.0.10";
-        string globalPackages =
-            Environment.GetEnvironmentVariable("NUGET_PACKAGES")
-            ?? Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                ".nuget",
-                "packages");
-        string nupkg = Path.Combine(
-            globalPackages,
-            "microsoft.netcore.app.ref",
-            version,
-            $"microsoft.netcore.app.ref.{version}.nupkg");
-        Assert.True(File.Exists(nupkg), nupkg);
+        string nupkg = RestoredReferencePack(version);
         NuGetCache.Initialize("dotnet-inspect");
         using var feed = new TemporaryTestDirectory(
             "inspect-cli-platform-ref-feed");
@@ -78,6 +68,102 @@ public sealed class PlatformTypeLocatorRoutingTests
         Assert.False(
             PlatformTypeLocatorRouting.ContainsFocusLibrary(
                 completed, "Microsoft.Extensions.Logging"));
+    }
+
+    [Fact]
+    public async Task
+        RouterLibraryHandoffUsesExactVersionThroughSelectedLocalFeed()
+    {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - the Router's
+        // completed Library selection crosses as a typed fact; a Package-backed
+        // Platform source remains Platform realization.
+        // The only installed runtime is a 10.0.10 preview whose System.Text.Json
+        // is an 11.x assembly, so a prefix match would be visible. The exact
+        // 10.0.10 reference pack is available only from a local folder feed.
+        const string version = "10.0.10";
+        string nupkg = RestoredReferencePack(version);
+        NuGetCache.Initialize("dotnet-inspect");
+        using var root = new TemporaryTestDirectory("inspect-cli-preview-only-root");
+        string preview = Path.Combine(
+            root.FullName, "shared", "Microsoft.NETCore.App", "10.0.10-preview.1");
+        Directory.CreateDirectory(preview);
+        string planted = Path.Combine(preview, "System.Text.Json.dll");
+        File.Copy(
+            typeof(System.Text.Json.JsonSerializer).Assembly.Location,
+            planted);
+        using var feed = new TemporaryTestDirectory("inspect-cli-platform-ref-feed");
+        File.Copy(nupkg, Path.Combine(feed.FullName, Path.GetFileName(nupkg)));
+        string[] args =
+        [
+            "library", "System.Text.Json",
+            "--framework", $"runtime@{version}",
+            "--source", feed.FullName,
+            "--json",
+        ];
+
+        string? originalRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_ROOT", root.FullName);
+
+            // A user-authored partial selector keeps its prefix behavior.
+            Assert.Equal(
+                planted,
+                PlatformResolver.ResolveAssembly(
+                    "System.Text.Json",
+                    $"runtime@{version}",
+                    useRuntimeAssemblies: true).AssemblyPath);
+            // The exact lookup never accepts the preview.
+            Assert.Equal(
+                (null, null, null, null),
+                PlatformResolver.ResolveExactRuntimeAssembly(
+                    "System.Text.Json", "runtime", version));
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
+            {
+                var command = CommandLineBuilder.CreateRootCommand();
+                string[] tokens = CommandLineBuilder.PreprocessArgs(args, command);
+                return CommandLineBuilder.InvokeWithLineWindowAsync(
+                    command.Parse(tokens),
+                    tokens,
+                    resolvedTarget: null,
+                    new RouterResolvedLibrary(
+                        "System.Text.Json",
+                        PlatformFamily.DotNetRuntime,
+                        version));
+            });
+
+            Assert.True(exit == 0, error);
+            Assert.Contains(
+                "System.Text.Json, Version=10.0.0.0",
+                output,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain(
+                "System.Text.Json, Version=11.",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_ROOT", originalRoot);
+        }
+    }
+
+    private static string RestoredReferencePack(string version)
+    {
+        string globalPackages =
+            Environment.GetEnvironmentVariable("NUGET_PACKAGES")
+            ?? Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                ".nuget",
+                "packages");
+        string nupkg = Path.Combine(
+            globalPackages,
+            "microsoft.netcore.app.ref",
+            version,
+            $"microsoft.netcore.app.ref.{version}.nupkg");
+        Assert.True(File.Exists(nupkg), nupkg);
+        return nupkg;
     }
 
     [Fact]

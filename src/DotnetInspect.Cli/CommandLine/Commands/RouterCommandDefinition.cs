@@ -412,7 +412,8 @@ public static class RouterCommandDefinition
             return await CommandLineBuilder.InvokeWithLineWindowAsync(
                 childParse,
                 rewritten,
-                selection.ResolvedTarget);
+                selection.ResolvedTarget,
+                selection.ResolvedLibrary);
         });
 
         return routerCommand;
@@ -616,7 +617,8 @@ public static class RouterCommandDefinition
     private sealed record RouterRewrite(
         string[] Tokens,
         RouterResolvedTarget? ResolvedTarget = null,
-        string? SelectedPlatformFramework = null);
+        string? SelectedPlatformFramework = null,
+        RouterResolvedLibrary? ResolvedLibrary = null);
 
     private static class RouterTokenRewriter
     {
@@ -743,13 +745,17 @@ public static class RouterCommandDefinition
             if (locator is CliPlatformTypeLocatorOutcome.Completed realized
                 && PlatformTypeLocatorRouting.ContainsFocusLibrary(realized, target))
             {
+                // The typed fact pins the exact realized family version and
+                // its selected sources; the child never re-selects by prefix.
                 return new RouterRewrite(
                     [
                         "library", target,
                         "--framework", PlatformFrameworkSpec(realized.Target),
                         .. tail,
                     ],
-                    SelectedPlatformFramework: selectedFamily);
+                    SelectedPlatformFramework: selectedFamily,
+                    ResolvedLibrary: new RouterResolvedLibrary(
+                        target, realized.Target.Family, realized.Target.Version));
             }
             if (route?.Content is PlatformTypeCatalogRouteOutcome.Resolved resolved)
                 return RewriteResolved(RouterResolvedTarget.From(resolved), target, tail);

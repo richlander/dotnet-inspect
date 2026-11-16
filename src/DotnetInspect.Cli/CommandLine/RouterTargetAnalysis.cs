@@ -62,8 +62,37 @@ internal sealed record RouterResolvedTarget(
                 : MemberTargetSelector.Parse(memberSelector));
 }
 
+/// <summary>
+/// The Router's completed whole-name Platform Library selection: one Library
+/// in one selected family at one exact realized version. Unlike a
+/// user-authored framework selector, the version never matches by prefix.
+/// </summary>
+internal sealed record RouterResolvedLibrary(
+    string Name,
+    PlatformFamily Family,
+    string Version)
+{
+    internal string FrameworkName => Family switch
+    {
+        PlatformFamily.DotNetRuntime => "runtime",
+        PlatformFamily.AspNetCore => "aspnetcore",
+        _ => throw new InvalidOperationException("Unknown Platform family."),
+    };
+}
+
 internal static class RouterTargetAnalysis
 {
+    private static readonly ConditionalWeakTable<ParseResult, RouterResolvedLibrary>
+        ResolvedLibraries = new();
+
+    internal static void BindLibrary(ParseResult parseResult, RouterResolvedLibrary library) =>
+        ResolvedLibraries.Add(parseResult, library);
+
+    internal static RouterResolvedLibrary? GetLibrary(ParseResult parseResult) =>
+        ResolvedLibraries.TryGetValue(parseResult, out RouterResolvedLibrary? library)
+            ? library
+            : null;
+
     private static readonly ConditionalWeakTable<ParseResult, RouterResolvedTarget>
         ResolvedTargets = new();
 
