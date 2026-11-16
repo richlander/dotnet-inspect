@@ -3,8 +3,10 @@
 ## Status and owner
 
 Partially adopted: the unscoped CLI default realizes the platform Workspace
-through PlatformHouse. Explicit selectors and Browser alignment remain in the
-ordered adoption plan below. This is Find's host-adoption slice for the `Broad`
+through PlatformHouse. One bare package with an explicit TFM, no result limit,
+and no other source now settles `LatestStable` and uses PackageHouse and
+Workspace admission. Other explicit selectors and Browser alignment remain in
+the ordered adoption plan below. This is Find's host-adoption slice for the `Broad`
 candidate intent that
 [Search scope resolution](search-scope-resolution.md#default-activation)
 leaves to each consumer, tracked by
@@ -338,13 +340,16 @@ cold and one warm sample per Package.
    envelope.
 2. **Explicit selectors through the House.** `--package` with or without
    `--tfm`, `--platform <Library>`, `--library`, `--project`, and `--bin` build
-   an empty Workspace. The shared first slice retains each ordered explicit
-   source once across Find's classification passes, removing compatibility
-   reacquisition while preserving the existing trusted operational-limit
-   behavior. A stacked successor lowers CLI `-n` into safe acquisition and
-   query early exit. Follow-up slices replace the remaining legacy Package and
-   named-platform-Library acquisition seams with PackageHouse and PlatformHouse
-   realization.
+   an empty Workspace. For one bare package reference with an explicit TFM, no
+   result limit, no other source, and online mode, Package Version Service
+   settles `LatestStable` before PackageHouse acquisition and Workspace
+   admission. Other package selector shapes remain on compatibility paths.
+   The shared first slice retains each ordered explicit source once across
+   Find's classification passes, removing compatibility reacquisition while
+   preserving the existing trusted operational-limit behavior. A stacked
+   successor lowers CLI `-n` into safe acquisition and query early exit.
+   Follow-up slices replace the remaining legacy Package and named-platform-
+   Library acquisition seams with PackageHouse and PlatformHouse realization.
 3. **`--ecosystem` as a selector,** with short names and the empty-population
    failure, implemented with [Ecosystem hierarchy slice
    2a](ecosystem-hierarchy.md#adoption-plan). Composition with other source

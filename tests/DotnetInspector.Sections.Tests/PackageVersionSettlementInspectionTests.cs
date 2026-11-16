@@ -28,6 +28,26 @@ public sealed class PackageVersionSettlementInspectionTests
         Assert.Empty(envelope.Diagnostics);
     }
 
+    [Fact]
+    public async Task TypedSelectionUsesItsLatestStablePolicy()
+    {
+        var (envelope, requests) = await SettleAsync(
+            new(PackageId),
+            [(Stable, true), (Preview, true)],
+            cancellationToken: TestContext.Current.CancellationToken,
+            selection: new PackageVersionSelectionRequest.LatestStable(
+                PackageId));
+
+        var settled =
+            Assert.IsType<PackageVersionSettlementOutcome.Settled>(
+                envelope.Content);
+        Assert.Equal(Stable, settled.Result.Coordinate.Version);
+        Assert.Equal(
+            PackageVersionDiscoveryFreshness.RefreshedForRequest,
+            settled.Result.Freshness);
+        Assert.Equal(1, requests);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -168,7 +188,8 @@ public sealed class PackageVersionSettlementInspectionTests
             (string Version, bool Listed)[] versions,
             bool includePrerelease = false,
             PackageSourceFailureKind? failure = null,
-            CancellationToken cancellationToken = default)
+            CancellationToken cancellationToken = default,
+            PackageVersionSelectionRequest? selection = null)
     {
         var authorization = new UniformPackageSourceAuthorization(
             [new PackageSource("fixture", "https://packages.example/v3/index.json")]);
@@ -182,9 +203,18 @@ public sealed class PackageVersionSettlementInspectionTests
         await using PackageSourceSettlementLease root =
             PackageSourceSettlementService.IssueLease(_ => client);
         using PackageSourceOperationLease operation = root.IssueOperationLease(cancellationToken);
+        PackageHouse house = new(authorization);
         InspectionEnvelope<PackageVersionSettlementOutcome> envelope =
-            await PackageVersionSettlementInspection.ExecuteAsync(
-                request, new PackageHouse(authorization), operation, includePrerelease);
+            selection is null
+                ? await PackageVersionSettlementInspection.ExecuteAsync(
+                    request,
+                    house,
+                    operation,
+                    includePrerelease)
+                : await PackageVersionSettlementInspection.ExecuteAsync(
+                    selection,
+                    house,
+                    operation);
         return (envelope, requests);
     }
 

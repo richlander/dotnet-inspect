@@ -59,84 +59,92 @@ internal static class TypeSearchService
                     options.SourceSelection,
                     request,
                     options.Tfm,
-                    resultLimit: options.Limit))
+                    resultLimit: options.Limit,
+                    allowLatestStable: true))
             {
-                await using ConfiguredPackageSearchWorkspace? configured =
-                    await ConfiguredPackageSearchWorkspace.OpenAsync(
-                        httpClient,
-                        request,
-                        options.Tfm!,
-                        logger.Log,
-                        cancellationToken,
-                        FindSourceCollector.CreateWorkspacePlan(options));
-                if (configured is null)
-                    return new([], HasFailures: true);
-
-                async Task<List<TypeFindResult>>
-                    InspectConfiguredNamespaceAsync(string pattern)
+                ConfiguredPackageSearchWorkspaceOpenResult configuredOpen =
+                    await ConfiguredPackageSearchWorkspace.OpenForFindAsync(
+                            httpClient,
+                            request,
+                            options.Tfm!,
+                            logger.Log,
+                            cancellationToken,
+                            FindSourceCollector.CreateWorkspacePlan(options),
+                            allowLatestStable: true)
+                        .ConfigureAwait(false);
+                if (!configuredOpen.RequiresCompatibility)
                 {
-                    if (!TryGetNamespaceSearchPattern(
-                            pattern,
-                            out NamespaceSearchPattern namespacePattern))
+                    await using ConfiguredPackageSearchWorkspace? configured =
+                        configuredOpen.Workspace;
+                    if (configured is null)
+                        return new([], HasFailures: true);
+
+                    async Task<List<TypeFindResult>>
+                        InspectConfiguredNamespaceAsync(string pattern)
                     {
-                        return [];
+                        if (!TryGetNamespaceSearchPattern(
+                                pattern,
+                                out NamespaceSearchPattern namespacePattern))
+                        {
+                            return [];
+                        }
+
+                        InspectionEnvelope<
+                            PackageNamespaceDiscoveryOutcome>? inspection =
+                                await configured.InspectNamespaceAsync(
+                                    namespacePattern.Namespace,
+                                    namespacePattern.Match,
+                                    cancellationToken);
+                        if (inspection is null)
+                        {
+                            MarkFailure();
+                            return [];
+                        }
+
+                        (
+                            List<TypeFindResult> rows,
+                            bool inspectionFailed) =
+                                ProjectPackageNamespace(
+                                    inspection,
+                                    options,
+                                    namespacePattern.Pattern);
+                        if (inspectionFailed)
+                            MarkFailure();
+                        return rows;
                     }
 
-                    InspectionEnvelope<
-                        PackageNamespaceDiscoveryOutcome>? inspection =
-                            await configured.InspectNamespaceAsync(
-                                namespacePattern.Namespace,
-                                namespacePattern.Match,
-                                cancellationToken);
-                    if (inspection is null)
-                    {
-                        MarkFailure();
-                        return [];
-                    }
-
-                    (
-                        List<TypeFindResult> rows,
-                        bool inspectionFailed) =
-                            ProjectPackageNamespace(
-                                inspection,
-                                options,
-                                namespacePattern.Pattern);
-                    if (inspectionFailed)
-                        MarkFailure();
-                    return rows;
+                    List<TypeFindResult> configuredResults =
+                        patterns.Length == 1
+                        ? await FindSinglePatternAsync(
+                            patterns[0],
+                            options,
+                            (pattern, limit) => CollectTypesAsync(
+                                options with { Limit = limit },
+                                pattern,
+                                logger,
+                                configured,
+                                MarkFailure,
+                                cancellationToken,
+                                findCandidates: true),
+                            InspectConfiguredNamespaceAsync)
+                        : await FindMultiPatternAsync(
+                            patterns,
+                            options,
+                            (pattern, limit) => CollectTypesAsync(
+                                options with { Limit = limit },
+                                pattern,
+                                logger,
+                                configured,
+                                MarkFailure,
+                                cancellationToken,
+                                findCandidates: true),
+                            InspectConfiguredNamespaceAsync);
+                    return CreateSearchResult(
+                        configuredResults,
+                        hasFailures || platformCatalogFailed,
+                        options.PackagePrefixLimitReached,
+                        options.Limit);
                 }
-
-                List<TypeFindResult> configuredResults =
-                    patterns.Length == 1
-                    ? await FindSinglePatternAsync(
-                        patterns[0],
-                        options,
-                        (pattern, limit) => CollectTypesAsync(
-                            options with { Limit = limit },
-                            pattern,
-                            logger,
-                            configured,
-                            MarkFailure,
-                            cancellationToken,
-                            findCandidates: true),
-                        InspectConfiguredNamespaceAsync)
-                    : await FindMultiPatternAsync(
-                        patterns,
-                        options,
-                        (pattern, limit) => CollectTypesAsync(
-                            options with { Limit = limit },
-                            pattern,
-                            logger,
-                            configured,
-                            MarkFailure,
-                            cancellationToken,
-                            findCandidates: true),
-                        InspectConfiguredNamespaceAsync);
-                return CreateSearchResult(
-                    configuredResults,
-                    hasFailures || platformCatalogFailed,
-                    options.PackagePrefixLimitReached,
-                    options.Limit);
             }
 
             Func<string, Task<List<TypeFindResult>>>?

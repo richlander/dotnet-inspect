@@ -14,6 +14,10 @@ using NuGetFetch;
 
 namespace DotnetInspect.Cli.Inspectors;
 
+internal readonly record struct ConfiguredPackageSearchWorkspaceOpenResult(
+    ConfiguredPackageSearchWorkspace? Workspace,
+    bool RequiresCompatibility);
+
 /// <summary>
 /// CLI-owned execution over one explicit package Root committed to an
 /// invocation-scoped Workspace.
@@ -63,7 +67,8 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
         SearchSourceSelection? selection,
         AssemblySetRequest request,
         string? targetFramework,
-        int? resultLimit = null)
+        int? resultLimit = null,
+        bool allowLatestStable = false)
     {
         ArgumentNullException.ThrowIfNull(request);
         if (resultLimit is not null
@@ -82,7 +87,9 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             || request.PlatformFrameworks.Count != 0
             || request.Projects.Count != 0
             || request.Directories.Count != 0
-            || package.Version is null)
+            || (package.Version is null
+                && (!allowLatestStable
+                    || DotnetInspector.Networking.HttpClientFactory.IsOffline)))
         {
             return false;
         }
@@ -98,7 +105,51 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             string targetFramework,
             Action<string>? log,
             CancellationToken cancellationToken = default,
-            WorkspacePlan? workspacePlan = null)
+            WorkspacePlan? workspacePlan = null,
+            bool allowLatestStable = false)
+    {
+        ConfiguredPackageSearchWorkspaceOpenResult result =
+            await OpenCoreAsync(
+                httpClient,
+                request,
+                targetFramework,
+                log,
+                cancellationToken,
+                workspacePlan,
+                allowLatestStable,
+                preserveFindCompatibility: false).ConfigureAwait(false);
+        return result.Workspace;
+    }
+
+    internal static ValueTask<ConfiguredPackageSearchWorkspaceOpenResult>
+        OpenForFindAsync(
+            HttpClient httpClient,
+            AssemblySetRequest request,
+            string targetFramework,
+            Action<string>? log,
+            CancellationToken cancellationToken = default,
+            WorkspacePlan? workspacePlan = null,
+            bool allowLatestStable = false) =>
+        OpenCoreAsync(
+            httpClient,
+            request,
+            targetFramework,
+            log,
+            cancellationToken,
+            workspacePlan,
+            allowLatestStable,
+            preserveFindCompatibility: true);
+
+    private static async ValueTask<ConfiguredPackageSearchWorkspaceOpenResult>
+        OpenCoreAsync(
+            HttpClient httpClient,
+            AssemblySetRequest request,
+            string targetFramework,
+            Action<string>? log,
+            CancellationToken cancellationToken,
+            WorkspacePlan? workspacePlan,
+            bool allowLatestStable,
+            bool preserveFindCompatibility)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(request);
@@ -120,19 +171,29 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                     out WorkspaceMemberCoordinate[] members))
             {
                 await CloseAsync(workspace, stores).ConfigureAwait(false);
-                return null;
+                return new(null, RequiresCompatibility: false);
             }
 
-            if (members is not [WorkspaceMemberCoordinate.PackageMember
-                {
-                    Version: not null,
-                } member])
+            if (members is not [WorkspaceMemberCoordinate.PackageMember member])
             {
                 CommandError.WriteWarning(
                     $"Could not load package Root '{packageSpec}': "
-                    + "configured package search requires an exact version.");
+                    + "configured package search requires one package reference.");
                 await CloseAsync(workspace, stores).ConfigureAwait(false);
-                return null;
+                return new(null, RequiresCompatibility: false);
+            }
+
+            if (member.Version is null)
+            {
+                if (!allowLatestStable
+                    || DotnetInspector.Networking.HttpClientFactory.IsOffline)
+                {
+                    CommandError.WriteWarning(
+                        $"Could not load package Root '{packageSpec}': "
+                        + "configured package search requires an exact version.");
+                    await CloseAsync(workspace, stores).ConfigureAwait(false);
+                    return new(null, RequiresCompatibility: false);
+                }
             }
 
             (PackageRootBinding? acquired, PackagePayloadOrigin origin) =
@@ -152,14 +213,28 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                         request,
                         targetFramework,
                         log,
+                        allowLatestStable,
                         cancellationToken).ConfigureAwait(false);
             if (acquired is not { } binding)
             {
                 await CloseAsync(workspace, stores).ConfigureAwait(false);
-                return null;
+                return new(null, RequiresCompatibility: false);
             }
             PackageRootBinding surfaceBinding =
                 binding.WithAssetDemand(PackageAssetDemand.Surface);
+            bool requiresCompatibility =
+                preserveFindCompatibility
+                && binding.Root
+                    .HasUnselectedTargetFrameworkAssemblyCandidates;
+            if (requiresCompatibility)
+            {
+                log?.Invoke(
+                    $"Using compatibility search for package Root "
+                    + $"'{binding.Root.PackageId}@{binding.Root.PackageVersion}': "
+                    + "the selected framework has additional assembly candidates.");
+                await CloseAsync(workspace, stores).ConfigureAwait(false);
+                return new(null, RequiresCompatibility: true);
+            }
             WorkspaceScopeReadResult read =
                 await workspace.GetScopeSnapshotAsync().ConfigureAwait(false);
             if (read is WorkspaceScopeReadResult.Unavailable unavailable)
@@ -168,7 +243,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                     $"Could not open package Root '{packageSpec}': "
                     + unavailable.RuntimeFailure);
                 await CloseAsync(workspace, stores).ConfigureAwait(false);
-                return null;
+                return new(null, RequiresCompatibility: false);
             }
 
             WorkspaceScopeOperationResult admission =
@@ -186,7 +261,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                     $"Could not commit package Root '{packageSpec}': "
                     + Describe(admission));
                 await CloseAsync(workspace, stores).ConfigureAwait(false);
-                return null;
+                return new(null, RequiresCompatibility: false);
             }
 
             WorkspacePackageOccurrenceDescriptor root =
@@ -204,7 +279,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 $"Using committed package Root for search: "
                 + $"{surfaceBinding.Root.PackageId}@{surfaceBinding.Root.PackageVersion} "
                 + $"({surfaceBinding.Root.AssetSelection?.Status.ToString() ?? "Library selection not requested"}; payload {origin}).");
-            return new(
+            var configured = new ConfiguredPackageSearchWorkspace(
                 workspace,
                 correspondence,
                 ready.Generation,
@@ -213,6 +288,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                     targetFramework,
                     requestedRuntimeIdentifier: null),
                 stores);
+            return new(configured, RequiresCompatibility: false);
         }
         catch (Exception failure)
         {
@@ -445,6 +521,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
             AssemblySetRequest request,
             string targetFramework,
             Action<string>? log,
+            bool allowLatestStable,
             CancellationToken cancellationToken)
     {
         PackageHouseTargetContext target;
@@ -469,12 +546,18 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
                 log);
         PackageHouseOperation operation = composition.CreateHouseOperation(
             PackageHouseOperationProfile.Realize);
+        PackageHouseDemand demand =
+            allowLatestStable && member.Version is null
+            ? new PackageHouseDemand.Selecting(
+                new PackageVersionSelectionRequest.LatestStable(
+                    member.PackageId))
+            : new PackageHouseDemand.Exact(
+                PackageSourceCoordinate.Create(
+                    member.PackageId,
+                    member.Version!));
         PackageHouseRequest houseRequest =
             PackageHouseRequest.CompileLibraries(
-                new PackageHouseDemand.Exact(
-                    PackageSourceCoordinate.Create(
-                        member.PackageId,
-                        member.Version!)),
+                demand,
                 operation,
                 target,
                 PackageAssetDemand.Surface);

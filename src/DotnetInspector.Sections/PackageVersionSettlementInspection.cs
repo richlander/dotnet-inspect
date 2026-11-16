@@ -18,6 +18,40 @@ public static class PackageVersionSettlementInspection
         PackageSourceOperationLease sourceOperation,
         bool includePrerelease = false)
     {
+        return await ExecuteAsyncCore(
+            request,
+            house,
+            sourceOperation,
+            includePrerelease,
+            selection: null).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Settles the supplied selection policy through the shared House and
+    /// envelope boundary.
+    /// </summary>
+    public static Task<InspectionEnvelope<PackageVersionSettlementOutcome>> ExecuteAsync(
+        PackageVersionSelectionRequest selection,
+        PackageHouse house,
+        PackageSourceOperationLease sourceOperation)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return ExecuteAsyncCore(
+            new PackageCoordinate(selection.PackageId),
+            house,
+            sourceOperation,
+            selection.Discovery.IncludePrerelease,
+            selection);
+    }
+
+    private static async Task<InspectionEnvelope<PackageVersionSettlementOutcome>>
+        ExecuteAsyncCore(
+            PackageCoordinate request,
+            PackageHouse house,
+            PackageSourceOperationLease sourceOperation,
+            bool includePrerelease,
+            PackageVersionSelectionRequest? selection)
+    {
         ArgumentNullException.ThrowIfNull(sourceOperation);
         using (sourceOperation)
         {
@@ -43,11 +77,13 @@ public static class PackageVersionSettlementInspection
                 PackageId = request.PackageId.ToLowerInvariant(),
                 Version = exact?.Version,
             };
-            PackageHouseDemand demand = exact is not null
-                ? new PackageHouseDemand.Exact(exact)
-                : new PackageHouseDemand.Selecting(
-                    new PackageVersionSelectionRequest.AlwaysLatest(
-                        request.PackageId, includePrerelease));
+            PackageHouseDemand demand = selection is not null
+                ? new PackageHouseDemand.Selecting(selection)
+                : exact is not null
+                    ? new PackageHouseDemand.Exact(exact)
+                    : new PackageHouseDemand.Selecting(
+                        new PackageVersionSelectionRequest.AlwaysLatest(
+                            request.PackageId, includePrerelease));
             var operation = PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Settle,
                 sourceOperation.RequestTimeout,
