@@ -180,9 +180,9 @@ name, age, candidate identity, evidence run, and whether it still changes only
 cleanup action. If no branch exists, a successful `no-newer-candidate` proposal
 run is clean.
 
-Release-candidate or Deep Inspect scheduled failures open or update a
-`nightly-failure` issue. Check the queue and correlate every open issue with the
-newest owning run:
+Release-candidate failures and unattended Deep Inspect failures from a main
+push or schedule open or update a `nightly-failure` issue. Check the queue and
+correlate every open issue with the newest owning run:
 
 ```bash
 gh issue list --state open --label nightly-failure --limit 20 \

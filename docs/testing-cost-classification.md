@@ -79,6 +79,24 @@ entries separately and include the always-run `changes`, `provenance`, and
 the bound safe as routing changes. The current workflow defines 14 jobs, with
 the dependency-policy job selected only for pushes to `main`.
 
+Deep Inspect is a post-merge verifier for the latest retained `main` state,
+not a required proof for each pull-request candidate. Every push to `main`
+starts the complete Linux test and decompiler-test lanes. That stream shares
+one concurrency group with the daily freshness fallback and manual `test`
+recovery: the active run completes, at most one pending run is retained, and a
+newly arriving candidate replaces the previous pending candidate. After the
+surviving workflow starts, one lightweight job resolves the current branch
+tip once and both heavy lanes check out that same SHA. Queue arrival therefore
+cannot make a delayed older event verify stale code. An intermediate commit may
+still be superseded before execution, while its changes remain in the newer
+`main` state that is verified next.
+
+This bounded latest-state stream does not gate PR CI and does not claim that
+each merge was independently certified. Failures remain visible as mainline
+health incidents while a newer retained candidate may recover the repository.
+Release-candidate qualification remains a separate exact-SHA consumer of the
+reusable Deep Inspect workflow.
+
 - `ci.yml` runs one Release solution build and a bounded smoke population for
   CLI routes, inspection queries, InertText, dependency policy, and the
   package-manifest verifier. It also runs the complete fast portable query

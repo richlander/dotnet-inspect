@@ -239,16 +239,23 @@ public static partial class MetadataExports
                 .ConfigureAwait(false);
         BrowserTypeMemberPopulationInspection inspection =
             await ExecuteTypeMemberPopulationAsync(
-                    resolution.Scope.UseParticipant(
-                        resolution.Participant,
-                        (group, member) =>
-                            AssemblyContextLibraryAdapter.MaterializeAsync(
-                                group,
-                                member,
-                                AssemblyContextLibraryRole.Implementation,
-                                BrowserExactMemberPolicy
-                                    .MaterializationLimits,
-                                CancellationToken.None)),
+                    includeHidden
+                        // The Performance population lists implementation
+                        // members, including those the surface omits.
+                        ? resolution.Scope.UseParticipant(
+                            resolution.Participant,
+                            (group, member) =>
+                                AssemblyContextLibraryAdapter.MaterializeAsync(
+                                    group,
+                                    member,
+                                    AssemblyContextLibraryRole.Implementation,
+                                    BrowserExactMemberPolicy
+                                        .MaterializationLimits,
+                                    CancellationToken.None))
+                        : resolution.Scope.MaterializeSurfaceAsync(
+                            resolution.Participant,
+                            BrowserExactMemberPolicy.MaterializationLimits,
+                            CancellationToken.None),
                     typeIdentity,
                     spelling,
                     accessibility,
