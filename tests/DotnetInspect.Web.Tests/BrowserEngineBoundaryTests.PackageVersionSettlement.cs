@@ -296,8 +296,11 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Same(
             binding.ContentGenerationIdentity,
             measurements.Generation);
+        Assert.Same(
+            binding.SelectionIdentity,
+            measurements.RootSelectionIdentity);
         Assert.Equal(
-            measurements.SelectionReceipt!.RequestedTargetFramework,
+            "net11.0",
             realization.Coordinate.Root.RequestedTargetFramework);
         Assert.Equal(
             measurements.SelectedLibraryCount,
