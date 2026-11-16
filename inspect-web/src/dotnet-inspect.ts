@@ -431,6 +431,10 @@ import {
 import { renderPackageInfo } from "./package-info.ts";
 import { renderPackageVulnerabilities } from "./package-vulnerabilities.ts";
 import {
+  createPackageContentsCoordinator,
+  renderPackageContents as renderPackageContentsView,
+} from "./package-contents.ts";
+import {
   createWorkspaceLibraryReferenceCandidates,
   renderLibraryReferenceName,
   renderLibraryReferencesSurface,
@@ -1000,6 +1004,9 @@ let engineClient: EngineClient;
 let cancelPackageActivity: EngineClient["package"]["cancelPackageActivity"];
 let cancelPackageQuery: EngineClient["package"]["cancelPackageQuery"];
 let inspectPackageDocument: EngineClient["package"]["getPackageDocument"];
+let inspectPackageContents: EngineClient["package"]["getPackageContents"];
+let inspectPackageLibraryFile:
+  EngineClient["package"]["openPackageLibraryFile"];
 let containPackageDocumentLeaves:
   EngineClient["package"]["containPackageDocumentLeaves"];
 let inspectLoadRuntimePack: EngineClient["package"]["loadRuntimePack"];
@@ -1269,6 +1276,7 @@ async function loadEngineModule() {
       engineClient.source.cancelTypeExplorerQuery(...args);
     ({
       getPackageDocument: inspectPackageDocument,
+      getPackageContents: inspectPackageContents,
       containPackageDocumentLeaves,
       loadRuntimePack: inspectLoadRuntimePack,
       loadRuntimePackAssembly: inspectLoadRuntimePackAssembly,
@@ -1304,6 +1312,8 @@ async function loadEngineModule() {
       clearWorkspacePackageOccurrences:
         inspectClearWorkspacePackageOccurrences,
     } = engineClient.package);
+    inspectPackageLibraryFile = (...args) =>
+      engineClient.package.openPackageLibraryFile(...args);
     ({
       inspectLibrary: inspectLibraryDocument,
       openUploadedLibrary: inspectOpenUploadedLibrary,
@@ -2943,13 +2953,25 @@ function supersedeRetainedLocationIntentForRoutedNavigation(): void {
 
 function retainedPackageRootLens(
   posting: BrowserRetainedWorkspacePosting,
-  fallback: PackageLens = "overview",
+  pkg: AppPackage | null,
+  fallback?: PackageLens,
 ): PackageLens {
   const outcome = posting.navigation.snapshot.lensOutcome;
-  return (outcome.request ?? outcome.effectiveLens)?.facet
+  const lenses = packageLensesFor(pkg);
+  const defaultLens = lenses.find(([id]) => id === "overview")?.[0]
+    ?? lenses[0]?.[0]
+    ?? "overview";
+  const requested = (outcome.request ?? outcome.effectiveLens)?.facet
     === "package.dependency-hierarchy"
     ? "hierarchy"
-    : fallback;
+    : fallback ?? defaultLens;
+  if (requested === "hierarchy"
+    && lenses.some(([id]) => id === "overview")) {
+    return requested;
+  }
+  return lenses.some(([id]) => id === requested)
+    ? requested
+    : defaultLens;
 }
 
 async function installRetainedWorkspacePosting(
@@ -3044,7 +3066,11 @@ async function installRetainedWorkspacePosting(
     state.atPackageRoot = true;
     state.atLibraryRoot = false;
     if (state.rootKind === "package") {
-      state.packageLens = retainedPackageRootLens(posting, initialPackageLens);
+      state.packageLens = retainedPackageRootLens(
+        posting,
+        state.package,
+        initialPackageLens,
+      );
     }
     if (detailFailure !== null) {
       if (packageInventory !== undefined) {
@@ -4696,6 +4722,12 @@ const packageDocumentTitles = createPackageDocumentTitles({
   describeError: errorMessage,
   render,
 });
+const packageContents = createPackageContentsCoordinator<AppPackage>({
+  query: (packageId, version, directory) =>
+    inspectPackageContents(packageId, version, directory),
+  describeError: errorMessage,
+  render,
+});
 let packageDocumentationScheduled = false;
 function schedulePackageDocumentTitles() {
   const pkg = state.package;
@@ -4713,6 +4745,26 @@ function schedulePackageDocumentTitles() {
     observeAsync(packageDocumentTitles.load(pkg, pkg.documents.map(document => ({
       packageId: pkg.id, version: pkg.version, document,
     }))), "Reading package documentation titles");
+  }, 0));
+}
+
+let packageContentsScheduled = false;
+function schedulePackageContents() {
+  const pkg = state.package;
+  if (packageContentsScheduled
+    || !pkg
+    || state.packageLens !== "contents"
+    || packageContents.get(pkg).status !== "idle"
+    || !document.querySelector(".package-contents-surface")) return;
+  packageContentsScheduled = true;
+  requestAnimationFrame(() => setTimeout(() => {
+    packageContentsScheduled = false;
+    if (state.package !== pkg
+      || state.packageLens !== "contents"
+      || !document.querySelector(".package-contents-surface")) return;
+    observeAsync(
+      packageContents.ensure(pkg),
+      "Loading Package Contents");
   }, 0));
 }
 
@@ -10091,6 +10143,7 @@ function render(options: RenderOptions = {}) {
     restoreContentNavigationScroll(document, navigationScroll);
     memberListRevealer.afterRender(document);
     schedulePackageDocumentTitles();
+    schedulePackageContents();
     scheduleTypeHeat();
     scheduleTypeMethodLeverage();
     scheduleLibraryFindingDiffAny();
@@ -10385,9 +10438,9 @@ function renderCore(options: RenderOptions) {
   // Keep the package lens on something the active package actually supports, so a restored
   // URL or stale selection can neither render nor auto-load a lens that fetches a missing nupkg.
   if (state.atPackageRoot && !(state.packageLens === "hierarchy" && pkg.source.kind === "nuget.org"
-    && !isEmptyPackageFramework(pkg))
+    && packageLensesFor(pkg).some(([id]) => id === "dependencies"))
     && !packageLensesFor(pkg).some(([id]) => id === state.packageLens)) {
-    state.packageLens = "overview";
+    state.packageLens = packageLensesFor(pkg)[0]?.[0] ?? "overview";
   }
   if (state.atLibraryRoot
     && !libraryLensesFor(pkg).some(([id]) => id === state.libraryLens)) {
@@ -11866,6 +11919,10 @@ function renderWorkspaceView() {
 function packageLensBody() {
   switch (state.packageLens) {
     case "overview": return renderPackageOverview();
+    case "contents":
+      return renderPackageContentsView(
+        packageContents.get(currentPackage()),
+        escapeHtml);
     case "compare": return renderOverviewSurface({
       subject: "package", subjectLabel: "Compare", displayName: packageDisplayName(currentPackage()),
       iconHtml: "", showIdentity: false,
@@ -17127,6 +17184,7 @@ function bindEvents() {
   bindMetadataViewerEvents();
   bindAnalysisInspectorEvents();
   bindPackageReferencesTabs();
+  bindPackageContentsEvents();
   bindPackageOpportunitiesEvents();
   bindTriageCodeEvents();
   bindGraphSourceEvents();
@@ -17224,6 +17282,37 @@ function bindPackageReferencesTabs() {
         return true;
       },
     }, tab);
+  }
+}
+
+function bindPackageContentsEvents() {
+  const pkg = state.package;
+  if (!pkg) return;
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-package-content-directory]")) {
+    button.addEventListener("click", () => {
+      const directory = button.dataset.packageContentDirectory;
+      if (directory === undefined) return;
+      packageContents.selectDirectory(pkg, directory);
+      document.querySelector<HTMLButtonElement>(
+        `.package-contents-breadcrumbs [data-package-content-directory="${CSS.escape(directory)}"]`,
+      )?.focus({ preventScroll: true });
+    });
+  }
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-package-content-assembly]")) {
+    button.addEventListener("click", () => {
+      const path = button.dataset.packageContentAssembly;
+      if (!path) return;
+      void openPackageLibraryFile(pkg, path);
+    });
+  }
+
+  for (const button of document.querySelectorAll<HTMLButtonElement>(
+    "[data-package-content-retry]")) {
+    button.addEventListener("click", () => packageContents.retry(pkg));
   }
 }
 
@@ -27974,57 +28063,110 @@ async function openUploadedLibraryFile(
     }
     const inspection = await inspectOpenUploadedLibrary(file.name, content);
     if (!isCurrent()) return;
-    if (inspection.content.outcome !== "Available") {
-      const failure = inspection.content.failure;
-      state.libraryOpenError = failure?.detail
-        || "The selected file could not be opened as a managed Library.";
-      return;
-    }
-
-    const retainedSnapshot = retainedWorkspaces.activeWorkspaceId === null
-      ? null
-      : captureRetainedWorkspaceSnapshot();
-    const packageModel =
-      createUploadedLibraryModel(inspection.content);
-    activatePackage(packageModel, { resetAccessibility: true });
-    state.uploadedLibrary = packageModel;
-    state.rootKind = "library";
-    state.home = false;
-    state.loading = false;
-    state.error = "";
-    state.errorTitle = "";
-    state.errorDetail = "";
-    state.retryAction = null;
-    state.queryNotice = "";
-    state.queryNoticeRetryAction = null;
-    state.workspaceSubjectOpen = false;
-    state.atPackageRoot = false;
-    state.atLibraryRoot = true;
-    state.libraryScope = new Set([packageModel.assemblyId]);
-    state.libraryLens = "overview";
-    state.namespaceFilter = "";
-    state.kindFilter = "";
-    state.typeTraitFilter = "";
-    state.typeFilter = "";
-    state.selectedTypeId = "";
-    state.selectedMemberKey = "";
-    state.memberBrowseTypeId = "";
-    state.selectedOverloadIndex = null;
-    state.libraryOpen = false;
-    state.libraryOpenError = "";
-    if (retainedSnapshot !== null) {
-      retainedWorkspaces = detachActiveRetainedWorkspace(
-        retainedWorkspaces,
-        retainedSnapshot);
-    }
-    activeWorkspaceUrl = null;
-    activatedLibrary = true;
-    workspaceLocation.replace("/");
+    activatedLibrary = activatePackageLibraryInspection(inspection);
+    if (!activatedLibrary) return;
   } catch (error) {
     if (!isCurrent()) return;
     state.libraryOpenError =
       `${input === "drop" ? "Dropped" : input === "paste" ? "Pasted" : "Selected"} `
       + `file failed to open: ${errorMessage(error)}`;
+  } finally {
+    if (isCurrent()) {
+      state.libraryOpenBusy = false;
+      render({ synchronizeUrl: false });
+      if (activatedLibrary) {
+        afterCurrentNavigationFrame(() => focusLevelOneHeading());
+      }
+    }
+  }
+}
+
+function activatePackageLibraryInspection(
+  inspection: Awaited<ReturnType<typeof inspectOpenUploadedLibrary>>,
+): boolean {
+  if (inspection.content.outcome !== "Available") {
+    const failure = inspection.content.failure;
+    state.libraryOpenError = failure?.detail
+      || "The selected file could not be opened as a managed Library.";
+    return false;
+  }
+
+  const retainedSnapshot = retainedWorkspaces.activeWorkspaceId === null
+    ? null
+    : captureRetainedWorkspaceSnapshot();
+  const packageModel =
+    createUploadedLibraryModel(inspection.content);
+  activatePackage(packageModel, { resetAccessibility: true });
+  state.uploadedLibrary = packageModel;
+  state.rootKind = "library";
+  state.home = false;
+  state.loading = false;
+  state.error = "";
+  state.errorTitle = "";
+  state.errorDetail = "";
+  state.retryAction = null;
+  state.queryNotice = "";
+  state.queryNoticeRetryAction = null;
+  state.workspaceSubjectOpen = false;
+  state.atPackageRoot = false;
+  state.atLibraryRoot = true;
+  state.libraryScope = new Set([packageModel.assemblyId]);
+  state.libraryLens = "overview";
+  state.namespaceFilter = "";
+  state.kindFilter = "";
+  state.typeTraitFilter = "";
+  state.typeFilter = "";
+  state.selectedTypeId = "";
+  state.selectedMemberKey = "";
+  state.memberBrowseTypeId = "";
+  state.selectedOverloadIndex = null;
+  state.libraryOpen = false;
+  state.libraryOpenError = "";
+  if (retainedSnapshot !== null) {
+    retainedWorkspaces = detachActiveRetainedWorkspace(
+      retainedWorkspaces,
+      retainedSnapshot);
+  }
+  activeWorkspaceUrl = null;
+  workspaceLocation.replace("/");
+  return true;
+}
+
+async function openPackageLibraryFile(
+  pkg: AppPackage,
+  path: string,
+) {
+  const operationSequence = ++libraryOpenSequence;
+  const navigationSeq = navigationSequence.begin();
+  let activatedLibrary = false;
+  const isCurrent = () =>
+    operationSequence === libraryOpenSequence
+    && navigationSequence.isCurrent(navigationSeq)
+    && (activatedLibrary || state.package === pkg);
+
+  state.libraryOpen = true;
+  state.libraryOpenBusy = state.engineReady;
+  state.libraryOpenError = state.engineReady
+    ? ""
+    : "Wait for the browser inspection engine to finish starting.";
+  render({ synchronizeUrl: false });
+
+  try {
+    await waitForLibraryEngineReady();
+    if (!isCurrent()) return;
+    state.libraryOpenBusy = true;
+    state.libraryOpenError = "";
+    render({ synchronizeUrl: false });
+    const inspection = await inspectPackageLibraryFile(
+      pkg.id,
+      pkg.version,
+      path);
+    if (!isCurrent()) return;
+    activatedLibrary = activatePackageLibraryInspection(inspection);
+  } catch (error) {
+    if (!isCurrent()) return;
+    state.libraryOpenError =
+      `Package file failed to open: ${errorMessage(error)}`;
   } finally {
     if (isCurrent()) {
       state.libraryOpenBusy = false;
@@ -29977,7 +30119,7 @@ function installRetainedWorkspaceModels(
   state.workspaceSubjectOpen = activeTab === null;
   state.atPackageRoot = true;
   state.atLibraryRoot = false;
-  state.packageLens = retainedPackageRootLens(posting);
+  state.packageLens = retainedPackageRootLens(posting, selected);
   state.libraryLens = "overview";
   state.selectedTypeId = defaultVisibleTypeId(selected);
   state.selectedMemberKey = "";

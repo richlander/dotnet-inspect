@@ -29,6 +29,7 @@ test("Package exact-match inspectors use product descriptors in Browser order", 
 
   assert.deepEqual(packageLensDefinitions(), [
     ["overview", "Summary"],
+    ["contents", "Package Contents"],
     ["dependencies", "References"],
     ["compare", "Compare"],
     ["hierarchy", "Dependency Tree"],

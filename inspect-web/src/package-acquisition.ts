@@ -163,6 +163,7 @@ export interface AppPackage {
   // The selected compile Library identity when its broad surface projected no assembly
   // descriptor. Exact Library navigation can still use the owner-issued Package child.
   selectedCompileAssetId?: string;
+  compileLibraryStatus?: InspectedPackageSurface["compileLibrary"]["status"];
   source:
     | { kind: "file" }
     | { kind: "nuget.org" }
@@ -226,6 +227,7 @@ export function createNuGetPackageSummaryModel(
   versionSettlement?: BrowserPackageVersionSettlementInspection,
   packageInfo?: BrowserPackageInfoMeasurementInspection,
   defaultLibraryId?: string | null,
+  compileLibraryStatus?: InspectedPackageSurface["compileLibrary"]["status"] | null,
 ): AppPackage {
   const content = packageChildren.content;
   const firstLibrary = defaultLibraryId !== undefined
@@ -244,6 +246,9 @@ export function createNuGetPackageSummaryModel(
   const inspectionError = content.status === "Available"
     ? undefined
     : content.detail ?? `Package children are ${content.status}.`;
+  const summaryCompileLibraryStatus = compileLibraryStatus === undefined
+    ? content.status === "NoCompileAssets" ? "NoCompileAssets" : undefined
+    : compileLibraryStatus ?? undefined;
   return {
     id: content.packageId,
     version: content.packageVersion,
@@ -268,6 +273,9 @@ export function createNuGetPackageSummaryModel(
     ...(versionSettlement ? { versionSettlement } : {}),
     ...(packageInfo ? { packageInfo } : {}),
     packageChildren,
+    ...(summaryCompileLibraryStatus !== undefined
+      ? { compileLibraryStatus: summaryCompileLibraryStatus }
+      : {}),
     isRuntimePack: false,
     surfaceRevision: 0,
     isSummaryOnly: true,
@@ -763,6 +771,7 @@ export function createNuGetPackageModel(
     assemblyId: assembly?.id ?? declaredDefaultLibrary?.assetId ?? "",
     assemblyAsset: assembly?.asset ?? declaredDefaultLibrary?.assetPath ?? "",
     ...(selectedCompileAssetId ? { selectedCompileAssetId } : {}),
+    compileLibraryStatus: result.compileLibrary.status,
     source: { kind: "nuget.org" },
     producerLabel: "NuGet.org",
     assemblies,
@@ -1272,6 +1281,8 @@ export function createPackageAcquisition(
         BrowserPackageChildrenInspection | undefined;
       let documents: readonly InspectedPackageDocument[] = [];
       let defaultLibraryId: string | null | undefined;
+      let compileLibraryStatus:
+        InspectedPackageSurface["compileLibrary"]["status"] | null | undefined;
       let runtimePopulation: BrowserPackageRuntimePopulationChoice | null = null;
       let implementationComparisonRuntimeIdentifier: string;
       if (request.rootRequest !== undefined) {
@@ -1286,6 +1297,7 @@ export function createPackageAcquisition(
           rootLoad.implementationComparisonRuntimeIdentifier;
         documents = rootLoad.documents;
         defaultLibraryId = rootLoad.defaultLibraryId;
+        compileLibraryStatus = rootLoad.compileLibrary?.status ?? null;
       } else {
         const loadResult = await dependencies.queryPackageSummary(
           request.packageId,
@@ -1317,6 +1329,7 @@ export function createPackageAcquisition(
         packageChildren = loadResult.packageChildren;
         documents = loadResult.documents;
         defaultLibraryId = loadResult.defaultLibraryId;
+        compileLibraryStatus = loadResult.compileLibrary?.status ?? null;
         result = loadResult.surface ?? undefined;
       }
       if (request.isCurrent && !request.isCurrent()) return null;
@@ -1342,7 +1355,8 @@ export function createPackageAcquisition(
           documents,
           versionSettlement,
           packageInfo,
-          defaultLibraryId);
+          defaultLibraryId,
+          compileLibraryStatus);
       } else {
         throw new Error(
           "A Package load requires either a surface or Package children.");

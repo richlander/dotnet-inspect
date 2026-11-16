@@ -29,11 +29,56 @@ test("explicitly empty framework exposes only Package Overview", () => {
   assert.deepEqual(packageLensesFor(pkg), [["overview", "Overview"]]);
 });
 
-test("other package outcomes retain their inspectors and failure visibility", () => {
-  for (const status of ["Available", "NoCompileAssets", "NoApplicableTarget", "Unavailable"]) {
+test("no-compile NuGet packages keep Contents and References when framework selection is empty", () => {
+  for (const compileLibraryStatus of [
+    "NoCompileAssets",
+    "EmptyCompileGroup",
+    "NoMatchingTargetFramework",
+  ]) {
+    assert.deepEqual(packageLensesFor({
+      ...packageContext("SelectedEmpty"),
+      compileLibraryStatus,
+    }).map(([id]) => id), ["contents", "dependencies"]);
+  }
+});
+
+test("packages without compile assets use Contents while failures retain inspectors", () => {
+  const noCompileAssets = packageContext("NoCompileAssets");
+  assert.deepEqual(packageLensesFor(noCompileAssets).map(([id]) => id),
+    ["overview", "contents", "dependencies", "compare", "vulnerabilities"]);
+
+  for (const status of ["Available", "NoApplicableTarget", "Unavailable"]) {
     const pkg = packageContext(status);
     assert.equal(isEmptyPackageFramework(pkg), false);
     assert.deepEqual(packageLensesFor(pkg).map(([id]) => id),
-      ["overview", "dependencies", "compare", "vulnerabilities"]);
+      ["overview", "contents", "dependencies", "compare", "vulnerabilities"]);
   }
+
+  for (const compileLibraryStatus of [
+    "NoCompileAssets",
+    "EmptyCompileGroup",
+    "NoMatchingTargetFramework",
+  ]) {
+    assert.deepEqual(packageLensesFor({
+      source: { kind: "nuget.org" },
+      compileLibraryStatus,
+    }), [
+      ["contents", "Package Contents"],
+      ["dependencies", "References"],
+    ]);
+  }
+});
+
+test("the Platform surface keeps its Overview without archive Contents", () => {
+  assert.deepEqual(packageLensesFor({
+    isRuntimePack: true,
+    source: { kind: "platform" },
+  }), [["overview", "Overview"]]);
+});
+
+test("non-NuGet package sources do not offer remote Package Contents", () => {
+  assert.deepEqual(packageLensesFor({
+    source: { kind: "file" },
+    packageChildren: { content: { status: "Available" } },
+  }).map(([id]) => id), ["overview", "dependencies", "compare"]);
 });

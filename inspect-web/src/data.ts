@@ -83,6 +83,7 @@ const memberSectionRoutes = [
 
 const packageLensRoutes = [
   "overview",
+  "contents",
   "dependencies",
   "compare",
   "hierarchy",
@@ -200,6 +201,7 @@ export function canonicalTypeLens(value: TypeLens): TypeLens {
 interface PackageInspectorContext {
   isRuntimePack?: boolean;
   source: { kind: string };
+  compileLibraryStatus?: string | number;
   packageChildren?: { content: { status: string } };
 }
 
@@ -259,6 +261,8 @@ export function packageLensDefinitions():
         }
         return [route, title] as const;
       }
+      case "contents":
+        return [route, "Package Contents"] as const;
       case "compare":
         return [route, "Compare"] as const;
       case "dependencies":
@@ -273,7 +277,21 @@ export function packageLensDefinitions():
 
 export function packageLensesFor(pkg: PackageInspectorContext | null) {
   return packageLensDefinitions().filter(([id]) => {
-    if (pkg?.isRuntimePack || isEmptyPackageFramework(pkg)) return id === "overview";
+    if (pkg?.isRuntimePack) {
+      return id === "overview";
+    }
+    const hasNoCompileLibraries =
+      pkg?.compileLibraryStatus === "NoCompileAssets"
+      || pkg?.compileLibraryStatus === "EmptyCompileGroup"
+      || pkg?.compileLibraryStatus === "NoMatchingTargetFramework";
+    if (hasNoCompileLibraries
+      && pkg?.source.kind === "nuget.org") {
+      return id === "contents" || id === "dependencies";
+    }
+    if (isEmptyPackageFramework(pkg)) return id === "overview";
+    if (hasNoCompileLibraries) return id === "overview";
+    if (id === "contents"
+      && pkg?.source.kind !== "nuget.org") return false;
     if (id === "hierarchy") return false;
     if (id === "vulnerabilities") return pkg?.source.kind === "nuget.org";
     return true;

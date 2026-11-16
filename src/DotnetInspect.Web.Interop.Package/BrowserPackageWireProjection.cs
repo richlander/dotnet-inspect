@@ -643,6 +643,34 @@ internal static class BrowserPackageWireProjection
             document.Text);
     }
 
+    internal static BrowserPackageContentsDocument Project(
+        PackageFileInventoryDocument document)
+    {
+        ArgumentNullException.ThrowIfNull(document);
+        return new(
+            document.Status switch
+            {
+                PackageFileInventoryStatus.Completed =>
+                    BrowserPackageContentsStatus.Completed,
+                PackageFileInventoryStatus.Unavailable =>
+                    BrowserPackageContentsStatus.Unavailable,
+                PackageFileInventoryStatus.Rejected =>
+                    BrowserPackageContentsStatus.Rejected,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(document),
+                    document.Status,
+                    "Unknown package file inventory status."),
+            },
+            document.PackageId,
+            document.Version,
+            document.Count,
+            [.. document.Files.Select(file =>
+                new BrowserPackageContentsFile(
+                    file.Path.ToString(),
+                    file.Size))],
+            document.Detail?.ToString());
+    }
+
     internal static PresentationLeaf Project(
         BrowserDocumentPresentationLeaf leaf)
     {

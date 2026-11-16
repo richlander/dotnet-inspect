@@ -78,7 +78,10 @@ public sealed record BrowserPackageLoadResult(
     BrowserPackageSurface? Surface,
     string ImplementationComparisonRuntimeIdentifier,
     string? DefaultLibraryId = null,
-    BrowserPackageRuntimePopulationChoice? RuntimePopulation = null);
+    BrowserPackageRuntimePopulationChoice? RuntimePopulation = null)
+{
+    public BrowserCompileLibraryAvailability? CompileLibrary { get; init; }
+}
 
 public sealed record BrowserPackageSummaryEvidenceResult(
     BrowserPackageLoadResult Result,
@@ -137,7 +140,10 @@ public sealed record BrowserPackageRootLoadResult(
     BrowserPackageDocument[] Documents,
     string ImplementationComparisonRuntimeIdentifier,
     string? DefaultLibraryId = null,
-    BrowserPackageRuntimePopulationChoice? RuntimePopulation = null);
+    BrowserPackageRuntimePopulationChoice? RuntimePopulation = null)
+{
+    public BrowserCompileLibraryAvailability? CompileLibrary { get; init; }
+}
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageRuntimePopulationChoiceStatus>))]
 public enum BrowserPackageRuntimePopulationChoiceStatus
@@ -403,6 +409,26 @@ public sealed record BrowserPackageDocumentContent(
     string Name,
     string Path,
     string Text);
+
+[JsonConverter(typeof(JsonStringEnumConverter<BrowserPackageContentsStatus>))]
+public enum BrowserPackageContentsStatus
+{
+    Completed,
+    Unavailable,
+    Rejected,
+}
+
+public sealed record BrowserPackageContentsFile(
+    string Path,
+    long Size);
+
+public sealed record BrowserPackageContentsDocument(
+    BrowserPackageContentsStatus Status,
+    string? PackageId,
+    string? Version,
+    int Count,
+    BrowserPackageContentsFile[] Files,
+    string? Detail);
 
 [JsonConverter(typeof(JsonStringEnumConverter<BrowserDocumentTextPolicy>))]
 public enum BrowserDocumentTextPolicy
@@ -1572,6 +1598,7 @@ public sealed record BrowserPackageVersions(
 [JsonSerializable(typeof(BrowserPackageIconInspection))]
 [JsonSerializable(typeof(BrowserPackageLibraryIdentity[]))]
 [JsonSerializable(typeof(BrowserPackageDocumentContent))]
+[JsonSerializable(typeof(BrowserPackageContentsDocument))]
 [JsonSerializable(typeof(BrowserDocumentPresentationLeaf[]))]
 [JsonSerializable(typeof(BrowserDocumentLeafContainmentOutcome))]
 [JsonSerializable(typeof(BrowserPackageCacheStats))]

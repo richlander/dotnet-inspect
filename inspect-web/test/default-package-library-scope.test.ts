@@ -30,11 +30,12 @@ type PackageLibrary = PackageChildren["content"]["libraries"][number];
 function packageChildren(
   packageId: string,
   libraries: readonly PackageLibrary[],
+  status: PackageChildren["content"]["status"] = "Available",
 ): PackageChildren {
   return {
     content: {
       kind: "PackageChildren",
-      status: "Available",
+      status,
       packageId,
       packageVersion: "1.0.0",
       targetFramework: "net8.0",
@@ -53,6 +54,43 @@ function packageChildren(
     diagnostics: [],
   };
 }
+
+test("summary model retains the explicit no-compile status", () => {
+  const model = createNuGetPackageSummaryModel(
+    packageChildren("MetadataOnly", [], "NoCompileAssets"),
+    [],
+  );
+  assert.equal(model.compileLibraryStatus, "NoCompileAssets");
+});
+
+for (const [childrenStatus, compileStatus] of [
+  ["SelectedEmpty", "EmptyCompileGroup"],
+  ["NoApplicableTarget", "NoMatchingTargetFramework"],
+] as const) {
+  test(`summary model retains ${compileStatus} from compile selection`, () => {
+    const model = createNuGetPackageSummaryModel(
+      packageChildren("ReferencePack", [], childrenStatus),
+      [],
+      undefined,
+      undefined,
+      undefined,
+      compileStatus,
+    );
+    assert.equal(model.compileLibraryStatus, compileStatus);
+  });
+}
+
+test("tool summary does not infer compile status from package-child status", () => {
+  const model = createNuGetPackageSummaryModel(
+    packageChildren("Tool.Package", [], "NoApplicableTarget"),
+    [],
+    undefined,
+    undefined,
+    undefined,
+    null,
+  );
+  assert.equal(model.compileLibraryStatus, undefined);
+});
 
 test("fresh package navigation opens Package Overview with First Library selected", () => {
   const state = {

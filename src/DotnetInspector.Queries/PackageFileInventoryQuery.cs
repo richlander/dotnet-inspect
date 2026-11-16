@@ -168,11 +168,20 @@ public static class PackageFileInventoryQuery
                 FileRowsScopeIdentity,
                 FileRowsResultContract,
                 [FilesRowSet],
-                [.. new[] { "Path", "Name", "Directory", "Root", "Target" }.Select(key =>
+                [
+                    .. new[] { "Path", "Name", "Directory", "Root", "Target" }.Select(key =>
+                        new QuerySpaceRowFacetDescriptor(
+                            $"package-file-inventory/{key.ToLowerInvariant()}/v1",
+                            key,
+                            [PortableQueryOperator.Equal, PortableQueryOperator.NotEqual],
+                            "text", null, key, [], $"Select package files by {key}.", false)),
                     new QuerySpaceRowFacetDescriptor(
-                        $"package-file-inventory/{key.ToLowerInvariant()}/v1",
-                        key, [PortableQueryOperator.Equal, PortableQueryOperator.NotEqual],
-                        "text", null, key, [], $"Select package files by {key}.", false))],
+                        "package-file-inventory/folder/v1",
+                        "Folder",
+                        [PortableQueryOperator.Equal],
+                        "text", null, "Folder", [],
+                        "Select files within a package folder tree.", false),
+                ],
                 [],
                 [
                     RowSelectionStageKind.Head,
@@ -198,6 +207,16 @@ public static class PackageFileInventoryQuery
                                 segment.Equals(token.Text, StringComparison.OrdinalIgnoreCase)),
                             _ => null,
                         }),
+                    RowQueryKey<PackageFileInventoryEntry>.Create(
+                        RowQueryKeyIdentity.Create(),
+                        "Folder",
+                        [RowQueryOperator.Equals],
+                        row => RowQueryValue<string>.Present(row.Directory),
+                        (_, token) => value =>
+                            value.Equals(token.Text, StringComparison.Ordinal)
+                            || value.StartsWith(
+                                token.Text + "/",
+                                StringComparison.Ordinal)),
                 ],
                 []));
 

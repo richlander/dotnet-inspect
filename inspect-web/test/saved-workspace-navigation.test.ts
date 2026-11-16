@@ -13,7 +13,9 @@ import {
 import {
   MAX_WORKSPACE_PACKAGES,
   packageIdentityKey,
+  packageLensesFor,
   retainWorkspacePackage,
+  setPackageViewFacetCatalog,
   setTypeViewFacetCatalog,
   typeLensesFor,
   typeRelationshipsOfferedFor,
@@ -99,6 +101,18 @@ import {
   type SourceResultState,
 } from "../src/source-inspection.ts";
 import { packageInertStringFixture } from "./inert-string-fixture.ts";
+
+setPackageViewFacetCatalog([
+  { id: "package.libraries", kind: "Package", title: "Libraries", order: 50 },
+  { id: "package.overview", kind: "Package", title: "Overview", order: 100 },
+  { id: "package.dependencies", kind: "Package", title: "Dependencies", order: 200 },
+  {
+    id: "package.dependency-hierarchy",
+    kind: "Package",
+    title: "Dependency Hierarchy",
+    order: 300,
+  },
+]);
 
 const appSource = readFileSync(new URL("../src/dotnet-inspect.ts", import.meta.url), "utf8");
 const app = parseSync("dotnet-inspect.ts", appSource);
@@ -406,6 +420,7 @@ function packageLoadResult(
   } satisfies BrowserPackageVersionSettlementInspection;
   return {
     versionSettlement,
+    compileLibrary: null,
     packageInfo: {
       content: {
         status: "Measured",
@@ -780,7 +795,8 @@ function harness() {
     workspaceOccurrenceClearFailure: null as unknown,
     HTMLElement: class { isContentEditable = false; },
     URL, URLSearchParams, Error, structuredClone, Set,
-    MAX_WORKSPACE_PACKAGES, packageIdentityKey, memberScopeIsActive,
+    MAX_WORKSPACE_PACKAGES, packageIdentityKey, packageLensesFor,
+    memberScopeIsActive,
     retainDiagnosticDetail,
     graphSourceIsOpen: (value: { status: string }) =>
       value.status !== "closed",
