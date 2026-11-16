@@ -10,6 +10,7 @@ using DotnetInspector.Fixtures;
 using ILInspector.ILDiff;
 using ILInspector.Instructions;
 
+using InertText;
 using Inspector.Findings;
 
 namespace ILInspector.Metadata.Tests;
@@ -70,6 +71,18 @@ public sealed class FindingDiffAnyBodyTests
         AssertPerMethodAgreement(before, after, decided: true);
     }
 
+    [Fact]
+    public void DetachedIdentities_AgreeWithThePairwiseBodyWalk()
+    {
+        (byte[] encodingBefore, byte[] encodingAfter) = EncodingImages.Value;
+        (byte[] clauseBefore, byte[] clauseAfter) = ClauseImages.Value;
+        AssertIdentityAgreement(encodingBefore, encodingAfter);
+        AssertIdentityAgreement(clauseBefore, clauseAfter);
+        AssertIdentityAgreement(
+            DependencyImage(new Version(8, 0, 0, 0)),
+            DependencyImage(new Version(9, 0, 0, 0)));
+    }
+
     /// <summary>
     /// The dependency versions gate: a pair whose only difference is the
     /// version of a non-platform referenced assembly is <c>Unchanged</c> on
@@ -102,6 +115,7 @@ public sealed class FindingDiffAnyBodyTests
         // br.s +2 targets the operand of ldc.i4, which starts no instruction.
         byte[] body = [0x2B, 0x02, 0x20, 0x00, 0x00, 0x00, 0x00, 0x26, 0x2A];
         AssertUndecidable(body, body);
+        AssertIdentityMalformed(body);
     }
 
     [Fact]
@@ -117,6 +131,7 @@ public sealed class FindingDiffAnyBodyTests
     {
         byte[] body = [0x00, 0xFE, 0x13]; // nop; volatile.
         AssertUndecidable(body, body);
+        AssertIdentityMalformed(body);
     }
 
     [Fact]
@@ -255,6 +270,60 @@ public sealed class FindingDiffAnyBodyTests
                 Assert.Equal(x.FilterOffset, y.FilterOffset);
             }
         }
+    }
+
+    static void AssertIdentityAgreement(byte[] beforeBytes, byte[] afterBytes)
+    {
+        List<(FindingDiffAnyState State, OpaqueByteRange Before, OpaqueByteRange After)> identities;
+        using (var before = new PEReader(new MemoryStream(beforeBytes, writable: false)))
+        using (var after = new PEReader(new MemoryStream(afterBytes, writable: false)))
+        {
+            List<FindingDiffAny.BodyVerdict> verdicts = FindingDiffAny.BodyVerdicts(before, after);
+            var sideBefore = new FindingDiffAny.Side(
+                before, new SymbolKeyInterner<FindingDiffAnyPart>());
+            var sideAfter = new FindingDiffAny.Side(
+                after, new SymbolKeyInterner<FindingDiffAnyPart>());
+            identities = [];
+            try
+            {
+                foreach (FindingDiffAny.BodyVerdict verdict in verdicts)
+                {
+                    MethodDefinition methodBefore =
+                        sideBefore.Md.GetMethodDefinition(verdict.Before);
+                    MethodDefinition methodAfter =
+                        sideAfter.Md.GetMethodDefinition(verdict.After);
+                    if (methodBefore.RelativeVirtualAddress == 0
+                        || methodAfter.RelativeVirtualAddress == 0)
+                    {
+                        continue;
+                    }
+
+                    OpaqueByteRange identityBefore = FindingDiffAny.EncodeBodyIdentity(
+                        sideBefore, verdict.Before, out int ilBefore);
+                    OpaqueByteRange identityAfter = FindingDiffAny.EncodeBodyIdentity(
+                        sideAfter, verdict.After, out int ilAfter);
+                    Assert.Equal(
+                        RawMethodBodyView.Read(before, methodBefore.RelativeVirtualAddress).IL.Length,
+                        ilBefore);
+                    Assert.Equal(
+                        RawMethodBodyView.Read(after, methodAfter.RelativeVirtualAddress).IL.Length,
+                        ilAfter);
+                    identities.Add((verdict.Body, identityBefore, identityAfter));
+                    sideBefore.EndUnit();
+                    sideAfter.EndUnit();
+                }
+            }
+            finally
+            {
+                sideBefore.Complete();
+                sideAfter.Complete();
+            }
+        }
+
+        Assert.NotEmpty(identities);
+        Assert.All(identities, pair => Assert.Equal(
+            pair.State == FindingDiffAnyState.Unchanged,
+            pair.Before.Equals(pair.After)));
     }
 
     static int RvaToFileOffset(PEHeaders headers, int rva)
@@ -404,6 +473,21 @@ public sealed class FindingDiffAnyBodyTests
         Assert.Equal(FindingDiffAnyState.Unchanged, state.Api);
         Assert.Equal(FindingDiffAnyState.Indeterminate, state.Body);
         AssertPerMethodAgreement(RawImage(before), RawImage(after), decided: false);
+    }
+
+    static void AssertIdentityMalformed(byte[] body)
+    {
+        using var image = new PEReader(new MemoryStream(RawImage(body), writable: false));
+        var side = new FindingDiffAny.Side(image, new SymbolKeyInterner<FindingDiffAnyPart>());
+        try
+        {
+            Assert.Throws<BadImageFormatException>(
+                () => FindingDiffAny.EncodeBodyIdentity(side, FirstMethod(image), out _));
+        }
+        finally
+        {
+            side.Complete();
+        }
     }
 
     /// <summary>

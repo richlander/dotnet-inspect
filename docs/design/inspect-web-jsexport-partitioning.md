@@ -385,8 +385,6 @@ Platform Analysis:
 - `QueryPlatformTypeImplementationHeat`
 - `QueryPlatformTypeMethodLeverage`
 
-The explicitly unavailable platform-performance operation stays in this facade
-so absence remains a visible capability result rather than a missing binding.
 `QueryCloneCandidates` belongs here because it adapts the Workspace structural
 Clone query and portable Presentation result without transferring candidate
 ranking or coverage semantics into the browser host.

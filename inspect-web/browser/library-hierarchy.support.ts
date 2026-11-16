@@ -3351,6 +3351,69 @@ async function installFacades(
         if (!selected) throw new Error("Unknown library: " + asset);
         return performanceFor(surface, selected, version, framework, asset);
       }
+      // Package Library Performance streams through the Worker (#9752): one
+      // JSON Item event per member, then a version-1 terminal result whose
+      // summary is the single-call result without its members. A query
+      // failure settles as Failed, as the managed operation reports it.
+      const libraryPerformanceOperations = new Map();
+      export async function queryPackagePerformanceStreaming(
+        operationId, id, version, framework, asset, eventSink
+      ) {
+        document.documentElement.dataset.analysisRequest = asset;
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        const terminal = fields => ({
+          version: 1,
+          summary: null,
+          failureKind: null,
+          error: null,
+          diagnostic: null,
+          reason: null,
+          ...fields,
+        });
+        libraryPerformanceOperations.set(operationId, null);
+        try {
+          let performance;
+          try {
+            performance = await performanceFor(
+              surface, selected, version, framework, asset);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return terminal({
+              kind: "Failed",
+              failureKind: "Unexpected",
+              error: message,
+              diagnostic: message,
+            });
+          }
+          const canceled = libraryPerformanceOperations.get(operationId);
+          if (canceled) return terminal({ kind: "Canceled", reason: canceled });
+          const { members, ...summary } = performance;
+          for (const item of members) {
+            eventSink.event = JSON.stringify({ kind: "Item", item });
+          }
+          return terminal({
+            kind: "Succeeded",
+            summary: {
+              syncCallsInAsync: [],
+              syncCallsInAsyncCount: null,
+              ...summary,
+            },
+          });
+        } finally {
+          libraryPerformanceOperations.delete(operationId);
+        }
+      }
+      export function cancelLibraryPerformanceAnalysis(operationId, reason) {
+        if (!libraryPerformanceOperations.has(operationId)) {
+          return { kind: "NotActive", reason: null };
+        }
+        const requested = libraryPerformanceOperations.get(operationId);
+        if (requested) return { kind: "AlreadyRequested", reason: requested };
+        libraryPerformanceOperations.set(operationId, reason);
+        return { kind: "Requested", reason };
+      }
       export async function queryPlatformPerformance(framework, version, file, pack) {
         document.documentElement.dataset.platformAnalysisRequest = file + ":" + pack;
         const row = ${JSON.stringify(catalogTarget.rows)}.find(item => item.assembly + ".dll" === file && item.pack === pack);
@@ -3377,8 +3440,8 @@ async function installFacades(
           assemblies: [selected],
           types: [selectedType]
         };
-        return JSON.stringify(await performanceFor(
-          surface, selected, version, framework, selected.id));
+        return await performanceFor(
+          surface, selected, version, framework, selected.id);
       }`,
     source: `
       export async function queryMemberFindingCensus(...args) {
@@ -4576,6 +4639,15 @@ async function installFacades(
           }
         }
         return { succeeded: true, sources: workspaceSources, failure: null };
+      }
+      // The engine upgrades only a format-1 packet that pins one Runtime
+      // Library with the Overview lens (CompleteRestorationPreparation.
+      // UpgradeLegacyPlatformPacket). These fixtures' legacy Platform packets
+      // select no Library, so the real probe refuses them and restoration
+      // keeps its legacy path; package-adoption.spec.ts gates the upgrade
+      // against the real engine.
+      export function canUpgradeLegacyPlatformWorkspace() {
+        return false;
       }
       export async function prepareRetainedWorkspaceDefinition(
         retainedDefinitionId,

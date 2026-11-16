@@ -1855,8 +1855,6 @@ public static partial class AnalysisExports
 
         BrowserWorkspaceParticipant participant =
             scope.LibraryParticipant(coordinate, assemblyName);
-        ImmutableArray<BrowserWorkspaceParticipant> participants =
-            [participant];
 
         AssemblyContextOptimizationOpportunitiesResult result =
             scope.UseMetadataParticipant(
@@ -1865,14 +1863,7 @@ public static partial class AnalysisExports
         AssemblyContextEntry<SyncCallsInAsyncResult> syncCallsResult =
             scope.UseMetadataParticipant(
                 participant,
-                (group, selected) =>
-                    SyncCallsInAsyncQuery.ExecuteParticipant(
-                        group,
-                        selected,
-                        [
-                            SyncCallsInAsyncClosing.Rows,
-                            SyncCallsInAsyncClosing.Count,
-                        ]));
+                SyncCallsInAsyncParticipant);
         BrowserWorkspaceParticipant? surfaceParticipant =
             scope.TryGetSurfaceParticipant(participant);
         BrowserSurfaceProjection.Surface? surface = surfaceParticipant is null
@@ -1883,6 +1874,69 @@ public static partial class AnalysisExports
         var failures = new List<string>();
         if (!string.IsNullOrWhiteSpace(surface?.InspectionError))
             failures.Add($"API surface: {surface.InspectionError}");
+        return ProjectPerformance(
+            result,
+            syncCallsResult,
+            failures,
+            surfaceParticipant is null
+                ? null
+                : new BrowserPerformanceSurfaceNaming(
+                    surfaceParticipant.Asset.AssemblyName,
+                    surfaceParticipant.Asset.Id,
+                    surfaceParticipant.Assembly.Identity.Name,
+                    PlatformPack: null),
+            () => scope.UseMetadataParticipant(
+                participant,
+                ImplementationApiSurface),
+            compileLibrary);
+    }
+
+    static AssemblyContextEntry<SyncCallsInAsyncResult>
+        SyncCallsInAsyncParticipant(
+            AssemblyContextGroup group,
+            AssemblyContextParticipant participant) =>
+        SyncCallsInAsyncQuery.ExecuteParticipant(
+            group,
+            participant,
+            [
+                SyncCallsInAsyncClosing.Rows,
+                SyncCallsInAsyncClosing.Count,
+            ]);
+
+    static ApiSurface? ImplementationApiSurface(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant)
+    {
+        AssemblyContextApiSurfaceResult surfaces =
+            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+                group,
+                ApiSurfaceScope.IncludeAll,
+                BrowserApiSurfacePolicy.Limits,
+                [participant]);
+        AssemblyContextEntry<AssemblyApiSurface> entry =
+            surfaces.Assemblies.Assemblies.Single();
+        return (entry as AssemblyContextEntry<AssemblyApiSurface>.Available)
+            ?.Value.Surface;
+    }
+
+    /// <summary>
+    /// Projects one selected Library's participant-scoped optimization ranking
+    /// and Sync Calls in Async answer into the Browser Performance contract.
+    /// <paramref name="naming"/> names the Library as the host's ordinary Type
+    /// list does, so each row's navigation identity matches a listed Type;
+    /// when it is <see langword="null"/> no row is navigable and only the
+    /// aggregate counts remain. <paramref name="implementationSurface"/> runs
+    /// at most once, on the first navigable member, inside the caller's scope
+    /// lease.
+    /// </summary>
+    static BrowserPackagePerformance ProjectPerformance(
+        AssemblyContextOptimizationOpportunitiesResult result,
+        AssemblyContextEntry<SyncCallsInAsyncResult> syncCallsResult,
+        List<string> failures,
+        BrowserPerformanceSurfaceNaming? naming,
+        Func<ApiSurface?> implementationSurface,
+        BrowserCompileLibraryAvailability compileLibrary)
+    {
         foreach (AssemblyContextEntry<
             AssemblyOptimizationOpportunityRanking> entry
             in result.Assemblies.Assemblies)
@@ -1928,8 +1982,8 @@ public static partial class AnalysisExports
             ApplyPerformanceMemberLimit(
                 PerformanceMembers(
                     result,
-                    participants,
-                    scope),
+                    naming,
+                    implementationSurface),
                 failures);
         (
             BrowserSyncCallInAsync[] syncCallsInAsync,
@@ -2110,50 +2164,49 @@ public static partial class AnalysisExports
             : $"{declaringType.ToQualifiedDisplayString()}.{signature}";
     }
 
+    /// <summary>
+    /// How the host's ordinary Type list names the analyzed Library, so each
+    /// Performance row's navigation identity and transient Type match the
+    /// Types that list carries.
+    /// </summary>
+    internal sealed record BrowserPerformanceSurfaceNaming(
+        string Assembly,
+        string AssemblyId,
+        string AssemblyName,
+        string? PlatformPack);
+
     static IEnumerable<BrowserPerformanceMember> PerformanceMembers(
         AssemblyContextOptimizationOpportunitiesResult result,
-        ImmutableArray<BrowserWorkspaceParticipant> participants,
-        BrowserInspectionScope scope)
+        BrowserPerformanceSurfaceNaming? naming,
+        Func<ApiSurface?> implementationSurfaceQuery)
     {
-        var implementationSurfaces = new Dictionary<BrowserWorkspaceParticipant, ApiSurface?>();
+        if (naming is null)
+            yield break;
+
+        bool implementationSurfaceResolved = false;
+        ApiSurface? implementationSurface = null;
         foreach (AssemblyContextOptimizationOpportunityMember member
             in result.RankedMembers)
         {
             if (member.Member.Member is not { } surfaceMember)
                 continue;
 
-            BrowserWorkspaceParticipant analysisParticipant =
-                participants.Single(candidate =>
-                    ReferenceEquals(
-                        candidate.Assembly.Registration,
-                        member.Subject.Registration));
-            BrowserWorkspaceParticipant? surfaceParticipant =
-                scope.TryGetSurfaceParticipant(analysisParticipant);
-            if (surfaceParticipant is null)
-                continue;
-
-            if (!implementationSurfaces.TryGetValue(analysisParticipant, out ApiSurface? implementationSurface))
+            if (!implementationSurfaceResolved)
             {
-                AssemblyContextApiSurfaceResult surfaces =
-                    scope.UseMetadataParticipant(analysisParticipant,
-                        (group, participant) => AssemblyContextApiSurfaceQuery.ExecuteBounded(
-                            group, ApiSurfaceScope.IncludeAll,
-                            BrowserApiSurfacePolicy.Limits, [participant]));
-                AssemblyContextEntry<AssemblyApiSurface> entry = surfaces.Assemblies.Assemblies.Single();
-                implementationSurface =
-                    (entry as AssemblyContextEntry<AssemblyApiSurface>.Available)?.Value.Surface;
-                implementationSurfaces.Add(analysisParticipant, implementationSurface);
+                implementationSurface = implementationSurfaceQuery();
+                implementationSurfaceResolved = true;
             }
             BrowserTypeSurfaceInfo projectedType =
                 BrowserSurfaceProjection.Type(
                     surfaceMember.DeclaringType,
-                    surfaceParticipant.Asset.AssemblyName,
-                    surfaceParticipant.Asset.Id,
-                    surfaceParticipant.Assembly.Identity.Name,
+                    naming.Assembly,
+                    naming.AssemblyId,
+                    naming.AssemblyName,
                     qualifyId: true,
+                    platformPack: naming.PlatformPack,
                     selectedMembers: []);
             yield return new BrowserPerformanceMember(
-                surfaceParticipant.Asset.AssemblyName,
+                naming.Assembly,
                 surfaceMember.Type,
                 surfaceMember.Member,
                 surfaceMember.StableSelector,

@@ -5,6 +5,7 @@ using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Xml;
@@ -28,6 +29,7 @@ using InertText;
 using Inspector.Findings;
 using ILInspector.Metadata;
 using NuGetFetch;
+using InspectWeb.MethodBodyFixtures;
 
 using DotnetInspect.Web.Interop.Package;
 using BrowserProductWorkspacePlans =
@@ -61,6 +63,186 @@ namespace DotnetInspect.Web.Tests;
 
 public sealed partial class BrowserEngineBoundaryTests
 {
+    [Theory]
+    [InlineData("PayloadClassifier", ".ctor", true)]
+    [InlineData("PayloadClassifier", "Invoke", true)]
+    [InlineData("IBodyless", "WithoutBody", true)]
+    [InlineData("Left", "Compute", false)]
+    public async Task DependencyCallGraph_PreservesMemberBodyState(
+        string typeName,
+        string memberName,
+        bool noBody)
+    {
+        string packageId = $"CallGraph.BodyState.{Guid.NewGuid():N}";
+        string assemblyPath = typeof(PayloadClassifier).Assembly.Location;
+        _ = await Coordinate(
+            packageId,
+            PackageEntries(
+            [
+                (
+                    $"lib/net11.0/{Path.GetFileName(assemblyPath)}",
+                    File.ReadAllBytes(assemblyPath)),
+                (
+                    $"{packageId}.nuspec",
+                    Encoding.UTF8.GetBytes($"""
+                        <package><metadata>
+                        <id>{packageId}</id><version>1.0.0</version>
+                        <authors>dotnet-inspect</authors>
+                        <description>Call graph body-state fixture.</description>
+                        </metadata></package>
+                        """)),
+            ]));
+        BrowserTypeSurfaceInfo type;
+        BrowserMemberSurfaceInfo member;
+        await using (
+            BrowserScopeLease<BrowserInspectionScope> lease =
+                await BrowserPackageWorkspace.OpenScopeAsync(
+                    packageId, "1.0.0", "net11.0",
+                    cancellationToken: TestContext.Current.CancellationToken))
+        {
+            BrowserPackageSurfaceInfo surface =
+                BrowserPackageSurfaceProjection.ProjectSurface(
+                    lease.Scope,
+                    lease.Scope.Coordinates[0]);
+            type = Assert.Single(
+                surface.Types,
+                candidate => candidate.Id
+                    == $"InspectWeb.MethodBodyFixtures.{typeName}");
+            member = Assert.Single(
+                type.Api,
+                candidate => (candidate.Name == memberName
+                        || memberName == ".ctor"
+                            && candidate.Kind == "constructor")
+                    && candidate.Parameters.Length
+                        == (memberName == ".ctor" ? 2 : 1));
+        }
+
+        InspectionEnvelope<
+            PackageDependencyMemberCallGraphInspectionOutcome> envelope =
+            await BrowserPackageWorkspace.QueryDependencyMemberCallGraphAsync(
+                packageId, "1.0.0", "net11.0", "net11.0",
+                type.Assembly, type.DefinitionId, member.Name,
+                member.GraphSelectorKey, member.MetadataToken ?? 0,
+                WorkspacePlan.Empty, PackageSupplyChainBaseline.Nothing,
+                cancellationToken: TestContext.Current.CancellationToken);
+        if (noBody)
+        {
+            var unavailable = Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionOutcome.Unavailable>(
+                    envelope.Content);
+            Assert.Equal(
+                PackageDependencyMemberCallGraphInspectionUnavailableReason
+                    .FocusMethodBodyUnavailable,
+                unavailable.Reason);
+        }
+        else
+        {
+            Assert.IsType<
+                PackageDependencyMemberCallGraphInspectionOutcome.Available>(
+                    envelope.Content);
+        }
+        Assert.IsType<InspectionShare.NonProjectable>(envelope.Share);
+
+        string json = await DotnetInspect.Web.Interop.CallGraph
+            .CallGraphExports.QueryMemberCallGraph(
+                packageId, "1.0.0", "net11.0",
+                type.Assembly, type.DefinitionId, type.QueryId,
+                member.Name, member.CanonicalSignature,
+                member.GraphSelectorKey, member.MetadataToken ?? 0,
+                "net11.0", "null");
+        BrowserCallGraph graph = Assert.IsType<BrowserCallGraph>(
+            JsonSerializer.Deserialize(
+                json, BrowserCallGraphJsonContext.Default.BrowserCallGraph));
+        Assert.Equal(noBody, graph.NoBody);
+        if (noBody)
+        {
+            Assert.Empty(graph.Targets);
+            Assert.Empty(graph.Callers.Children);
+            Assert.Empty(graph.Callees.Children);
+            Assert.Equal(member.Name, graph.Callees.MemberName);
+            Assert.False(graph.Diagnostics.IsIncomplete);
+        }
+        else
+        {
+            Assert.NotEmpty(graph.Targets);
+        }
+    }
+
+    [Theory]
+    [InlineData(
+        PackageDependencyMemberCallGraphInspectionUnavailableReason
+            .FocusUnavailable)]
+    [InlineData(
+        PackageDependencyMemberCallGraphInspectionUnavailableReason
+            .PackageContextCleanupFailed)]
+    public void DependencyCallGraph_OtherUnavailableReasonsRemainErrors(
+        PackageDependencyMemberCallGraphInspectionUnavailableReason reason)
+    {
+        var envelope =
+            PackageDependencyMemberCallGraphInspection.ProjectUnavailable(
+                reason,
+                "The selected implementation MethodDef has no managed body.");
+
+        InvalidOperationException error =
+            Assert.Throws<InvalidOperationException>(
+                () => BrowserCallGraphWireProjection.Project(
+                    envelope, "Example", "1.0.0", "net11.0", "Invoke"));
+
+        Assert.Contains($"({reason})", error.Message);
+    }
+
+    [Fact]
+    [Trait("Speed", "Slow")]
+    public async Task DependencyCallGraph_JsonTypeClassifierIsAnEmptyState()
+    {
+        const string packageId = "System.Text.Json";
+        const string version = "11.0.0";
+        const string framework = "net11.0";
+        BrowserProductWorkspacePlans.ConfigurePlatform();
+        await BrowserPackageWorkspace.RegisterAcquiredPackageAsync(
+            new BrowserPackage(
+                packageId,
+                version,
+                File.ReadAllBytes(Path.Combine(
+                    AppContext.BaseDirectory, "RealAssets", "CallGraph",
+                    "system.text.json.11.0.0.nupkg")),
+                fromCache: false));
+        BrowserTypeSurfaceInfo type;
+        BrowserMemberSurfaceInfo member;
+        await using (
+            BrowserScopeLease<BrowserInspectionScope> lease =
+                await BrowserPackageWorkspace.OpenScopeAsync(
+                    packageId, version, framework,
+                    cancellationToken: TestContext.Current.CancellationToken))
+        {
+            BrowserPackageSurfaceInfo surface =
+                BrowserPackageSurfaceProjection.ProjectSurface(
+                    lease.Scope,
+                    lease.Scope.Coordinates[0]);
+            type = Assert.Single(
+                surface.Types,
+                candidate => candidate.Id
+                    == "System.Text.Json.Serialization.JsonTypeClassifier");
+            member = Assert.Single(
+                type.Api,
+                candidate => candidate.AnchorDigest == "ccc3673e1a");
+        }
+
+        string json = await DotnetInspect.Web.Interop.CallGraph
+            .CallGraphExports.QueryMemberCallGraph(
+                packageId, version, framework,
+                type.Assembly, type.DefinitionId, type.QueryId,
+                member.Name, member.CanonicalSignature,
+                member.GraphSelectorKey, member.MetadataToken ?? 0,
+                framework, "null");
+        BrowserCallGraph graph = Assert.IsType<BrowserCallGraph>(
+            JsonSerializer.Deserialize(
+                json, BrowserCallGraphJsonContext.Default.BrowserCallGraph));
+
+        Assert.True(graph.NoBody);
+        Assert.Empty(graph.Targets);
+        Assert.Equal(member.Name, graph.Callees.MemberName);
+    }
 
     [Fact]
     public async Task HomeDemoRunCore_ProjectsTypeOnlyMethodsSurface()
@@ -1028,6 +1210,47 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Contains("ecosystem.microsoft-extensions", ecosystems);
     }
 
+    [Theory]
+    [InlineData(".NET 11.0.0", "11.0.0")]
+    [InlineData(".NET 11.0.2", "11.0.2")]
+    [InlineData(
+        ".NET 11.0.0-rc.3.26522.148",
+        "11.0.0-rc.3.26522.148")]
+    [InlineData(
+        ".NET 11.0.0-preview.7.26381.103",
+        "11.0.0-preview.7.26381.103")]
+    public void DependencyCallGraph_CurrentRuntimeTargetUsesReleaseVersion(
+        string frameworkDescription,
+        string expectedVersion)
+    {
+        Assert.True(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateCurrentRuntimeTarget(
+                    PlatformFamily.DotNetRuntime,
+                    "net11.0",
+                    frameworkDescription,
+                    out PlatformFamilyTarget? target));
+        Assert.Equal(
+            PlatformVersion.Parse(expectedVersion),
+            target!.Version);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("11.0.0-rtm.26529.118+commit")]
+    [InlineData(".NET Framework 11.0.0")]
+    public void DependencyCallGraph_CurrentRuntimeTargetRejectsUnknownRuntime(
+        string? frameworkDescription)
+    {
+        Assert.False(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateCurrentRuntimeTarget(
+                    PlatformFamily.DotNetRuntime,
+                    "net11.0",
+                    frameworkDescription,
+                    out _));
+    }
+
     [Fact]
     public void DependencyCallGraph_CurrentRuntimeTargetIsFrameworkBound()
     {
@@ -1036,7 +1259,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 .TryCreateCurrentRuntimeTarget(
                     PlatformFamily.DotNetRuntime,
                     "net11.0",
-                    "11.0.0-rc.1.26425.128+commit",
+                    ".NET 11.0.0-rc.1.26425.128",
                     out PlatformFamilyTarget? target));
         Assert.Equal(
             PlatformVersion.Parse("11.0.0-rc.1.26425.128"),
@@ -1046,26 +1269,34 @@ public sealed partial class BrowserEngineBoundaryTests
                 .TryCreateCurrentRuntimeTarget(
                     PlatformFamily.DotNetRuntime,
                     "net10.0",
-                    "11.0.0-rc.1.26425.128+commit",
+                    ".NET 11.0.0-rc.1.26425.128",
                     out _));
         Assert.False(
             BrowserPackageDependencyMemberCallGraphContinuationSource
                 .TryCreateCurrentRuntimeTarget(
                     PlatformFamily.AspNetCore,
                     "net11.0",
-                    "11.0.0-rc.1.26425.128+commit",
+                    ".NET 11.0.0-rc.1.26425.128",
                     out _));
 
+        Assert.True(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateCurrentRuntimeTarget(
+                    PlatformFamily.DotNetRuntime,
+                    "net11.0",
+                    RuntimeInformation.FrameworkDescription,
+                    out PlatformFamilyTarget? currentRuntime));
         PackageDependencyMemberCallGraphPlatformPruning? pruning =
             BrowserPackageDependencyMemberCallGraphContinuationSource
                 .CreateCurrentRuntimePruning(
                     "net11.0",
-                    "11.0.0-rc.1.26425.128",
+                    currentRuntime!.Version.Value,
                     ["System.Memory|5.0.0"]);
         Assert.NotNull(pruning);
         Assert.Equal(
             PlatformFamily.DotNetRuntime,
             pruning.Target.Family);
+        Assert.Equal(currentRuntime, pruning.Target);
         Assert.True(
             pruning.Inventory.TryGetEntry(
                 "System.Memory",
@@ -1084,13 +1315,14 @@ public sealed partial class BrowserEngineBoundaryTests
     static PackageDependencyMemberCallGraphPlatformPruning
         CurrentRuntimePruningFromCatalog()
     {
-        string runtimeVersion =
-            Assert.IsType<string>(
-                typeof(object).Assembly
-                    .GetCustomAttribute<
-                        AssemblyInformationalVersionAttribute>()
-                    ?.InformationalVersion)
-                .Split('+', 2)[0];
+        Assert.True(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateCurrentRuntimeTarget(
+                    PlatformFamily.DotNetRuntime,
+                    "net11.0",
+                    RuntimeInformation.FrameworkDescription,
+                    out PlatformFamilyTarget? currentRuntime));
+        string runtimeVersion = currentRuntime!.Version.Value;
         using JsonDocument document = JsonDocument.Parse(
             File.ReadAllText(
                 Path.Combine(

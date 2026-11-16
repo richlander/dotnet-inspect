@@ -1640,6 +1640,76 @@ test.describe("Capability Spotlight search over real Wasm", () => {
 });
 
 test.describe("Package Query website over real Wasm", () => {
+  test("loads Type metadata only after choosing the Type subject", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry([fallbackReferences]));
+    await page.addInitScript(() => {
+      window.__retainedTypeRequests = [];
+      const OriginalWorker = window.Worker;
+      window.Worker = class extends OriginalWorker {
+        override postMessage(message: unknown, transfer: Transferable[]): void;
+        override postMessage(message: unknown, options?: StructuredSerializeOptions): void;
+        override postMessage(
+          message: unknown,
+          options?: Transferable[] | StructuredSerializeOptions,
+        ): void {
+          if (typeof message === "object" && message !== null
+            && "kind" in message && message.kind === "start"
+            && "operationKind" in message
+            && typeof message.operationKind === "string") {
+            window.__retainedTypeRequests!.push({
+              kind: message.operationKind,
+              typeRows: document.querySelectorAll("#type-list [data-type]").length,
+            });
+          }
+          if (Array.isArray(options)) super.postMessage(message, options);
+          else super.postMessage(message, options);
+        }
+      };
+    });
+    const packet = Buffer.from(JSON.stringify({
+      f: 3,
+      t: [[fallbackReferences.packageId.toLowerCase(), fallbackReferences.version,
+        fixtureFramework, null]],
+      g: [[0]], r: [], a: 0, x: 0,
+      v: [
+        { t: null, u: { k: "workspace" } },
+        { t: 0, r: { k: "package" }, u: { k: "package" },
+          f: "package.dependency-hierarchy" },
+      ],
+      b: fixtureFramework,
+    })).toString("base64url");
+    const typeProjectionCount = () => page.evaluate(() =>
+      window.__retainedTypeRequests!.filter(request =>
+        request.kind === "ordinary-metadata-query-type-projection").length);
+
+    await page.goto(`/?package=${fallbackReferences.packageId}&w=${packet}`);
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible({ timeout: 180_000 });
+    expect(await typeProjectionCount()).toBe(0);
+    await page.locator('[data-inspector-tab][data-package-lens="overview"]').click();
+    await expect(page.locator(".package-overview-surface"))
+      .toBeVisible();
+    await selectFirstExactLibrary(page);
+    await expect(page.locator(".library-subject-list"))
+      .toBeVisible();
+    expect(await typeProjectionCount()).toBe(0);
+
+    await chooseSubject(page, "type");
+    await expect(page.locator(".type-overview-surface"))
+      .toBeVisible({ timeout: 180_000 });
+    await expect.poll(typeProjectionCount).toBe(1);
+    await expect(page.locator(".type-overview-surface").getByRole("heading", {
+      name: "Type shape", exact: true,
+    })).toBeVisible({ timeout: 180_000 });
+
+    await chooseSubject(page, "package");
+    await page.locator('[data-inspector-tab][data-package-lens="dependencies"]').click();
+    await page.locator('[data-package-references-tab="hierarchy"]').click();
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible({ timeout: 180_000 });
+    expect(await typeProjectionCount()).toBe(1);
+  });
+
   test("restores a shared hierarchy when compile assets use a compatible framework", async ({ page, context }) => {
     await installGalleryRoutes(context, new GalleryFixtureRegistry([fallbackReferences]));
     await page.addInitScript(() => {
