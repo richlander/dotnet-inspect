@@ -1840,10 +1840,62 @@ public static partial class FindingDiffAny
         // (AttributeReader.IsReEmittedAttribute), and no API surface fact
         // reads them. AsyncIteratorStateMachine is not among them: the
         // renderer does not drop it.
+        // Attribute constructors repeat across an image, so each constructor
+        // row's answer is kept: 0 not yet read, 1 not promoted, 2 promoted.
+        byte[]? _promotedMemberReferences;
+        byte[]? _promotedMethodDefinitions;
+
         bool IsCompilerEmittedImplementationAttribute(EntityHandle constructor)
-            => AttributeReader.IsTopLevelAttributeType(Md, constructor, "System.Runtime.CompilerServices", "IntrinsicAttribute")
-                || AttributeReader.IsTopLevelAttributeType(Md, constructor, "System.Runtime.CompilerServices", "AsyncStateMachineAttribute")
-                || AttributeReader.IsTopLevelAttributeType(Md, constructor, "System.Runtime.CompilerServices", "IteratorStateMachineAttribute");
+        {
+            byte[]? rows = constructor.Kind switch
+            {
+                HandleKind.MemberReference => _promotedMemberReferences ??= new byte[Md.GetTableRowCount(TableIndex.MemberRef) + 1],
+                HandleKind.MethodDefinition => _promotedMethodDefinitions ??= new byte[Md.GetTableRowCount(TableIndex.MethodDef) + 1],
+                _ => null,
+            };
+            if (rows is null)
+                return false;
+            int row = MetadataTokens.GetRowNumber(constructor);
+            if ((uint)row >= (uint)rows.Length)
+                return ReadCompilerEmittedImplementationAttribute(constructor);
+            if (rows[row] == 0)
+                rows[row] = ReadCompilerEmittedImplementationAttribute(constructor) ? (byte)2 : (byte)1;
+            return rows[row] == 2;
+        }
+
+        // The constructor's Type is resolved once and its namespace compared
+        // once, as AttributeReader.IsTopLevelAttributeType matches a name.
+        bool ReadCompilerEmittedImplementationAttribute(EntityHandle constructor)
+        {
+            EntityHandle declaringType = constructor.Kind switch
+            {
+                HandleKind.MemberReference => Md.GetMemberReference((MemberReferenceHandle)constructor).Parent,
+                HandleKind.MethodDefinition => Md.GetMethodDefinition((MethodDefinitionHandle)constructor).GetDeclaringType(),
+                _ => default,
+            };
+            StringHandle @namespace;
+            StringHandle name;
+            if (declaringType.Kind == HandleKind.TypeDefinition)
+            {
+                TypeDefinition type = Md.GetTypeDefinition((TypeDefinitionHandle)declaringType);
+                if (!type.GetDeclaringType().IsNil)
+                    return false;
+                (@namespace, name) = (type.Namespace, type.Name);
+            }
+            else if (declaringType.Kind == HandleKind.TypeReference)
+            {
+                TypeReference type = Md.GetTypeReference((TypeReferenceHandle)declaringType);
+                if (type.ResolutionScope.Kind == HandleKind.TypeReference)
+                    return false;
+                (@namespace, name) = (type.Namespace, type.Name);
+            }
+            else
+                return false;
+            return Md.StringComparer.Equals(@namespace, "System.Runtime.CompilerServices")
+                && (Md.StringComparer.Equals(name, "IntrinsicAttribute")
+                    || Md.StringComparer.Equals(name, "AsyncStateMachineAttribute")
+                    || Md.StringComparer.Equals(name, "IteratorStateMachineAttribute"));
+        }
 
         // A property accessor's implementation flags decide whether the
         // surface can spell its property's accessor modifiers, so they stay
