@@ -372,6 +372,11 @@ each acquired body.
 - A request that declares the all-definition relation keeps its own lane,
   because a shared traversal carries no relation. Its module lookup composes
   its own attribution, so no unit visit charges the pending relation's work.
+- Requests with identical exact-Method breadth, generated roles, candidate
+  policy, and expansion bounds may settle that relation once before a shared
+  traversal. Each lane retains the same declared-source outcome and its own
+  producer receipt, while the source-group receipt records the expansion and
+  physical body acquisition once.
 
 A reached bound keeps the retained prefix, as
 [Completion, failure, bounds, and cancellation](#completion-failure-bounds-and-cancellation)

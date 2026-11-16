@@ -5,6 +5,7 @@ using DotnetInspector.Libraries;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
 using InertText;
+using Inspector.Artifacts;
 
 namespace DotnetInspector.Sections;
 
@@ -451,6 +452,7 @@ public sealed record MemberOverloadPopulationResult(
     MemberOverloadRowsOutcome? Rows);
 
 public sealed record MemberOverloadPopulationContent(
+    ArtifactGenerationIdentity Generation,
     LibraryAssemblyIdentity Assembly,
     MemberGroupSubject Subject,
     MemberOverloadPopulationResult Overloads,

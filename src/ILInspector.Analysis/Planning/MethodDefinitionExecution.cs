@@ -737,15 +737,21 @@ public sealed class MethodDefinitionExecution
                 + "limit set per lane.",
                 nameof(terminalWorkLimits));
         }
+        bool generatedExpansion =
+            breadth.Expansion.HasFlag(
+                MethodDefinitionSourceExpansion.GeneratedExecutionBodies);
         if (breadth.Kind
-            is not (
-                MethodDefinitionSourceBreadthKind.AllDefinitions
-                or MethodDefinitionSourceBreadthKind.ExactMethods)
-            || breadth.Expansion != MethodDefinitionSourceExpansion.None)
+                is not (
+                    MethodDefinitionSourceBreadthKind.AllDefinitions
+                    or MethodDefinitionSourceBreadthKind.ExactMethods)
+            || (generatedExpansion
+                && breadth.Kind
+                    != MethodDefinitionSourceBreadthKind.ExactMethods))
         {
             throw new ProducerContractException(
                 "Shared Method-source execution accepts all-definition or "
-                    + "exact-MethodDef breadth without expansion.");
+                    + "exact-MethodDef breadth, and only exact MethodDef "
+                    + "breadth may declare generated-body expansion.");
         }
 
         var executions =
@@ -815,6 +821,22 @@ public sealed class MethodDefinitionExecution
         }
 
         MetadataReader reader = peReader.GetMetadataReader();
+        MethodDefinitionGeneratedExpansionWork? expansionWork =
+            generatedExpansion
+                ? new(
+                    breadth.GeneratedExpansionLimits
+                    ?? throw new ProducerContractException(
+                        "Generated Method-source expansion requires finite "
+                        + "work limits."))
+                : null;
+        DeclaredSourceAttribution? attribution =
+            generatedExpansion
+                ? new(
+                    sourceName,
+                    reader,
+                    peReader,
+                    generatedExpansionWork: expansionWork)
+                : null;
         var builders =
             new LibraryBodyAnalysisBuilder?[lanes.Length];
         MemorySafetyContractSupport? memorySafety =
@@ -912,7 +934,8 @@ public sealed class MethodDefinitionExecution
                             reader,
                             peReader,
                             bindingPolicy: referenceBinding?.Policy,
-                            rootAssembly: referenceBinding?.Subject);
+                            rootAssembly: referenceBinding?.Subject,
+                            attribution: attribution);
                     lane._lookup =
                         new LibraryMethodAnalysisRunner(
                             builders[laneIndex]!);
@@ -926,6 +949,61 @@ public sealed class MethodDefinitionExecution
                     ProducerState state = lane._states[pass.Visits[i]];
                     lane.FailIfPrerequisiteFailed(state);
                     visiting[laneIndex][i] = state;
+                }
+            }
+
+            MethodDefinitionSourceBreadth executionBreadth = breadth;
+            if (generatedExpansion)
+            {
+                try
+                {
+                    MethodDefinitionGeneratedExpansionResult expansion =
+                        attribution!.ExpandGeneratedExecutionBodies(
+                            breadth.Methods,
+                            breadth.GeneratedRoles,
+                            includeUnauthenticatedCandidates:
+                                breadth.IncludesUnauthenticatedCandidates);
+                    physicalCoverage.RecordGeneratedExpansion(
+                        expansion.Coverage);
+                    executionBreadth =
+                        MethodDefinitionSourceBreadth.ExactMethods(
+                            expansion.Methods);
+                    foreach (MethodDefinitionExecution lane in lanes)
+                    {
+                        lane._sourceCoverage.RecordGeneratedExpansion(
+                            expansion.Coverage);
+                        lane._declaredSources =
+                            new MethodDefinitionDeclaredSources(
+                                expansion.Coverage);
+                        lane._breadth = executionBreadth;
+                        if (expansion.Bound is { } bound)
+                            lane.BoundRelationReaders(bound);
+                    }
+                }
+                catch (Exception ex)
+                    when (LibraryMethodAnalysisRunner
+                        .IsRecoverableMethodFailure(ex))
+                {
+                    expansionWork!.Settle();
+                    MethodDefinitionGeneratedExpansionCoverage coverage =
+                        expansionWork.Build();
+                    physicalCoverage.RecordGeneratedExpansion(coverage);
+                    executionBreadth =
+                        MethodDefinitionSourceBreadth.ExactMethods();
+                    foreach (MethodDefinitionExecution lane in lanes)
+                    {
+                        lane._sourceCoverage.RecordGeneratedExpansion(
+                            coverage);
+                        lane._declaredSources =
+                            new MethodDefinitionDeclaredSources(
+                                MethodDefinitionGeneratedExpansionCoverage
+                                    .Empty);
+                        lane._breadth = executionBreadth;
+                        lane.FailActiveSource(
+                            0,
+                            GeneratedExpansionLabel,
+                            ex);
+                    }
                 }
             }
 
@@ -954,11 +1032,11 @@ public sealed class MethodDefinitionExecution
                     ? new bool[lanes.Length]
                     : [];
 
-            if (breadth.Kind
+            if (executionBreadth.Kind
                 == MethodDefinitionSourceBreadthKind.ExactMethods)
             {
                 VisitSharedExactMethods(
-                    breadth.Methods,
+                    executionBreadth.Methods,
                     lanes,
                     visiting,
                     reader,

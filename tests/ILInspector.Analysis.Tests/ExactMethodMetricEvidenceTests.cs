@@ -253,6 +253,51 @@ public sealed class ExactMethodMetricEvidenceTests
     }
 
     [Fact]
+    public void GeneratedExpansionBound_RetainsTheIncompletePrefix()
+    {
+        MethodInfo kickoff =
+            typeof(ClassicAsyncSiblingFixture).GetMethod(
+                nameof(
+                    ClassicAsyncSiblingFixture
+                        .CallsSyncSiblingFromAsync))!;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(ClassicAsyncSiblingFixture)
+                    .Assembly.Location);
+        var scope = new ExactMethodSemanticAnalysisScope(
+            includeGeneratedExecutionBodies: true,
+            new(
+                maximumCandidateDefinitions: 1,
+                maximumGeneratedMethods: 100,
+                maximumProbeBodies: 100,
+                maximumProbeEncodedIlBytes: long.MaxValue,
+                maximumRelationshipNodes: 100),
+            MethodDefinitionTerminalWorkLimits.Unbounded);
+
+        ExactMethodSemanticAnalysisResult result =
+            ExactMethodSemanticAnalysis.Execute(
+                session,
+                "bounded generated body-size evidence test",
+                [kickoff.MetadataToken],
+                ExactMethodSemanticProducts.BodySize,
+                scope,
+                TestContext.Current.CancellationToken);
+
+        ExactMethodSemanticLane<ExactMethodBodySizeProducerResult> lane =
+            Assert.IsType<
+                ExactMethodSemanticLane<
+                    ExactMethodBodySizeProducerResult>>(result.BodySize);
+        Assert.Single(lane.Result.Bodies);
+        Assert.Empty(result.Failures);
+        Assert.NotNull(
+            result.SourceGroupReceipt
+                .PhysicalCoverage.GeneratedExpansion.ReachedLimit);
+        Assert.Equal(
+            ProducerOutcome.SourceBounded,
+            Assert.Single(lane.WorkReceipt.Producers).Outcome);
+    }
+
+    [Fact]
     public void AsyncExecutionBody_UsesTheSameFocusedEvidenceLanes()
     {
         MethodInfo kickoff =
@@ -307,6 +352,72 @@ public sealed class ExactMethodMetricEvidenceTests
             MemorySafetyContractCoverage.Empty,
             result.SourceGroupReceipt
                 .PhysicalCoverage.MemorySafetyContracts);
+    }
+
+    [Fact]
+    public void GeneratedAsyncBody_SharesExpansionAndPhysicalEvidence()
+    {
+        MethodInfo kickoff =
+            typeof(ClassicAsyncSiblingFixture).GetMethod(
+                nameof(
+                    ClassicAsyncSiblingFixture
+                        .CallsSyncSiblingFromAsync))!;
+        MethodInfo moveNext = kickoff
+            .GetCustomAttribute<AsyncStateMachineAttribute>()!
+            .StateMachineType
+            .GetMethod(
+                nameof(IAsyncStateMachine.MoveNext),
+                BindingFlags.Instance
+                    | BindingFlags.NonPublic
+                    | BindingFlags.Public)!;
+        MethodInfo target =
+            typeof(ClassicAsyncSiblingFixture).GetMethod(
+                nameof(ClassicAsyncSiblingFixture.ReadValue))!;
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(ClassicAsyncSiblingFixture)
+                    .Assembly.Location);
+        var scope = new ExactMethodSemanticAnalysisScope(
+            includeGeneratedExecutionBodies: true,
+            MethodDefinitionGeneratedExpansionLimits.Default,
+            MethodDefinitionTerminalWorkLimits.Unbounded);
+
+        ExactMethodSemanticAnalysisResult result =
+            ExactMethodSemanticAnalysis.Execute(
+                session,
+                "generated async metric evidence test",
+                [kickoff.MetadataToken],
+                ExactMethodSemanticProducts.BodySize
+                    | ExactMethodSemanticProducts.SiblingCalls,
+                scope,
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(2, result.SourceGroupReceipt.LaneReceipts.Length);
+        Assert.Contains(
+            result.SourceGroupReceipt
+                .PhysicalCoverage.GeneratedExpansion.Origins,
+            origin =>
+                MetadataTokens.GetToken(origin.Method)
+                    == moveNext.MetadataToken);
+        Assert.Equal(
+            2,
+            result.SourceGroupReceipt
+                .PhysicalCoverage.MethodsSelected.Count);
+        Assert.Equal(
+            2,
+            result.SourceGroupReceipt
+                .PhysicalCoverage.BodiesAcquired.Count);
+        Assert.Equal(
+            MethodDefinitionInstructionWorkCoverage.Empty,
+            result.BodySize!.SourceReceipt.Coverage.InstructionWork);
+        Assert.Contains(
+            result.SiblingCalls!.Result.Bodies,
+            body =>
+                body.MethodToken == moveNext.MetadataToken
+                && body.Calls.Any(
+                    call =>
+                        call.DefinitionToken
+                            == target.MetadataToken));
     }
 
     [Fact]

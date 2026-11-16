@@ -38,6 +38,7 @@
     <ProjectReference Include="../ILInspector.MetadataPrimitives/ILInspector.MetadataPrimitives.csproj" />
     <ProjectReference Include="../ILInspector.Research/ILInspector.Research.csproj" />
     <ProjectReference Include="../ILInspector.SourceLink/ILInspector.SourceLink.csproj" />
+    <ProjectReference Include="../Inspector.Artifacts/Inspector.Artifacts.csproj" />
     <ProjectReference Include="../QuerySpace/QuerySpace.csproj" />
     <ProjectReference Include="..\DotnetInspector.Libraries\DotnetInspector.Libraries.csproj" />
     <ProjectReference Include="..\DotnetInspector.LibraryMetadata\DotnetInspector.LibraryMetadata.csproj" />
