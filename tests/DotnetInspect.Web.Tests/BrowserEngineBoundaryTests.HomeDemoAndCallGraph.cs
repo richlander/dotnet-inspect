@@ -5,6 +5,7 @@ using System.Reflection.Emit;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection.PortableExecutable;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Xml;
@@ -1028,6 +1029,47 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Contains("ecosystem.microsoft-extensions", ecosystems);
     }
 
+    [Theory]
+    [InlineData(".NET 11.0.0", "11.0.0")]
+    [InlineData(".NET 11.0.2", "11.0.2")]
+    [InlineData(
+        ".NET 11.0.0-rc.3.26522.148",
+        "11.0.0-rc.3.26522.148")]
+    [InlineData(
+        ".NET 11.0.0-preview.7.26381.103",
+        "11.0.0-preview.7.26381.103")]
+    public void DependencyCallGraph_CurrentRuntimeTargetUsesReleaseVersion(
+        string frameworkDescription,
+        string expectedVersion)
+    {
+        Assert.True(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateCurrentRuntimeTarget(
+                    PlatformFamily.DotNetRuntime,
+                    "net11.0",
+                    frameworkDescription,
+                    out PlatformFamilyTarget? target));
+        Assert.Equal(
+            PlatformVersion.Parse(expectedVersion),
+            target!.Version);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("11.0.0-rtm.26529.118+commit")]
+    [InlineData(".NET Framework 11.0.0")]
+    public void DependencyCallGraph_CurrentRuntimeTargetRejectsUnknownRuntime(
+        string? frameworkDescription)
+    {
+        Assert.False(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateCurrentRuntimeTarget(
+                    PlatformFamily.DotNetRuntime,
+                    "net11.0",
+                    frameworkDescription,
+                    out _));
+    }
+
     [Fact]
     public void DependencyCallGraph_CurrentRuntimeTargetIsFrameworkBound()
     {
@@ -1036,7 +1078,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 .TryCreateCurrentRuntimeTarget(
                     PlatformFamily.DotNetRuntime,
                     "net11.0",
-                    "11.0.0-rc.1.26425.128+commit",
+                    ".NET 11.0.0-rc.1.26425.128",
                     out PlatformFamilyTarget? target));
         Assert.Equal(
             PlatformVersion.Parse("11.0.0-rc.1.26425.128"),
@@ -1046,26 +1088,34 @@ public sealed partial class BrowserEngineBoundaryTests
                 .TryCreateCurrentRuntimeTarget(
                     PlatformFamily.DotNetRuntime,
                     "net10.0",
-                    "11.0.0-rc.1.26425.128+commit",
+                    ".NET 11.0.0-rc.1.26425.128",
                     out _));
         Assert.False(
             BrowserPackageDependencyMemberCallGraphContinuationSource
                 .TryCreateCurrentRuntimeTarget(
                     PlatformFamily.AspNetCore,
                     "net11.0",
-                    "11.0.0-rc.1.26425.128+commit",
+                    ".NET 11.0.0-rc.1.26425.128",
                     out _));
 
+        Assert.True(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateCurrentRuntimeTarget(
+                    PlatformFamily.DotNetRuntime,
+                    "net11.0",
+                    RuntimeInformation.FrameworkDescription,
+                    out PlatformFamilyTarget? currentRuntime));
         PackageDependencyMemberCallGraphPlatformPruning? pruning =
             BrowserPackageDependencyMemberCallGraphContinuationSource
                 .CreateCurrentRuntimePruning(
                     "net11.0",
-                    "11.0.0-rc.1.26425.128",
+                    currentRuntime!.Version.Value,
                     ["System.Memory|5.0.0"]);
         Assert.NotNull(pruning);
         Assert.Equal(
             PlatformFamily.DotNetRuntime,
             pruning.Target.Family);
+        Assert.Equal(currentRuntime, pruning.Target);
         Assert.True(
             pruning.Inventory.TryGetEntry(
                 "System.Memory",
@@ -1084,13 +1134,14 @@ public sealed partial class BrowserEngineBoundaryTests
     static PackageDependencyMemberCallGraphPlatformPruning
         CurrentRuntimePruningFromCatalog()
     {
-        string runtimeVersion =
-            Assert.IsType<string>(
-                typeof(object).Assembly
-                    .GetCustomAttribute<
-                        AssemblyInformationalVersionAttribute>()
-                    ?.InformationalVersion)
-                .Split('+', 2)[0];
+        Assert.True(
+            BrowserPackageDependencyMemberCallGraphContinuationSource
+                .TryCreateCurrentRuntimeTarget(
+                    PlatformFamily.DotNetRuntime,
+                    "net11.0",
+                    RuntimeInformation.FrameworkDescription,
+                    out PlatformFamilyTarget? currentRuntime));
+        string runtimeVersion = currentRuntime!.Version.Value;
         using JsonDocument document = JsonDocument.Parse(
             File.ReadAllText(
                 Path.Combine(
