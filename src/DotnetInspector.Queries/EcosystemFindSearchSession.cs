@@ -483,11 +483,9 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
         if (Request.Prefixes.IsEmpty)
         {
             return Complete(
-                DemandSatisfied
-                    ? EcosystemFindCompletion.RowLimitReached
-                    : _failures || _incomplete
-                        ? EcosystemFindCompletion.Partial
-                        : EcosystemFindCompletion.Exhausted,
+                _failures || _incomplete
+                    ? EcosystemFindCompletion.Partial
+                    : EcosystemFindCompletion.Exhausted,
                 []);
         }
         if (remainingRows == 0)
