@@ -79,21 +79,20 @@ entries separately and include the always-run `changes`, `provenance`, and
 the bound safe as routing changes. The current workflow defines 14 jobs, with
 the dependency-policy job selected only for pushes to `main`.
 
-Daily-only evidence remains admissible to pre-merge CI only while the latest
-completed `main` Deep Inspect attempt that actually ran both the Linux `Test
-lane` and `Decompiler test lane` is no more than 36 hours old and both jobs
-succeeded. Scheduled and manually dispatched Deep Inspect runs may supply that
-evidence; a newer successful manual run therefore clears a failed nightly
-result without waiting for the next schedule. A missing, stale, failed,
-cancelled, or incomplete qualifying attempt fails the always-selected
-`deepInspectHealth` admission validation before any path-gated runner starts.
+Deep Inspect is a post-merge verifier for the latest retained `main` state,
+not a required proof for each pull-request candidate. Every push to `main`
+starts the complete Linux test and decompiler-test lanes. That stream shares
+one concurrency group with the daily freshness fallback and manual `test`
+recovery: the active run completes, at most one pending run is retained, and a
+newer candidate replaces an older pending candidate. An intermediate commit
+may therefore be superseded before execution, while its changes remain in the
+newer `main` state that is verified next.
 
-Pushes to `main` do not consume this admission validation: they cannot prevent
-the merge that already happened, and their focused dependency-policy check
-must still run. The health result does not replace candidate-focused gates or
-prove the current candidate correct. It keeps the daily owner's last result
-binding on later PR and merge-group work instead of treating a red daily lane
-as notification-only evidence.
+This bounded latest-state stream does not gate PR CI and does not claim that
+each merge was independently certified. Failures remain visible as mainline
+health incidents while a newer retained candidate may recover the repository.
+Release-candidate qualification remains a separate exact-SHA consumer of the
+reusable Deep Inspect workflow.
 
 - `ci.yml` runs one Release solution build and a bounded smoke population for
   CLI routes, inspection queries, InertText, dependency policy, and the

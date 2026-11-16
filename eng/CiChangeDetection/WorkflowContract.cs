@@ -76,14 +76,6 @@ internal static partial class WorkflowContract
         RequireAbsent(changes, "continue-on-error", "jobs.changes");
         RequireAbsent(changes, "defaults", "jobs.changes");
         RequireAbsent(changes, "env", "jobs.changes");
-        RequireExactScalarValues(
-            GetRequiredMapping(changes, "permissions", "jobs.changes"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["actions"] = "read",
-                ["contents"] = "read",
-            },
-            "jobs.changes.permissions");
 
         ValidateInspectWebTopology(jobs);
         ValidateInspectWebConsolidatedChecks(jobs);
@@ -98,12 +90,11 @@ internal static partial class WorkflowContract
             changes,
             "steps",
             "jobs.changes");
-        if (steps.Children.Count != 9)
+        if (steps.Children.Count != 8)
         {
             throw new InvalidOperationException(
                 "jobs.changes must contain checkout, setup, self-test, " +
-                "planning, Deep Inspect admission, TLA+ upload, Markdown, " +
-                "and skill steps.");
+                "planning, TLA+ upload, Markdown, and skill steps.");
         }
 
         ValidateCheckoutStep(steps);
@@ -127,7 +118,6 @@ internal static partial class WorkflowContract
             ValidateProvenanceStep(jobs, validateProvenancePin);
         ValidateSelfTestStep(selfTestSteps);
         ValidatePlanningStep(steps);
-        ValidateDeepInspectHealthStep(steps);
         ValidateChangesChecks(steps);
 
         return new WorkflowContractResult(
@@ -202,7 +192,7 @@ internal static partial class WorkflowContract
     private static void ValidateChangesChecks(YamlSequenceNode steps)
     {
         YamlMappingNode markdown = RequireMapping(
-            steps.Children[6], "jobs.changes markdown step");
+            steps.Children[5], "jobs.changes markdown step");
         RequireExactKeys(markdown, ["name", "if", "uses", "with"],
             "jobs.changes markdown step");
         RequireScalarValue(markdown, "name", "Run markdownlint", "jobs.changes markdown step");
@@ -217,7 +207,7 @@ internal static partial class WorkflowContract
             "globs", "**/*.md", "jobs.changes markdown step.with");
 
         YamlMappingNode cache = RequireMapping(
-            steps.Children[7], "jobs.changes skill cache step");
+            steps.Children[6], "jobs.changes skill cache step");
         RequireExactKeys(cache, ["name", "if", "uses", "with"],
             "jobs.changes skill cache step");
         RequireScalarValue(cache, "name", "Cache NuGet packages for skill tests",
@@ -230,7 +220,7 @@ internal static partial class WorkflowContract
             "jobs.changes skill cache step");
 
         YamlMappingNode skill = RequireMapping(
-            steps.Children[8], "jobs.changes skill step");
+            steps.Children[7], "jobs.changes skill step");
         RequireExactKeys(skill, ["name", "if", "shell", "run"],
             "jobs.changes skill step");
         RequireScalarValue(skill, "name", "Run embedded skill tests",
@@ -262,7 +252,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             aggregate,
             "if",
-            $"always() && needs.changes.result == 'success' && {Selection}",
+            $"always() && {Selection}",
             "jobs.inspect-web");
         YamlSequenceNode needs = GetRequiredSequence(
             aggregate,
@@ -828,7 +818,7 @@ internal static partial class WorkflowContract
     private static void ValidateTlaScopeUploadStep(YamlSequenceNode steps)
     {
         YamlMappingNode upload = RequireMapping(
-            steps.Children[5],
+            steps.Children[4],
             "jobs.changes TLA+ scope upload step");
         RequireExactKeys(
             upload,
@@ -995,48 +985,6 @@ internal static partial class WorkflowContract
         }
     }
 
-    private static void ValidateDeepInspectHealthStep(YamlSequenceNode steps)
-    {
-        YamlMappingNode health = RequireMapping(
-            steps.Children[4],
-            "jobs.changes Deep Inspect health step");
-        RequireExactKeys(
-            health,
-            ["name", "if", "shell", "run", "env"],
-            "jobs.changes Deep Inspect health step");
-        RequireScalarValue(
-            health,
-            "name",
-            "Require fresh green Deep Inspect test health",
-            "jobs.changes Deep Inspect health step");
-        RequireScalarValue(
-            health,
-            "if",
-            "fromJSON(steps.plan.outputs.plan).validations.deepInspectHealth",
-            "jobs.changes Deep Inspect health step");
-        RequireScalarValue(
-            health,
-            "shell",
-            "bash",
-            "jobs.changes Deep Inspect health step");
-        RequireScalarValue(
-            health,
-            "run",
-            "dotnet run eng/check-deep-inspect-health.cs -- "
-                + "--maximum-age-hours 36",
-            "jobs.changes Deep Inspect health step");
-        RequireExactScalarValues(
-            GetRequiredMapping(
-                health,
-                "env",
-                "jobs.changes Deep Inspect health step"),
-            new Dictionary<string, string>(StringComparer.Ordinal)
-            {
-                ["GITHUB_TOKEN"] = "${{ github.token }}",
-            },
-            "jobs.changes Deep Inspect health step.env");
-    }
-
     private static void ValidateCheckoutStep(YamlSequenceNode steps)
     {
         YamlMappingNode checkoutStep = RequireMapping(
@@ -1095,9 +1043,9 @@ internal static partial class WorkflowContract
     {
         YamlMappingNode job = GetRequiredMapping(jobs, "provenance", "jobs");
         RequireExactKeys(job,
-            ["needs", "runs-on", "permissions", "timeout-minutes", "steps"],
+            ["runs-on", "permissions", "timeout-minutes", "steps"],
             "jobs.provenance");
-        RequireScalarValue(job, "needs", "changes", "jobs.provenance");
+        RequireAbsent(job, "needs", "jobs.provenance");
         RequireAbsent(job, "if", "jobs.provenance");
         RequireAbsent(job, "continue-on-error", "jobs.provenance");
         RequireScalarValue(job, "runs-on", "ubuntu-24.04", "jobs.provenance");

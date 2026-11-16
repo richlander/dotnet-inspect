@@ -32,7 +32,6 @@ internal readonly record struct RoutingSelections(
 internal sealed class ValidationSelections
 {
     internal ValidationSelections(
-        bool deepInspectHealth,
         bool test,
         bool dependencyPolicy,
         bool cSharpDiffSmoke,
@@ -45,7 +44,6 @@ internal sealed class ValidationSelections
         bool tla,
         bool lean)
     {
-        DeepInspectHealth = deepInspectHealth;
         Test = test;
         DependencyPolicy = dependencyPolicy;
         CSharpDiffSmoke = cSharpDiffSmoke;
@@ -58,8 +56,6 @@ internal sealed class ValidationSelections
         Tla = tla;
         Lean = lean;
     }
-
-    internal bool DeepInspectHealth { get; }
 
     internal bool Test { get; }
 
@@ -98,7 +94,6 @@ internal sealed class ValidationSelections
     {
         bool preMerge = kind != PlanEventKind.Push;
         return new ValidationSelections(
-            deepInspectHealth: preMerge,
             test: selections.Code && preMerge,
             dependencyPolicy: kind == PlanEventKind.Push,
             cSharpDiffSmoke: selections.CSharpDiff && preMerge,

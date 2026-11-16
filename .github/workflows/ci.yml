@@ -70,7 +70,6 @@ jobs:
   changes:
     runs-on: ubuntu-24.04
     permissions:
-      actions: read
       contents: read
     timeout-minutes: 20
     outputs:
@@ -130,7 +129,7 @@ jobs:
           fi
           jq -e '
             type == "object"
-            and .schemaVersion == 9
+            and .schemaVersion == 8
             and .status == "planned"
           ' <<< "$plan" > /dev/null
           printf 'plan=%s\n' "$plan" >> "$GITHUB_OUTPUT"
@@ -140,15 +139,6 @@ jobs:
           BASH_ENV: ""
           CI_EVENT_NAME: ${{ inputs.event-name || github.event_name }}
           CI_EVENT_BASE_SHA: ${{ inputs.base-sha || github.event.merge_group.base_sha || github.event.before }}
-
-      - name: Require fresh green Deep Inspect test health
-        if: fromJSON(steps.plan.outputs.plan).validations.deepInspectHealth
-        shell: bash
-        run: >-
-          dotnet run eng/check-deep-inspect-health.cs --
-          --maximum-age-hours 36
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload TLA+ scope evidence
         if: fromJSON(steps.plan.outputs.plan).validations.tla
@@ -179,11 +169,10 @@ jobs:
         shell: bash
         run: dotnet run --project tests/DotnetInspect.Cli.Tests -c Release -- --filter-class "DotnetInspect.Cli.Tests.SkillCommandTests"
 
-  # Resolve committed EVIL observations against full Git history after the
-  # admission plan is healthy. A known-red repository consumes only the
-  # changes runner and the terminal aggregate instead of starting another VM.
+  # Resolve committed EVIL observations against full Git history in parallel
+  # with change planning. The required aggregate waits for both independent
+  # gates, while path-gated jobs can start as soon as planning completes.
   provenance:
-    needs: changes
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -493,7 +482,6 @@ jobs:
       - inspect-web-msdl-tests
     if: >-
       always() &&
-      needs.changes.result == 'success' &&
       fromJSON(needs.changes.outputs.plan).validations.inspectWeb
     runs-on: ubuntu-24.04
     steps:

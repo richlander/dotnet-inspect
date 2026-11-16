@@ -23,48 +23,6 @@ internal static partial class WorkflowContract
             "16-runner-job budget",
             "additional job exceeds runner budget");
 
-        AssertRejected(
-            repository,
-            workflowText,
-            root => GetRequiredMapping(
-                ChangesJob(root),
-                "permissions",
-                "jobs.changes").Children.Remove(
-                    new YamlScalarNode("actions")),
-            "jobs.changes.permissions",
-            "health admission without Actions read permission");
-        AssertRejected(
-            repository,
-            workflowText,
-            root => ChangesStep(
-                root,
-                "Require fresh green Deep Inspect test health")
-                .Children[new YamlScalarNode("if")] =
-                    new YamlScalarNode("false"),
-            "validations.deepInspectHealth",
-            "disabled Deep Inspect health admission");
-        AssertRejected(
-            repository,
-            workflowText,
-            root => GetRequiredMapping(
-                GetRequiredMapping(root, "jobs", "workflow"),
-                "provenance",
-                "jobs").Children.Remove(new YamlScalarNode("needs")),
-            "jobs.provenance",
-            "provenance fan-out before health admission");
-        AssertRejected(
-            repository,
-            workflowText,
-            root => GetRequiredMapping(
-                GetRequiredMapping(root, "jobs", "workflow"),
-                "inspect-web",
-                "jobs").Children[new YamlScalarNode("if")] =
-                    new YamlScalarNode(
-                        "always() && fromJSON(needs.changes.outputs.plan)"
-                        + ".validations.inspectWeb"),
-            "needs.changes.result",
-            "inspect-web aggregate runner before health admission");
-
         AssertAccepted(
             repository,
             workflowText,
@@ -215,20 +173,6 @@ internal static partial class WorkflowContract
                 "jobs"),
             "steps",
             $"jobs.{InspectWebDotnetupJob}");
-
-    private static YamlMappingNode ChangesJob(YamlMappingNode root) =>
-        GetRequiredMapping(
-            GetRequiredMapping(root, "jobs", "workflow"),
-            "changes",
-            "jobs");
-
-    private static YamlMappingNode ChangesStep(
-        YamlMappingNode root,
-        string name) =>
-        GetRequiredSequence(ChangesJob(root), "steps", "jobs.changes")
-            .Children
-            .Select(node => RequireMapping(node, "jobs.changes step"))
-            .Single(step => GetOptionalScalar(step, "name") == name);
 
     private static YamlMappingNode InspectWebDotnetupInstall(YamlMappingNode root) =>
         InspectWebDotnetupSteps(root).Children
