@@ -160,8 +160,9 @@ that requirement to its callers. Each finding carries one of four states:
 Only a body with inner-unsafe evidence reads the module's rules, so the census
 adds no rules read to a body without evidence. Every non-propagating finding
 has such evidence. The state is derived from the contract, the evidence, and
-the module's rules, so it is not part of the
-[finding summary](unsafe-code-section.md#diff) that comparison uses.
+the module's rules. It is part of the
+[finding summary](unsafe-code-section.md#diff) that comparison uses, so a
+module that switches rules changes the value of each finding it has.
 
 The constructor-initializer exception in
 [memory-safety models](memory-safety-models.md#v2-audit-and-identification-scenarios) applies
