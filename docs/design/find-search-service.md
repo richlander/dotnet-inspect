@@ -81,7 +81,7 @@ the separately owned host-neutral coordinate-discovery substrate. Its
 
 ## Completed inspection representations
 
-The compatibility API Find answer offers separately typed Table and Document
+The completed CLI API Find answer offers separately typed Table and Document
 `InspectionEnvelope<T>` endpoints. Both retain the same selected findings in
 answer order: implicit Member findings before Type findings. Matching,
 source authorization, acquisition, producer limits, and progressive publication
@@ -151,8 +151,8 @@ partial, failed, and canceled settlement remain distinguishable.
 
 The shared boundary retains producer-issued structured source and declaration
 associations. Its serialization must preserve those facts rather than rely on
-the compatibility rows' JSON-ignored associations or recover identity from
-display text. The compatibility `ApiFindDocument` is not an intermediate
+the existing CLI rows' JSON-ignored associations or recover identity from
+display text. The existing `ApiFindDocument` is not an intermediate
 semantic result, and this adoption does not change its existing JSON contract.
 Equivalent semantic plans in both hosts consume the same completed Content,
 Share outcome, and diagnostics.
