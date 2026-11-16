@@ -76,8 +76,8 @@ participants said so directly: "Treated · lines as shared context."
 
 Carets and notes were attributed correctly in every inspect arm: the
 parameter type in S1, the attribute argument in S4, the body allocation in S5,
-and the removal in S6. Two participants called S5's "allocation removed" a
-classification, which the criteria accept.
+and the removal in S6. Seven of eight inspect-arm participants called S5's
+"allocation removed" a classification, which the criteria accept.
 
 | Separator | Exact heading and label, of 6 per participant |
 | --- | --- |

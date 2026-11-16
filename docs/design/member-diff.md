@@ -250,9 +250,10 @@ dotnet-inspect change:
   Markout computes nothing from text.
 - Lowering gives each hunk its heading by the rule above, and the formatters
   write it first after `@@`.
-- A change label follows the heading after ` | `, and a label without a
-  heading follows `@@` as `| label`. The heading escapes `\` as `\\` and `|` as
-  `\|`, so the label begins at the first unescaped `|`. An MD1 test parses each
+- In a diff with heading candidates, a change label follows the heading after
+  ` | `, and a label without a heading follows `@@` as `| label`. The heading
+  escapes `\` as `\\` and `|` as `\|`, so the label begins at the first
+  unescaped `|`. An MD1 test parses each
   headed, labeled hunk back to its heading and its label exactly. The
   [printer trials](../../tools/ExplainReadingScenarios/usability/member-diff-printer/README.md)
   chose the pipe; a bracketed label read as well, but brackets occur in many
