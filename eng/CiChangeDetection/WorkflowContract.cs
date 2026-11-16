@@ -262,7 +262,7 @@ internal static partial class WorkflowContract
         RequireScalarValue(
             aggregate,
             "if",
-            $"always() && {Selection}",
+            $"always() && needs.changes.result == 'success' && {Selection}",
             "jobs.inspect-web");
         YamlSequenceNode needs = GetRequiredSequence(
             aggregate,

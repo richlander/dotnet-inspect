@@ -493,6 +493,7 @@ jobs:
       - inspect-web-msdl-tests
     if: >-
       always() &&
+      needs.changes.result == 'success' &&
       fromJSON(needs.changes.outputs.plan).validations.inspectWeb
     runs-on: ubuntu-24.04
     steps:

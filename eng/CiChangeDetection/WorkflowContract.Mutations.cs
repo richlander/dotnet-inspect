@@ -52,6 +52,18 @@ internal static partial class WorkflowContract
                 "jobs").Children.Remove(new YamlScalarNode("needs")),
             "jobs.provenance",
             "provenance fan-out before health admission");
+        AssertRejected(
+            repository,
+            workflowText,
+            root => GetRequiredMapping(
+                GetRequiredMapping(root, "jobs", "workflow"),
+                "inspect-web",
+                "jobs").Children[new YamlScalarNode("if")] =
+                    new YamlScalarNode(
+                        "always() && fromJSON(needs.changes.outputs.plan)"
+                        + ".validations.inspectWeb"),
+            "needs.changes.result",
+            "inspect-web aggregate runner before health admission");
 
         AssertAccepted(
             repository,
