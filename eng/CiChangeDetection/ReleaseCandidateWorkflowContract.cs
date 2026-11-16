@@ -102,8 +102,17 @@ internal static class ReleaseCandidateWorkflowContract
             "Deep Inspect contract accepted active main verification cancellation.");
         AssertMutationRejected(
             deepInspect,
+            "        run: echo \"sha=$(git rev-parse HEAD)\" >> " +
+            "\"$GITHUB_OUTPUT\"\n",
+            "        run: echo \"sha=$GITHUB_SHA\" >> " +
+            "\"$GITHUB_OUTPUT\"\n",
+            ValidateDeepInspectAdoption,
+            "Deep Inspect contract accepted the queued event SHA as current.");
+        AssertMutationRejected(
+            deepInspect,
             "  decompiler-test:\n" +
             "    name: Decompiler test lane\n" +
+            "    needs: candidate\n" +
             "    permissions:\n" +
             "      contents: read\n" +
             "      packages: read\n" +
@@ -111,6 +120,7 @@ internal static class ReleaseCandidateWorkflowContract
             "      github.event_name == 'push' ||\n",
             "  decompiler-test:\n" +
             "    name: Decompiler test lane\n" +
+            "    needs: candidate\n" +
             "    permissions:\n" +
             "      contents: read\n" +
             "      packages: read\n" +
@@ -124,6 +134,14 @@ internal static class ReleaseCandidateWorkflowContract
             "      github.event_name == 'schedule' &&\n",
             ValidateDeepInspectAdoption,
             "Deep Inspect contract accepted silent post-merge failure.");
+        AssertMutationRejected(
+            deepInspect,
+            "            --state open --search 'Deep Inspect in:title' " +
+            "--limit 100 \\\n",
+            "            --state open --label \"$ISSUE_LABEL\" " +
+            "--limit 100 \\\n",
+            ValidateDeepInspectAdoption,
+            "Deep Inspect contract accepted label-filtered incident recovery.");
         AssertMutationRejected(
             deepInspect,
             "      inputs.lane == 'census' ||\n" +
@@ -432,8 +450,43 @@ internal static class ReleaseCandidateWorkflowContract
             "Deep Inspect concurrency");
 
         YamlMappingNode jobs = GetRequiredMapping(root, "jobs", "Deep Inspect workflow");
+        YamlMappingNode candidate =
+            GetRequiredMapping(jobs, "candidate", "Deep Inspect jobs");
+        string candidateCondition = GetRequiredScalar(
+            candidate,
+            "if",
+            "Deep Inspect candidate");
+        RequireContains(candidateCondition, "github.event_name == 'push'");
+        RequireContains(candidateCondition, "inputs.lane == 'release-candidate'");
+        RequireScalarValue(
+            GetRequiredMapping(candidate, "outputs", "Deep Inspect candidate"),
+            "sha",
+            "${{ steps.exact.outputs.sha }}",
+            "Deep Inspect candidate outputs");
+        YamlMappingNode candidateCheckout = GetRequiredSequence(
+                candidate,
+                "steps",
+                "Deep Inspect candidate")
+            .Children
+            .Select(node => RequireMapping(node, "Deep Inspect candidate step"))
+            .Single(step => GetOptionalScalar(step, "uses") == "actions/checkout@v7");
+        RequireScalarValue(
+            GetRequiredMapping(
+                candidateCheckout,
+                "with",
+                "Deep Inspect candidate checkout"),
+            "ref",
+            "${{ steps.selection.outputs.ref }}",
+            "Deep Inspect candidate checkout");
+        RequireScalarValue(
+            FindStep(candidate, "Record exact candidate"),
+            "run",
+            "echo \"sha=$(git rev-parse HEAD)\" >> \"$GITHUB_OUTPUT\"",
+            "Deep Inspect candidate exact SHA");
+
         YamlMappingNode testJob =
             GetRequiredMapping(jobs, "test", "Deep Inspect jobs");
+        RequireScalarValue(testJob, "needs", "candidate", "Deep Inspect test lane");
         YamlMappingNode testPermissions =
             GetRequiredMapping(testJob, "permissions", "Deep Inspect test lane");
         RequireScalarValue(testPermissions, "contents", "read", "Deep Inspect test permissions");
@@ -453,6 +506,13 @@ internal static class ReleaseCandidateWorkflowContract
         YamlMappingNode[] scheduledSteps = testSteps.Children
             .Select(node => RequireMapping(node, "Deep Inspect test step"))
             .ToArray();
+        YamlMappingNode testCheckout = scheduledSteps.Single(step =>
+            GetOptionalScalar(step, "uses") == "actions/checkout@v7");
+        RequireScalarValue(
+            GetRequiredMapping(testCheckout, "with", "Deep Inspect test checkout"),
+            "ref",
+            "${{ needs.candidate.outputs.sha }}",
+            "Deep Inspect test checkout");
         YamlMappingNode[] querySteps = scheduledSteps
             .Where(step => GetOptionalScalar(step, "name") == "Run query tests")
             .ToArray();
@@ -589,6 +649,11 @@ internal static class ReleaseCandidateWorkflowContract
         // explicit time limit well inside the six-hour host default.
         YamlMappingNode decompilerTestJob =
             GetRequiredMapping(jobs, "decompiler-test", "Deep Inspect jobs");
+        RequireScalarValue(
+            decompilerTestJob,
+            "needs",
+            "candidate",
+            "Deep Inspect decompiler test lane");
         YamlMappingNode decompilerTestPermissions = GetRequiredMapping(
             decompilerTestJob, "permissions", "Deep Inspect decompiler test lane");
         RequireScalarValue(
@@ -608,6 +673,16 @@ internal static class ReleaseCandidateWorkflowContract
             .Children
             .Select(node => RequireMapping(node, "Deep Inspect decompiler test step"))
             .ToArray();
+        YamlMappingNode decompilerCheckout = decompilerTestSteps.Single(step =>
+            GetOptionalScalar(step, "uses") == "actions/checkout@v7");
+        RequireScalarValue(
+            GetRequiredMapping(
+                decompilerCheckout,
+                "with",
+                "Deep Inspect decompiler test checkout"),
+            "ref",
+            "${{ needs.candidate.outputs.sha }}",
+            "Deep Inspect decompiler test checkout");
         foreach ((string name, string command) in new[]
         {
             ("Run decompiler tests (slow gates except the multi-hour corpus sweep)", "--gate no-corpus"),
@@ -729,12 +804,17 @@ internal static class ReleaseCandidateWorkflowContract
             "Deep Inspect failure report");
         RequireContains(reportCondition, "github.event_name == 'push'");
         RequireContains(reportCondition, "github.event_name == 'schedule'");
-        RequireContains(
-            GetRequiredScalar(
-                FindStep(report, "Open or update the tracking issue"),
-                "run",
-                "Deep Inspect failure report"),
-            "title=\"Deep Inspect main verification failed\"");
+        string reportRun = GetRequiredScalar(
+            FindStep(report, "Open or update the tracking issue"),
+            "run",
+            "Deep Inspect failure report");
+        RequireContains(reportRun, "title=\"Deep Inspect main verification failed\"");
+        RequireContains(reportRun, "--search 'Deep Inspect in:title'");
+        if (reportRun.Contains("--state open --label", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "Deep Inspect failure lookup must find an incident before restoring its label.");
+        }
     }
 
     private static YamlMappingNode LoadRoot(string workflow, string context)

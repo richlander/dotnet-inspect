@@ -84,9 +84,12 @@ not a required proof for each pull-request candidate. Every push to `main`
 starts the complete Linux test and decompiler-test lanes. That stream shares
 one concurrency group with the daily freshness fallback and manual `test`
 recovery: the active run completes, at most one pending run is retained, and a
-newer candidate replaces an older pending candidate. An intermediate commit
-may therefore be superseded before execution, while its changes remain in the
-newer `main` state that is verified next.
+newly arriving candidate replaces the previous pending candidate. After the
+surviving workflow starts, one lightweight job resolves the current branch
+tip once and both heavy lanes check out that same SHA. Queue arrival therefore
+cannot make a delayed older event verify stale code. An intermediate commit may
+still be superseded before execution, while its changes remain in the newer
+`main` state that is verified next.
 
 This bounded latest-state stream does not gate PR CI and does not claim that
 each merge was independently certified. Failures remain visible as mainline

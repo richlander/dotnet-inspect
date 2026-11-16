@@ -141,8 +141,52 @@ jobs:
           if-no-files-found: warn
           overwrite: true
 
+  candidate:
+    name: Resolve test candidate
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'schedule' && github.event.schedule == '30 11 * * *') ||
+      inputs.lane == 'test' ||
+      inputs.lane == 'release-candidate' ||
+      inputs.lane == 'all'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      sha: ${{ steps.exact.outputs.sha }}
+    steps:
+      - name: Select candidate reference
+        id: selection
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_REF: ${{ github.ref }}
+          EVENT_SHA: ${{ github.sha }}
+          LANE: ${{ inputs.lane }}
+          SCHEDULE: ${{ github.event.schedule }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ref=$EVENT_SHA
+          if [[ "$EVENT_NAME" == push ]] ||
+             [[ "$EVENT_NAME" == schedule && "$SCHEDULE" == '30 11 * * *' ]] ||
+             [[ "$LANE" == test ]]; then
+            ref=$EVENT_REF
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.selection.outputs.ref }}
+
+      - name: Record exact candidate
+        id: exact
+        shell: bash
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   test:
     name: Test lane
+    needs: candidate
     permissions:
       contents: read
       packages: read
@@ -159,6 +203,8 @@ jobs:
     runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.candidate.outputs.sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -683,6 +729,7 @@ jobs:
   # visibly instead of being cancelled.
   decompiler-test:
     name: Decompiler test lane
+    needs: candidate
     permissions:
       contents: read
       packages: read
@@ -696,6 +743,8 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.candidate.outputs.sha }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v6
@@ -1499,6 +1548,7 @@ jobs:
     # Manual dispatches are watched by the dispatcher and remain excluded.
     needs:
       - package-sweep
+      - candidate
       - test
       - decompiler-test
       - platform-test
@@ -1531,7 +1581,7 @@ jobs:
           title="Deep Inspect main verification failed"
           legacy_title="Deep Inspect scheduled run failed"
           num=$(gh issue list --repo "${{ github.repository }}" \
-            --state open --label "$ISSUE_LABEL" --limit 100 \
+            --state open --search 'Deep Inspect in:title' --limit 100 \
             --json number,title \
             --jq "map(select(.title == \"$title\" or .title == \"$legacy_title\")) | .[0].number // empty")
           if [ -n "$num" ]; then
