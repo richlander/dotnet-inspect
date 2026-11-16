@@ -88,12 +88,14 @@ public static class ChangeDetectionApp
                     validateProvenancePin: false);
                 return ProvenancePin.Refresh(mutated, mutatedContract);
             });
+        DeepInspectHealthTestSuite.Run();
         ChangePlanTestSuite.Run(repository);
 
         Console.WriteLine(
             "CI aggregate fail-safe, repository line endings, path canaries, "
-            + "provenance pin mutations, change-planner construction, and "
-            + "workflow scope transport passed.");
+            + "provenance pin mutations, Deep Inspect health policy, "
+            + "change-planner construction, and workflow scope transport "
+            + "passed.");
         return 0;
     }
 

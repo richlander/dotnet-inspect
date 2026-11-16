@@ -79,6 +79,22 @@ entries separately and include the always-run `changes`, `provenance`, and
 the bound safe as routing changes. The current workflow defines 14 jobs, with
 the dependency-policy job selected only for pushes to `main`.
 
+Daily-only evidence remains admissible to pre-merge CI only while the latest
+completed `main` Deep Inspect attempt that actually ran both the Linux `Test
+lane` and `Decompiler test lane` is no more than 36 hours old and both jobs
+succeeded. Scheduled and manually dispatched Deep Inspect runs may supply that
+evidence; a newer successful manual run therefore clears a failed nightly
+result without waiting for the next schedule. A missing, stale, failed,
+cancelled, or incomplete qualifying attempt fails the always-selected
+`deepInspectHealth` admission validation before any path-gated runner starts.
+
+Pushes to `main` do not consume this admission validation: they cannot prevent
+the merge that already happened, and their focused dependency-policy check
+must still run. The health result does not replace candidate-focused gates or
+prove the current candidate correct. It keeps the daily owner's last result
+binding on later PR and merge-group work instead of treating a red daily lane
+as notification-only evidence.
+
 - `ci.yml` runs one Release solution build and a bounded smoke population for
   CLI routes, inspection queries, InertText, dependency policy, and the
   package-manifest verifier. It also runs the complete fast portable query

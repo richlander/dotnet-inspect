@@ -208,6 +208,14 @@ focused consumer rebuilds and checks the composed Release graph after merge;
 pull-request and merge-group candidates instead run the same policy inside
 their selected pre-merge test job.
 
+Every pull-request and merge-group plan selects `deepInspectHealth`
+independently of changed paths; push plans do not. The `changes` consumer
+evaluates that selection against the latest qualifying Deep Inspect evidence
+under [Classifying test cost](../testing-cost-classification.md#existing-consumers-no-workflow-changes-needed-to-add-a-tag)
+before path-gated jobs start. The planner owns only the event selection. The
+test-cost owner defines qualification, freshness, and conclusions; the
+workflow transports its decision and does not reinterpret it.
+
 A validation's selection set must cover its entire scan set. The line-ending
 guard scans the complete tracked working tree, so the always-run `changes` job
 executes it directly before publishing a plan. It does not need a conditional
@@ -284,7 +292,7 @@ Conceptually:
 
 ```json
 {
-  "schemaVersion": 8,
+  "schemaVersion": 9,
   "status": "planned",
   "provenance": {
     "kind": "pullRequestSyntheticCandidate",
@@ -296,6 +304,7 @@ Conceptually:
     "sha256": "..."
   },
   "validations": {
+    "deepInspectHealth": true,
     "test": true,
     "dependencyPolicy": false,
     "markdownlint": false,
