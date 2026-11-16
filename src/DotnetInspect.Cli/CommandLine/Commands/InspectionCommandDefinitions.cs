@@ -1120,6 +1120,7 @@ public static class InspectionCommandDefinitions
                 PlatformAssembly = PackageReferenceAdmission.IsCandidate(packagePath) ? platformAssembly : null,
                 AssemblyName = assemblyPath,
                 WorkspacePacket = workspacePacket,
+                RouterPlatformLibrary = RouterTargetAnalysis.GetLibrary(parseResult),
                 NamesakeLibrary = namesakeLibrary,
                 FirstLibrary = firstLibrary,
                 IncludeMetadata = true,

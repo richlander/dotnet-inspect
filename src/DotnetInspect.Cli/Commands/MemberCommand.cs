@@ -121,6 +121,8 @@ public static partial class MemberCommand
         }
 
         bool mayResolveImpliedMember =
+            options.ResolvedRouterTarget is null
+            &&
             options.MemberFilter.Count == 0
             && options.TypeName is { } unresolvedTarget
             && HasPotentialImpliedMember(unresolvedTarget);
@@ -183,6 +185,8 @@ public static partial class MemberCommand
         var unresolvedOptions = options;
         bool memberGestureChanged = false;
         bool catalogNeedsTargetResolution =
+            options.ResolvedRouterTarget is null
+            &&
             !options.RouterDeferredTypeOrMember
             && options.IncludeSections is null
             && options.MemberFilter.Count == 0
@@ -298,7 +302,10 @@ public static partial class MemberCommand
             var apiDllPath = loaded.ApiDllPath;
             var pdbLookupPath = loaded.PdbLookupPath;
             var lookupResult = preselectedType is null
-                ? ApiTypeLookupService.LookupType(api, typeName!)
+                ? options.ResolvedRouterTarget is { } resolvedTarget
+                    ? ApiTypeLookupService.LookupResolvedType(
+                        api, resolvedTarget)
+                    : ApiTypeLookupService.LookupType(api, typeName!)
                 : new ApiTypeLookupResult(typeName!, new LookupResult(preselectedType.FullName, []),
                     preselectedType);
             if (!lookupResult.Found)
@@ -2444,6 +2451,7 @@ public static partial class MemberCommand
         SectionNames.SourceLocations,
         SectionNames.FidelityCauses,
         SectionNames.UnsafeCode,
+        SectionNames.Overloads,
     ];
 
     // Returns a selector that limits API extraction to the requested Type, or
@@ -2463,8 +2471,10 @@ public static partial class MemberCommand
             || options.EffectiveDiscovery
             || options.HasCallerScope
             || options.MemberFilter.Count != 1
-            || options.IncludeSections is not { Count: > 0 } sections
-            || !sections.All(SingleTypeSurfaceSections.Contains))
+            || !(options.IncludeSections is { Count: > 0 } sections
+                ? sections.All(SingleTypeSurfaceSections.Contains)
+                : options.JsonOutput && !options.Count
+                    && options.IncludeSections is null))
         {
             return null;
         }
@@ -2481,16 +2491,34 @@ public static partial class MemberCommand
             {
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Open(assemblyPath);
-                ExactTypeDefinitionSelection selection = ExactTypeInspectionOperation.SelectDeclarations(
-                    session.TypeDeclarations(), typeName,
-                    options.IncludeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.Public).Content;
-                if (selection.Outcome != ExactTypeInspectionOutcome.Available
-                    || selection.DefinitionToken is not { } token
+                // A Router-resolved Type carries its exact definition
+                // identity; otherwise use the shared Type selection and its
+                // existing scope admission.
+                int? selectedToken;
+                if (options.ResolvedRouterTarget is { } resolved)
+                {
+                    selectedToken =
+                        session.ProbeDeclaration(resolved.Type)
+                            is TypeDeclarationResult.Defined definition
+                                ? definition.Definition.Value
+                                : null;
+                }
+                else
+                {
+                    ExactTypeDefinitionSelection selection = ExactTypeInspectionOperation.SelectDeclarations(
+                        session.TypeDeclarations(), typeName,
+                        options.IncludeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.Public).Content;
+                    selectedToken =
+                        selection.Outcome == ExactTypeInspectionOutcome.Available
+                            ? selection.DefinitionToken?.Value
+                            : null;
+                }
+                if (selectedToken is not { } token
                     || session.MethodBodies.DeclaresExtensionMethod(memberName))
                 {
                     return null;
                 }
-                return handle => MetadataTokens.GetToken(handle) == token.Value;
+                return handle => MetadataTokens.GetToken(handle) == token;
             }
             catch (BadImageFormatException)
             {

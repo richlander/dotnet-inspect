@@ -1104,6 +1104,27 @@ the exact structured Type identity and declaration occurrence that Subject
 Relations consumes through its focus-construction API; hosts do not revalidate
 that identity as Metadata.
 
+An already resolved Library can lend its binding policy to
+`ExactTypeInspectionOperation.ExecuteWithLiveTargetAsync`. Its text overload
+retains query selection. Its structured `MetadataTypeDefinitionName` overload
+uses definition identity directly, including ordinal namespace and name
+equality, without reparsing the name or attempting suffix or generic-name
+fallback. The CLI uses this entrance when Router has already established the
+Type. Both overloads retain the same source authority, forwarding, failure,
+and callback-lifetime contracts.
+
+For an already established definition, resolved-Library projection passes that
+structured identity to Metadata before decoding members. Metadata retains the
+selected declaration and local extension suppliers, rather than building every
+unrelated Type's rich API first. Rejected name traversals remain included so
+their failures stay visible. Only forwarders for that exact definition are
+resolved and projected; unrelated forwarders do not authorize supplier work.
+A declaration probe or extension-supplier scan that
+cannot establish this selection retains complete projection. Text queries,
+unresolved forwarding, and absence retain the existing rich selection path.
+The live surface is preparation for the selected Type, not a claim that every
+unrelated Library declaration was richly inspected.
+
 The unbounded query first reads detached declaration inventories across a
 multi-participant context, then richly projects only participants carrying a
 potentially matching root and any terminal suppliers Metadata resolves from

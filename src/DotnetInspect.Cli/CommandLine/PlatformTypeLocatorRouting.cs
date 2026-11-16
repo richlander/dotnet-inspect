@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using DotnetInspect.Cli.Commands;
+using DotnetInspect.Cli.Inspectors;
 using DotnetInspector.Ecosystems;
 using DotnetInspector.LibraryMetadata;
 using DotnetInspector.Packages;
@@ -9,6 +10,7 @@ using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.CommandLine;
@@ -38,13 +40,11 @@ internal abstract class CliPlatformTypeLocatorOutcome
         internal Completed(
             PlatformTypeCatalogRouteTarget target,
             ImmutableArray<PlatformTypeCatalogRouteRequest> typeRequests,
-            ImmutableArray<string> compatibilityTypePatterns,
             InspectionEnvelope<TypeDeclarationLocatorSectionResult> envelope,
             PlatformHouseReceipt houseReceipt)
         {
             Target = target;
             TypeRequests = typeRequests;
-            CompatibilityTypePatterns = compatibilityTypePatterns;
             Envelope = envelope;
             HouseReceipt = houseReceipt;
         }
@@ -52,7 +52,6 @@ internal abstract class CliPlatformTypeLocatorOutcome
         internal PlatformTypeCatalogRouteTarget Target { get; }
         internal ImmutableArray<PlatformTypeCatalogRouteRequest> TypeRequests
         { get; }
-        internal ImmutableArray<string> CompatibilityTypePatterns { get; }
         internal int NamespaceAnswerIndex => TypeRequests.Length;
         internal InspectionEnvelope<TypeDeclarationLocatorSectionResult>
             Envelope
@@ -95,7 +94,6 @@ internal abstract class CliPlatformTypeLocatorOutcome
 
 internal static class PlatformTypeLocatorRouting
 {
-    private const int MaxTypeMemberBoundaryProbes = 64;
     private static readonly LibraryTypeDeclarationInventoryInspectionBounds
         InventoryBounds = new(
             maximumAssemblyBytes: 512 * 1024 * 1024,
@@ -107,21 +105,41 @@ internal static class PlatformTypeLocatorRouting
         CommandContext context,
         NuGetSourceOptions sourceOptions,
         string target,
+        PlatformLibraryPopulationDeclaration population,
         CancellationToken cancellationToken) =>
         LocateAsync(
             PlatformTypeCatalogRouting.FindActiveDotnetRoot(),
+            population,
             context,
             sourceOptions,
             target,
             cancellationToken);
 
+    internal static ValueTask<CliPlatformTypeLocatorOutcome> LocateAsync(
+        string? dotnetRoot,
+        CommandContext context,
+        NuGetSourceOptions sourceOptions,
+        string target,
+        CancellationToken cancellationToken) =>
+        LocateAsync(
+            dotnetRoot,
+            new PlatformLibraryPopulationDeclaration(PlatformFamily.DotNetRuntime),
+            context,
+            sourceOptions,
+            target,
+            cancellationToken);
+
+    // Realizes only the selected Platform family's population; a miss there
+    // is final and never retries another family.
     internal static async ValueTask<CliPlatformTypeLocatorOutcome> LocateAsync(
         string? dotnetRoot,
+        PlatformLibraryPopulationDeclaration population,
         CommandContext context,
         NuGetSourceOptions sourceOptions,
         string target,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(population);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(sourceOptions);
         ArgumentNullException.ThrowIfNull(target);
@@ -130,6 +148,7 @@ internal static class PlatformTypeLocatorRouting
         PlatformPopulationArtifactMaterializationOutcome realization =
             await PlatformTypeCatalogRouting.RealizePopulationAsync(
                     dotnetRoot,
+                    population,
                     context,
                     sourceOptions,
                     cancellationToken)
@@ -210,25 +229,9 @@ internal static class PlatformTypeLocatorRouting
                 populationTarget.Version.Value);
             (
                 ImmutableArray<PlatformTypeCatalogRouteRequest> typeRequests,
-                ImmutableArray<string> compatibilityTypePatterns,
                 ImmutableArray<TypeDeclarationLocatorRequest> requests) =
                     BuildRequests(
                         target,
-                        [
-                            .. completed.Population.Value.Members
-                                .Select(
-                                    static member =>
-                                        member.PlatformLibrary.Library.ApiAssembly
-                                            .AssemblyIdentity)
-                                .OfType<
-                                    ManagedMetadataIdentity.Assembly>()
-                                .Select(
-                                    static identity =>
-                                        identity.Identity.Name)
-                                .Distinct(
-                                    StringComparer.OrdinalIgnoreCase),
-                        ],
-                        routeTarget,
                         cancellationToken);
             InspectionEnvelope<TypeDeclarationLocatorSectionResult> envelope =
                 await TypeDeclarationLocatorInspection.ExecuteAsync(
@@ -285,7 +288,6 @@ internal static class PlatformTypeLocatorRouting
             return new CliPlatformTypeLocatorOutcome.Completed(
                 routeTarget,
                 typeRequests,
-                compatibilityTypePatterns,
                 envelope,
                 completed.Population.Receipt.HouseReceipt);
         }
@@ -349,6 +351,27 @@ internal static class PlatformTypeLocatorRouting
             new PlatformTypeCatalogRouteOutcome.Missing(
                 completed.TypeRequests[0],
                 completed.Target));
+    }
+
+    // Whether the realized selected population names this whole Library as a
+    // focus member. The population was realized by the same installed or
+    // package-backed Platform authority as Type routing; no other family or
+    // source is consulted.
+    internal static bool ContainsFocusLibrary(
+        CliPlatformTypeLocatorOutcome.Completed completed,
+        string library)
+    {
+        ArgumentNullException.ThrowIfNull(completed);
+        ArgumentException.ThrowIfNullOrWhiteSpace(library);
+        string name = library.Trim();
+        return AssertEvaluated(completed.Envelope).Members.Any(member =>
+            member.Observation.Realization
+                is TypeDeclarationLocatorRealization.PlatformRealization
+                {
+                    Role: WorkspacePlatformPopulationMemberRole.Focus,
+                }
+            && member.Observation.AssemblyIdentity.Name.Equals(
+                name, StringComparison.OrdinalIgnoreCase));
     }
 
     internal static InspectionEnvelope<PlatformNamespaceDiscoveryOutcome>
@@ -454,69 +477,11 @@ internal static class PlatformTypeLocatorRouting
                     + "canonical Workspace Share projection."));
     }
 
-    internal static PlatformTypeCatalogRouteOutcome?
-        ResolveCompatibilityType(
-            CliPlatformTypeLocatorOutcome.Completed completed,
-            string pattern,
-            CancellationToken cancellationToken)
-    {
-        int patternIndex = -1;
-        for (int index = 0;
-            index < completed.CompatibilityTypePatterns.Length;
-            index++)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (string.Equals(
-                    completed.CompatibilityTypePatterns[index],
-                    pattern,
-                    StringComparison.OrdinalIgnoreCase))
-            {
-                patternIndex = index;
-                break;
-            }
-        }
-        if (patternIndex < 0)
-            return null;
-
-        TypeDeclarationLocatorSectionResult.Evaluated evaluated =
-            AssertEvaluated(completed.Envelope);
-        int answerIndex =
-            completed.NamespaceAnswerIndex + 1 + patternIndex;
-        ImmutableArray<TypeDeclarationLocatorSectionCandidate> preferred =
-            SelectCompatibilityCandidates(
-                evaluated.Answers[answerIndex].Candidates,
-                pattern,
-                cancellationToken);
-        var request = new PlatformTypeCatalogRouteRequest(
-            pattern,
-            pattern,
-            memberSelector: null);
-        if (preferred.IsDefaultOrEmpty)
-        {
-            return new PlatformTypeCatalogRouteOutcome.Missing(
-                request,
-                completed.Target);
-        }
-
-        return preferred.Length == 1
-            ? new PlatformTypeCatalogRouteOutcome.Resolved(
-                request,
-                completed.Target,
-                Snapshot(preferred[0]))
-            : new PlatformTypeCatalogRouteOutcome.Ambiguous(
-                request,
-                completed.Target,
-                [.. preferred.Select(Snapshot)]);
-    }
-
     private static (
         ImmutableArray<PlatformTypeCatalogRouteRequest> TypeRequests,
-        ImmutableArray<string> CompatibilityTypePatterns,
         ImmutableArray<TypeDeclarationLocatorRequest> Requests)
         BuildRequests(
             string target,
-            ImmutableArray<string> platformAssemblyNames,
-            PlatformTypeCatalogRouteTarget routeTarget,
             CancellationToken cancellationToken)
     {
         string discoveryTarget = target.Trim();
@@ -527,66 +492,20 @@ internal static class PlatformTypeLocatorRouting
             ImmutableArray.CreateBuilder<TypeDeclarationLocatorRequest>();
 
         AddTypeRequest(discoveryTarget, memberSelector: null);
-        int probes = 0;
-        int genericDepth = 0;
-        for (int index = discoveryTarget.Length - 1;
-            index > 0 && probes < MaxTypeMemberBoundaryProbes;
-            index--)
+        foreach (TypeMemberSelectionCandidate candidate in
+            ExactTypeInspectionOperation.GetTypeMemberCandidates(discoveryTarget))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            switch (discoveryTarget[index])
-            {
-                case '>':
-                    genericDepth++;
-                    continue;
-                case '<':
-                    genericDepth--;
-                    continue;
-                case '.' when genericDepth == 0
-                    && index < discoveryTarget.Length - 1:
-                    break;
-                default:
-                    continue;
-            }
-
-            probes++;
             AddTypeRequest(
-                discoveryTarget[..index],
-                discoveryTarget[(index + 1)..]);
+                candidate.TypeName,
+                candidate.MemberSelector);
         }
         requests.Add(
             new TypeDeclarationLocatorRequest.Namespace(
                 discoveryTarget,
                 MetadataNamespaceMatch.Exact));
-        var compatibilityTypePatterns =
-            ImmutableArray.CreateBuilder<string>();
-        var seenCompatibilityPatterns =
-            new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (PlatformTypeCatalogRouteRequest request
-            in typeRequests)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!TrySplitPlatformQualifiedTypeName(
-                    request.TypePattern,
-                    out string assemblyName,
-                    out string pattern)
-                || !IsAssemblyOwnedByTarget(
-                    assemblyName,
-                    platformAssemblyNames,
-                    routeTarget))
-            {
-                continue;
-            }
-            if (seenCompatibilityPatterns.Add(pattern))
-            {
-                compatibilityTypePatterns.Add(pattern);
-                requests.Add(
-                    new TypeDeclarationLocatorRequest.Pattern(pattern));
-            }
-        }
         return (
             typeRequests.ToImmutable(),
-            compatibilityTypePatterns.ToImmutable(),
             requests.ToImmutable());
 
         void AddTypeRequest(
@@ -602,64 +521,6 @@ internal static class PlatformTypeLocatorRouting
                 new TypeDeclarationLocatorRequest.Pattern(
                     typePattern));
         }
-    }
-
-    private static bool TrySplitPlatformQualifiedTypeName(
-        string qualifiedName,
-        out string assemblyName,
-        out string typeName)
-    {
-        assemblyName = null!;
-        typeName = null!;
-
-        if (qualifiedName.Count(static character => character == '.') < 2)
-            return false;
-
-        for (int index = qualifiedName.Length - 1; index >= 0; index--)
-        {
-            if (qualifiedName[index] != '.')
-                continue;
-
-            string candidateAssembly = qualifiedName[..index];
-            string candidateType = qualifiedName[(index + 1)..];
-            if (candidateAssembly.Length == 0
-                || candidateType.Length == 0
-                || !EcosystemPackCatalog.ShouldSearchPlatform(candidateAssembly))
-            {
-                continue;
-            }
-
-            assemblyName = candidateAssembly;
-            typeName = candidateType;
-            return true;
-        }
-
-        return false;
-    }
-
-    private static bool IsAssemblyOwnedByTarget(
-        string assemblyName,
-        ImmutableArray<string> platformAssemblyNames,
-        PlatformTypeCatalogRouteTarget target)
-    {
-        if (platformAssemblyNames.Contains(
-                assemblyName,
-                StringComparer.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        string framework = target.Family switch
-        {
-            PlatformFamily.DotNetRuntime => "runtime",
-            PlatformFamily.AspNetCore => "aspnetcore",
-            _ => throw new InvalidOperationException(
-                "Unknown Platform family."),
-        };
-        return PlatformResolver.ResolveAssembly(
-                assemblyName,
-                $"{framework}@{target.Version}")
-            .AssemblyPath is not null;
     }
 
     private static ImmutableArray<TypeDeclarationLocatorSectionCandidate>
@@ -684,6 +545,25 @@ internal static class PlatformTypeLocatorRouting
                         normalizedPattern);
                 }),
         ];
+        // A dotted (qualified) target names one complete identity: the full
+        // namespace-qualified name, or the complete nesting chain with the
+        // namespace omitted entirely (the unqualified spelling). A dotted
+        // suffix such as a partial namespace never selects a Type.
+        if (normalizedPattern.Contains('.'))
+        {
+            preferred =
+            [
+                .. preferred.Where(
+                    candidate =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return IsCompleteIdentity(
+                            candidate.Name, normalizedPattern, explicitGeneric);
+                    }),
+            ];
+            if (preferred.IsDefaultOrEmpty)
+                return [];
+        }
         ImmutableArray<TypeDeclarationLocatorSectionCandidate> exact =
         [
             .. preferred.Where(
@@ -731,91 +611,6 @@ internal static class PlatformTypeLocatorRouting
             : definitions;
     }
 
-    private static ImmutableArray<TypeDeclarationLocatorSectionCandidate>
-        SelectCompatibilityCandidates(
-            ImmutableArray<TypeDeclarationLocatorSectionCandidate>
-                candidates,
-            string pattern,
-            CancellationToken cancellationToken)
-    {
-        string normalizedPattern =
-            FqnParser.NormalizeTypeName(pattern.Trim()).Replace('+', '.');
-        bool explicitGeneric =
-            TypeMatcher.HasExplicitGenericNotation(pattern);
-        ImmutableArray<TypeDeclarationLocatorSectionCandidate> selected =
-        [
-            .. candidates.Where(
-                candidate =>
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    return TypeMatcher.MatchesNormalized(
-                        Normalize(candidate.Name),
-                        normalizedPattern);
-                }),
-        ];
-        ImmutableArray<TypeDeclarationLocatorSectionCandidate> definitions =
-        [
-            .. selected.Where(
-                candidate =>
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    return candidate.DeclarationKind
-                        == AssemblyTypeDeclarationKind.Definition;
-                }),
-        ];
-        if (!definitions.IsDefaultOrEmpty)
-            selected = definitions;
-
-        ImmutableArray<TypeDeclarationLocatorSectionCandidate> exact =
-        [
-            .. selected.Where(
-                candidate =>
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
-                    string normalizedCandidate = Normalize(candidate.Name);
-                    return normalizedCandidate.Equals(
-                            normalizedPattern,
-                            StringComparison.OrdinalIgnoreCase)
-                        || normalizedCandidate.EndsWith(
-                            $".{normalizedPattern}",
-                            StringComparison.OrdinalIgnoreCase);
-                }),
-        ];
-        if (!exact.IsDefaultOrEmpty)
-            selected = exact;
-        else if (explicitGeneric)
-            return [];
-
-        if (selected.Length <= 1
-            || selected
-                .Select(candidate => Normalize(candidate.Name))
-                .Distinct(StringComparer.OrdinalIgnoreCase)
-                .Count() != 1)
-        {
-            return selected;
-        }
-
-        string resolvedTypeName = Normalize(selected[0].Name);
-        TypeDeclarationLocatorSectionCandidate[] assemblyPrefixMatches =
-        [
-            .. selected
-                .Where(candidate =>
-                    resolvedTypeName.StartsWith(
-                        candidate.Observation.AssemblyIdentity.Name + ".",
-                        StringComparison.OrdinalIgnoreCase))
-                .OrderByDescending(candidate =>
-                    candidate.Observation.AssemblyIdentity.Name.Length),
-        ];
-        return assemblyPrefixMatches.Length > 0
-            && (assemblyPrefixMatches.Length == 1
-                || assemblyPrefixMatches[0]
-                        .Observation.AssemblyIdentity.Name.Length
-                    > assemblyPrefixMatches[1]
-                        .Observation.AssemblyIdentity.Name.Length)
-            ? [assemblyPrefixMatches[0]]
-            : selected;
-    }
-
     private static bool TryGetRejection(
         string pattern,
         out PlatformTypeCatalogQueryRejectionKind rejection)
@@ -834,6 +629,60 @@ internal static class PlatformTypeLocatorRouting
 
         rejection = default;
         return false;
+    }
+
+    // The Router's Type identity rule for one requested spelling. An
+    // unqualified (dotless) spelling keeps its documented route; a dotted one
+    // must name the complete identity (see IsCompleteIdentity).
+    internal static bool IsRouterIdentityMatch(
+        MetadataTypeDefinitionName name,
+        string pattern)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        string normalizedPattern =
+            FqnParser.NormalizeTypeName(pattern.Trim()).Replace('+', '.');
+        return !normalizedPattern.Contains('.')
+            || IsCompleteIdentity(
+                name,
+                normalizedPattern,
+                TypeMatcher.HasExplicitGenericNotation(pattern));
+    }
+
+    // Ordinal identity for a qualified Router target. Without explicit generic
+    // notation the pattern may omit arity markers, as the unqualified route
+    // does; it may never omit part of the namespace or nesting chain.
+    private static bool IsCompleteIdentity(
+        MetadataTypeDefinitionName name,
+        string normalizedPattern,
+        bool explicitGeneric)
+    {
+        string chain = string.Join('.', name.Segments);
+        string full = Normalize(name);
+        if (normalizedPattern.Equals(full, StringComparison.Ordinal)
+            || normalizedPattern.Equals(chain, StringComparison.Ordinal))
+        {
+            return true;
+        }
+        if (explicitGeneric)
+            return false;
+        return normalizedPattern.Equals(WithoutArity(full), StringComparison.Ordinal)
+            || normalizedPattern.Equals(WithoutArity(chain), StringComparison.Ordinal);
+
+        static string WithoutArity(string value)
+        {
+            var builder = new System.Text.StringBuilder(value.Length);
+            for (int index = 0; index < value.Length; index++)
+            {
+                if (value[index] == '`')
+                {
+                    while (index + 1 < value.Length && char.IsAsciiDigit(value[index + 1]))
+                        index++;
+                    continue;
+                }
+                builder.Append(value[index]);
+            }
+            return builder.ToString();
+        }
     }
 
     private static string Normalize(MetadataTypeDefinitionName name)

@@ -94,6 +94,12 @@ public record LibraryOptions : IProjectionOptions
     public string? PlatformFramework { get; init; }
 
     /// <summary>
+    /// The Router's exact whole-name Platform Library selection, when this
+    /// invocation is its handoff. It overrides prefix version matching.
+    /// </summary>
+    internal DotnetInspect.Cli.CommandLine.RouterResolvedLibrary? RouterPlatformLibrary { get; init; }
+
+    /// <summary>
     /// Platform shared runtime version. Searches runtime frameworks in priority order when framework is not specified.
     /// </summary>
     public string? PlatformVersion { get; init; }

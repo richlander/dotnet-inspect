@@ -760,12 +760,9 @@ unsupported saved binding before claiming #4647 complete.
 
 ### Bare-target domain selection
 
-**Status: operator-approved design pivot, 2026-10-29; not yet implemented.**
-This section owns ordinary bare-target Router domain selection. The examples
-below specify the target contract, not syntax already available in every
-current command. Existing implementation and tests still contain cross-domain
-fallback and API discovery before domain selection; those are not compatibility
-requirements for this pivot.
+This section owns ordinary bare-target Router domain selection. Existing
+cross-domain fallback and API discovery before selection are not compatibility
+requirements.
 
 > Select one domain from explicit intent or Ecosystem configuration before
 > acquisition, then resolve only within that domain. Performance and
@@ -785,10 +782,13 @@ admission paths.
 
 Without explicit intent, consume the resource-free
 [Ecosystem assembly-name claim](design/ecosystem-dependency-recognition.md#direct-assembly-name-claims)
-and its Platform-search eligibility. An eligible claim selects Platform;
-otherwise the default is Package. Ecosystems own claim precedence and
-associations. Router must not duplicate that policy with its own `System.*` or
-`Microsoft.*` rules.
+and its bare-target Platform default. A claim selects Platform only when its
+Ecosystem is Platform-search eligible and declares its own Platform
+population; resolution then stays in that one family. Otherwise the default is
+Package. Microsoft.Extensions is eligible but declares no Platform population,
+so its names default to Package. Ecosystems own claim precedence, associations
+and populations. Router must not duplicate that policy with its own `System.*`
+or `Microsoft.*` rules.
 
 A claim is a routing default, not proof that the selected source supplies the
 subject. Runtime may claim `System.*` even when a particular name is available
@@ -803,6 +803,10 @@ the domain.
 | `System.String.ctor` | Platform | The same default, followed by Platform member resolution |
 | `newtonsoft.Json` | Package | No Platform-eligible claim |
 | `System.CommandLine` | Platform | Runtime's default applies even though a NuGet package exists |
+| `Microsoft.Extensions.Logging` | Package | Microsoft.Extensions declares no Platform population |
+| `Microsoft.Extensions.Logging.Abstractions` | Package | The same default applies even though Runtime ships it |
+| `Microsoft.Extensions.Logging.Abstractions --platform` | Platform | Explicit domain override, resolved in Runtime |
+| `Microsoft.AspNetCore.Http.Abstractions` | Platform | ASP.NET Core's claim and population |
 | `package System.CommandLine` | Package | Explicit subject command |
 | `System.CommandLine --package` | Package | Explicit domain override |
 | `System.Text.Json@10.0.0` | Package | Explicit package coordinate |
@@ -837,13 +841,34 @@ Router does not federate their searches or select whichever provider responds
 first. A hint may suggest an explicit override or a discovery command, but
 must not acquire additional sources or run that discovery to prepare the hint.
 
+The Router carries its completed analysis into the Type or Member execution
+entrance. Both paths use shared bounded FQN decomposition and selector grammar;
+known subject or source intent does not require another global catalog lookup.
+Once a selected-domain resolution has established a Type/member boundary,
+structured Type, member selector (including arity, overload, and digest),
+source, or exact identity, the immutable typed result crosses into the
+downstream command. The command may perform the remaining subject inspection
+and option validation, but must not re-infer completed facts from the original
+display spelling or probe another source. CLI option parsing remains the
+authority for option values and errors. A detached Platform locator result
+never carries a live Workspace authority into command execution.
+
 #### Adoption and required evidence
 
 The motivating published assets are `System.Text.Json@10.0.0`,
 `Newtonsoft.Json@13.0.4` and `System.CommandLine@2.0.3`. Their overlapping
 Platform and Package spellings motivate an explicit policy rather than
-existence-sensitive routing. This documentation change approves no runtime
-implementation, performance result, or test-baseline update.
+existence-sensitive routing. `Microsoft.Extensions.Logging@10.0.0` and
+`Microsoft.Extensions.Logging.Abstractions@10.0.0` motivate the Package
+default for an eligible claimant without a Platform population: both are
+NuGet packages that also ship in a shared framework.
+`System.Text.Json.JsonSerializer.DeserializeAsync` also exercises the completed
+Type/member handoff: a selected Platform Type prefix must not be rescanned by
+Member. Durable CLI integration tests use
+the selected installed Platform references and these pinned Package identities;
+focused syntactic controls cover generic, nested, and special selectors. An
+absent local asset may be obtained through the normal product acquisition path,
+not substituted with a synthetic claim about published overlap.
 
 Implementation must gate classification separately from subject resolution:
 

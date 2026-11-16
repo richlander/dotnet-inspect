@@ -6,6 +6,7 @@ using DotnetInspect.Cli.Commands;
 using DotnetInspect.Cli.Options;
 using DotnetInspect.Cli.Output;
 using DotnetInspector.Ecosystems;
+using DotnetInspector.Cache;
 using DotnetInspector.Packages;
 using DotnetInspector.Services;
 using DotnetInspect.Cli.Services;
@@ -18,6 +19,8 @@ namespace DotnetInspect.Cli.Tests;
 [Collection("Console")]
 public class CommandLineTests
 {
+    public CommandLineTests() => NuGetCache.Initialize("dotnet-inspect");
+
     [Theory]
     [InlineData(false, true)]
     [InlineData(true, true)]
@@ -2204,7 +2207,8 @@ public class CommandLineTests
     [InlineData("Microsoft.Authentication.WebAssembly", true)]
     [InlineData("Aspire.Hosting", true)]
     [InlineData("Newtonsoft.Json", true)]
-    [InlineData("Microsoft.Extensions.Logging", false)]
+    [InlineData("Microsoft.Extensions.Logging", true)]
+    [InlineData("Microsoft.Extensions.Logging.Abstractions", true)]
     [InlineData("System.Text.Json.JsonSerializer", false)]
     [InlineData("JsonSerializer", false)]
     public void CommandlessDottedNonPlatformName_UsesAcquisitionFreePackageRoute(
@@ -2761,7 +2765,7 @@ public class CommandLineTests
     [Theory]
     [InlineData("--version")]
     [InlineData("--latest-version")]
-    public async Task Router_PackageVersionTextAsOutputValue_RetainsMemberRoute(
+    public async Task Router_PackageVersionTextAsOutputValue_RetainsPackageRoute(
         string outputPath)
     {
         NuGetCache.Initialize("dotnet-inspect");
@@ -2774,8 +2778,8 @@ public class CommandLineTests
                 args));
 
         Assert.Equal(0, exit);
-        Assert.Contains("Inspect type members", output);
-        Assert.DoesNotContain("Inspect a NuGet package", output);
+        Assert.Contains("Inspect a NuGet package", output);
+        Assert.DoesNotContain("Inspect type members", output);
         Assert.DoesNotContain(
             "requires the explicit 'package' command",
             error);

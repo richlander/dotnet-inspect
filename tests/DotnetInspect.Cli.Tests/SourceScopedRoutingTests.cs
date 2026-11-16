@@ -86,18 +86,23 @@ public sealed class SourceScopedRoutingTests : IDisposable
             sourceArgs = ["--source", ExcludedSource];
         }
 
-        var observations = await RunAppAsync([packageName, .. sourceArgs]);
+        using var decisions = RouterDecisionLog.Begin();
+        var (exit, output, error) = await RunCommandAsync(
+            [packageName, "--package", .. sourceArgs]);
 
         var rewrite = Assert.Single(
-            observations,
+            decisions.Decisions,
             observation => observation.Stage == "router-rewrite");
         string rewritten = rewrite.Detail[(rewrite.Detail.IndexOf(" -> ", StringComparison.Ordinal) + 4)..];
-        Assert.StartsWith($"type {packageName}", rewritten);
+        Assert.StartsWith($"package {packageName}", rewritten);
         Assert.Contains(string.Join(' ', sourceArgs), rewrite.Detail);
+        Assert.NotEqual(0, exit);
+        Assert.Empty(output);
+        Assert.NotEmpty(error);
     }
 
     [Fact]
-    public async Task Router_QueriesCallerSourceForPackageExistence()
+    public async Task Router_PlatformClaimDoesNotQueryCallerSourceForPackageExistence()
     {
         string packageName = $"System.QueryScope{Guid.NewGuid():N}";
         var requests = new ConcurrentQueue<string>();
@@ -108,31 +113,75 @@ public sealed class SourceScopedRoutingTests : IDisposable
         DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         try
         {
-            var observations = await RunAppAsync(
+            using var decisions = RouterDecisionLog.Begin();
+            var (exit, output, error) = await RunCommandAsync(
                 [packageName, "--source", ExcludedSource]);
-
-            var rewrite = Assert.Single(
-                observations,
-                observation => observation.Stage == "router-rewrite");
-            string rewritten = rewrite.Detail[
-                (rewrite.Detail.IndexOf(" -> ", StringComparison.Ordinal) + 4)..];
-            Assert.StartsWith($"package {packageName}", rewritten);
-            Assert.Contains(
-                requests,
-                url => url.Equals(
-                    $"{RouterFeedHandler.FlatContainer}{packageName.ToLowerInvariant()}/index.json",
-                    StringComparison.OrdinalIgnoreCase));
+            Assert.Equal(1, exit);
+            Assert.Empty(output);
+            Assert.Contains("selected Platform domain", error);
+            Assert.Empty(requests);
             Assert.DoesNotContain(
-                requests,
-                url => url.Contains(packageName, StringComparison.OrdinalIgnoreCase)
-                    && !url.StartsWith(
-                        RouterFeedHandler.FlatContainer,
-                        StringComparison.OrdinalIgnoreCase));
+                decisions.Decisions,
+                observation => observation.Stage == "router-rewrite");
         }
         finally
         {
             DotnetInspector.Networking.HttpClientFactory.SetAuthenticationDecorator(null);
             DotnetInspector.Networking.HttpClientFactory.Initialize(new HttpClientFactoryOptions { Offline = true });
+            DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        }
+    }
+
+    [Theory]
+    [InlineData("Microsoft.Extensions.Logging")]
+    [InlineData("Microsoft.Extensions.Hosting")]
+    [InlineData("Microsoft.Extensions.Logging.Abstractions")]
+    public async Task Router_MicrosoftExtensionsName_DefaultsToPackage(string packageName)
+    {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - Microsoft.Extensions
+        // is Platform-search eligible but declares no Platform population, so a
+        // bare name selects Package even when a shared framework ships it.
+        string localSource = Path.Combine(_testRoot, "microsoft-extensions");
+        WriteLocalPackage(localSource, packageName, "1.0.0");
+        bool transportCreated = false;
+        DotnetInspector.Networking.HttpClientFactory.Initialize(
+            new HttpClientFactoryOptions());
+        DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
+        DotnetInspector.Networking.HttpClientFactory.SetPackageSourceHandlerForTesting(
+            _ =>
+            {
+                transportCreated = true;
+                return new HttpClientHandler();
+            });
+        try
+        {
+            using var decisions = RouterDecisionLog.Begin();
+            var (exit, output, error) = await RunCommandAsync(
+                [packageName, "--source", localSource]);
+
+            Assert.Equal(0, exit);
+            Assert.StartsWith($"{packageName}@1.0.0 (NuGet)", output, StringComparison.Ordinal);
+            // The ecosystem note may add a pruning clause for names that a
+            // shared framework also ships; it never names a platform library.
+            Assert.StartsWith(
+                $"Note: Routing to NuGet package '{packageName}' · Microsoft.Extensions",
+                error.Trim(),
+                StringComparison.Ordinal);
+            Assert.Single(error.Trim().Split('\n'));
+            RouterDecision rewrite = Assert.Single(
+                decisions.Decisions,
+                observation => observation.Stage == "router-rewrite");
+            Assert.EndsWith(
+                $" -> package {packageName} --source {localSource}",
+                rewrite.Detail,
+                StringComparison.Ordinal);
+            Assert.DoesNotContain("(Platform)", output, StringComparison.Ordinal);
+            Assert.False(transportCreated);
+        }
+        finally
+        {
+            DotnetInspector.Networking.HttpClientFactory.Initialize(
+                new HttpClientFactoryOptions { Offline = true });
             DotnetInspector.Networking.HttpClientFactory.ResetSharedForTesting();
         }
     }
@@ -2882,7 +2931,7 @@ public sealed class SourceScopedRoutingTests : IDisposable
     }
 
     [Fact]
-    public async Task Router_PlatformPrefixProbeUsesSourceScopedCandidateMetadataOffline()
+    public async Task Router_PlatformClaimIgnoresSourceScopedPackageCandidateOffline()
     {
         const string PackageName = "System.Text";
         SeedLatestCandidate(
@@ -2890,16 +2939,16 @@ public sealed class SourceScopedRoutingTests : IDisposable
             ExcludedSource,
             "4.5.6");
 
-        var observations = await RunAppAsync(
+        using var decisions = RouterDecisionLog.Begin();
+        var (exit, output, error) = await RunCommandAsync(
             [PackageName, "--source", ExcludedSource]);
 
-        var rewrite = Assert.Single(
-            observations,
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Contains("selected Platform domain", error);
+        Assert.DoesNotContain(
+            decisions.Decisions,
             observation => observation.Stage == "router-rewrite");
-        Assert.Contains(
-            $" -> package {PackageName}",
-            rewrite.Detail,
-            StringComparison.Ordinal);
     }
 
     [Fact]

@@ -78,24 +78,31 @@ public sealed class EcosystemDependencyRecognitionProfileTests
     }
 
     [Theory]
-    [InlineData("System.Text.Json", "ecosystem.runtime", true)]
-    [InlineData("Microsoft.Extensions.Logging", "ecosystem.microsoft-extensions", true)]
-    [InlineData("Microsoft.Extensions.AI", "ecosystem.microsoft-extensions", true)]
-    [InlineData("Microsoft.AspNetCore.Http", "ecosystem.aspnetcore", true)]
-    [InlineData("Microsoft.AspNetCore.Components.WebAssembly", "ecosystem.aspnetcore", true)]
-    [InlineData("Microsoft.JSInterop", "ecosystem.aspnetcore", true)]
-    [InlineData("Microsoft.Net.Http.Headers", "ecosystem.aspnetcore", true)]
-    [InlineData("WindowsBase", "ecosystem.runtime", true)]
-    [InlineData("Aspire.Hosting", "ecosystem.aspire", false)]
-    [InlineData("Microsoft.Maui.Controls", "ecosystem.maui", false)]
-    [InlineData("Microsoft.Agents.AI", "ecosystem.ai", false)]
-    [InlineData("Microsoft.Authentication.WebAssembly", "ecosystem.blazor", false)]
-    [InlineData("Microsoft.Azure.SignalR", null, false)]
+    [InlineData("System.Text.Json", "ecosystem.runtime", true, "DotNetRuntime")]
+    [InlineData("Microsoft.Extensions.Logging", "ecosystem.microsoft-extensions", true, null)]
+    [InlineData("Microsoft.Extensions.Hosting", "ecosystem.microsoft-extensions", true, null)]
+    [InlineData("Microsoft.Extensions.Logging.Abstractions", "ecosystem.microsoft-extensions", true, null)]
+    [InlineData("Microsoft.Extensions.AI", "ecosystem.microsoft-extensions", true, null)]
+    [InlineData("Microsoft.AspNetCore.Http", "ecosystem.aspnetcore", true, "AspNetCore")]
+    [InlineData("Microsoft.AspNetCore.Components.WebAssembly", "ecosystem.aspnetcore", true, "AspNetCore")]
+    [InlineData("Microsoft.JSInterop", "ecosystem.aspnetcore", true, "AspNetCore")]
+    [InlineData("Microsoft.Net.Http.Headers", "ecosystem.aspnetcore", true, "AspNetCore")]
+    [InlineData("WindowsBase", "ecosystem.runtime", true, "DotNetRuntime")]
+    [InlineData("Aspire.Hosting", "ecosystem.aspire", false, null)]
+    [InlineData("Microsoft.Maui.Controls", "ecosystem.maui", false, null)]
+    [InlineData("Microsoft.Agents.AI", "ecosystem.ai", false, null)]
+    [InlineData("Microsoft.Authentication.WebAssembly", "ecosystem.blazor", false, null)]
+    [InlineData("Microsoft.Azure.SignalR", null, false, null)]
     public void AssemblyNameClaimReturnsFirstEcosystemAndPlatformPolicy(
         string assemblyName,
         string? expectedEcosystem,
-        bool expectedPlatformSearch)
+        bool expectedPlatformSearch,
+        string? expectedPlatformDefault)
     {
+        // Owner: docs/design/ecosystem-dependency-recognition.md#direct-assembly-name-claims
+        // - an eligible claimant is the bare-target Platform default only
+        // through its own declared Platform population; Microsoft.Extensions
+        // stays eligible but declares none, so its names default to Package.
         EcosystemDependencyDescriptor? claim =
             EcosystemPackCatalog.FindAssemblyNameClaim(assemblyName);
 
@@ -105,6 +112,10 @@ public sealed class EcosystemDependencyRecognitionProfileTests
         Assert.Equal(
             expectedPlatformSearch,
             EcosystemPackCatalog.ShouldSearchPlatform(assemblyName));
+        Assert.Equal(
+            expectedPlatformDefault,
+            EcosystemPackCatalog.FindPlatformSearchPopulation(assemblyName)
+                ?.Family.ToString());
     }
 
     [Fact]

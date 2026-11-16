@@ -208,8 +208,10 @@ public static partial class MemberCommand
             var impliedMembers =
                 new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (TypeMemberSelectionCandidate candidate
-                in ExactTypeInspectionOperation.GetTypeMemberCandidates(
-                    options.TypeName!))
+                in options.ResolvedRouterTarget is null
+                    ? ExactTypeInspectionOperation.GetTypeMemberCandidates(
+                        options.TypeName!)
+                    : [])
             {
                 var candidateRequest = new ExactTypeInspectionRequest(
                     request.PackageId,

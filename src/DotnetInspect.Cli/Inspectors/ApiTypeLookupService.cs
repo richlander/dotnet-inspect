@@ -1,6 +1,7 @@
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspect.Cli.Output;
+using DotnetInspect.Cli.CommandLine;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.Inspectors;
@@ -84,6 +85,15 @@ internal sealed record MemberFilterValidationResult(
 
 internal static class ApiTypeLookupService
 {
+    // Router-issued structured identity: ordinal definition selection through
+    // the same shared exact-Type operation, never query or implied-member inference.
+    internal static ApiTypeLookupResult LookupResolvedType(
+        ApiSurface api, RouterResolvedTarget target)
+        => LookupType(
+            api,
+            target.Type.ToEscapedFullName(),
+            ExactTypeSelectionKind.DefinitionIdentity) with { Query = target.TypeName };
+
     // Host adapter only: selection, ambiguity and Type.Member boundaries are
     // owned by the shared exact-Type operation.
     public static ApiTypeLookupResult LookupType(ApiSurface api, string typeName,

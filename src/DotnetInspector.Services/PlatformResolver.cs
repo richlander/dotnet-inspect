@@ -160,6 +160,46 @@ public static class PlatformResolver
     }
 
     /// <summary>
+    /// Resolves an assembly from the installed shared runtime of one framework
+    /// family at exactly <paramref name="version"/> (ordinal, case-insensitive
+    /// directory name; never a prefix or substring match). Returns no path and
+    /// no error when that exact runtime version is not installed.
+    /// </summary>
+    public static (string? AssemblyPath, string? Framework, string? Version, string? Error)
+        ResolveExactRuntimeAssembly(
+            string assemblyName,
+            string frameworkName,
+            string version)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(assemblyName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(frameworkName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        if (!SharedFrameworkMappings.TryGetValue(frameworkName, out string? sharedName)
+            || GetSharedDirectory() is not { } shared)
+        {
+            return (null, null, null, null);
+        }
+
+        string frameworkPath = Path.Combine(shared, sharedName);
+        string? exact = Directory.Exists(frameworkPath)
+            ? Directory.EnumerateDirectories(frameworkPath)
+                .FirstOrDefault(directory => string.Equals(
+                    Path.GetFileName(directory),
+                    version,
+                    StringComparison.OrdinalIgnoreCase))
+            : null;
+        if (exact is null)
+            return (null, null, null, null);
+
+        if (!assemblyName.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+            assemblyName += ".dll";
+        string? assemblyPath = FindAssemblyCaseInsensitive(exact, assemblyName);
+        return assemblyPath is null
+            ? (null, null, null, $"Library '{assemblyName}' not found in {frameworkName} runtime {version}")
+            : (assemblyPath, frameworkName, Path.GetFileName(exact), null);
+    }
+
+    /// <summary>
     /// Discovers the .NET shared runtime directory.
     /// </summary>
     public static string? GetSharedDirectory()
@@ -177,6 +217,30 @@ public static class PlatformResolver
         return null;
     }
 
+    private static readonly AsyncLocal<bool> s_installedHiveConfinedToDotnetRoot = new();
+
+    /// <summary>
+    /// Test seam. For the current async flow, installed-hive discovery (shared
+    /// runtimes, SDK packs and the active Platform root) uses only the configured
+    /// DOTNET_ROOT, without the process runtime, install_location, well-known or
+    /// home fallbacks. App-cache packs still apply. Product code never sets it.
+    /// </summary>
+    internal static IDisposable ConfineInstalledHiveToDotnetRootForTests()
+    {
+        bool previous = s_installedHiveConfinedToDotnetRoot.Value;
+        s_installedHiveConfinedToDotnetRoot.Value = true;
+        return new InstalledHiveConfinement(previous);
+    }
+
+    /// <summary>Whether the test seam confines installed-hive discovery to DOTNET_ROOT.</summary>
+    public static bool IsInstalledHiveConfinedToDotnetRoot =>
+        s_installedHiveConfinedToDotnetRoot.Value;
+
+    private sealed class InstalledHiveConfinement(bool previous) : IDisposable
+    {
+        public void Dispose() => s_installedHiveConfinedToDotnetRoot.Value = previous;
+    }
+
     private static IEnumerable<string> GetSharedDirectoryCandidates()
     {
         // DOTNET_ROOT environment variable takes highest priority (works on all platforms)
@@ -185,6 +249,8 @@ public static class PlatformResolver
         {
             yield return Path.Combine(dotnetRoot, "shared");
         }
+        if (IsInstalledHiveConfinedToDotnetRoot)
+            yield break;
 
         var currentRuntimeDirectory = RuntimeEnvironment.GetRuntimeDirectory();
         var currentFrameworkDirectory = string.IsNullOrEmpty(currentRuntimeDirectory)
@@ -270,6 +336,8 @@ public static class PlatformResolver
         {
             yield return Path.Combine(dotnetRoot, "packs");
         }
+        if (IsInstalledHiveConfinedToDotnetRoot)
+            yield break;
 
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
