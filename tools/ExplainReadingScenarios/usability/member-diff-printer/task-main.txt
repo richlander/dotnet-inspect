@@ -1,0 +1,10 @@
+For each scenario (S1 to S6), report:
+- "changed": what changed in this Member between 1.0.0 and 2.0.0, specifically; "nothing" if nothing changed.
+- "classification": the classification the output gives this Member's change, quoted exactly, or "none".
+- "type_declaration_1_0_0": the containing Type's complete declaration line in version 1.0.0 according to the output; "did not exist" if the output establishes the Type did not exist in 1.0.0; or "not stated".
+- "type_changed": whether the output establishes that the containing Type's own declaration changed between 1.0.0 and 2.0.0: "changed", "unchanged", or "not stated".
+
+Also report "format_notes": anything in the output format you found ambiguous or had to guess.
+
+Reply with exactly this JSON shape:
+{"S1": {"changed": "", "classification": "", "type_declaration_1_0_0": "", "type_changed": ""}, "S2": {...}, "S3": {...}, "S4": {...}, "S5": {...}, "S6": {...}, "format_notes": ""}

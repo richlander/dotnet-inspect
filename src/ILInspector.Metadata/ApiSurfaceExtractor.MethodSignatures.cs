@@ -316,7 +316,27 @@ public static partial class ApiSurfaceExtractor
         return [];
     }
 
-    private static List<string> RenderMemberAttributes(
+    /// <summary>
+    /// A Type's rendered attribute list, as its API surface row carries it and
+    /// the API comparison compares it.
+    /// </summary>
+    internal static List<string> RenderTypeAttributes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        Action<string>? beforeRetain = null,
+        Action<int>? beforeMaterialize = null)
+        => AttributeReader.RenderAttributes(
+            reader,
+            attributes,
+            qualifyNames: true,
+            beforeRetain: beforeRetain,
+            beforeMaterialize: beforeMaterialize);
+
+    /// <summary>
+    /// A method's, property's, or field's rendered attribute list, as its API
+    /// surface row carries it and the API comparison compares it.
+    /// </summary>
+    internal static List<string> RenderMemberAttributes(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
         Action<string>? beforeRetain = null,

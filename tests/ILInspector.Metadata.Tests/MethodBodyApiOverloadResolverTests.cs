@@ -68,8 +68,7 @@ public sealed class MethodBodyApiOverloadResolverTests
                         MethodBodySelection? direct =
                             session.MethodBodies
                                 .ResolveApiMethodOverload(
-                                    type.DefinitionName
-                                        .ToMetadataFullName(),
+                                    Assert.IsType<int>(type.MetadataToken),
                                     memberName,
                                     ordinal - 1,
                                     includeAll);

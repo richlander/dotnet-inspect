@@ -301,6 +301,8 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   },
   callGraph: {
     queryMemberCallGraph: () => unexpected("queryMemberCallGraph"),
+    queryRetainedMemberCallGraph: () =>
+      unexpected("queryRetainedMemberCallGraph"),
     queryDirectUseClusters: () => unexpected("queryDirectUseClusters"),
     expandPlatformCallGraph: () =>
       unexpected("expandPlatformCallGraph"),
@@ -2903,6 +2905,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "expandPlatformCallGraph",
       "queryDirectUseClusters",
       "queryMemberCallGraph",
+      "queryRetainedMemberCallGraph",
     ],
     catalog: [
       "abandonRetainedWorkspaceNavigation",
@@ -2956,7 +2959,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
     [...engineWorkerOrdinaryOperationKinds].sort(),
     expectedKinds,
   );
-  assert.equal(engineWorkerOrdinaryOperationKinds.length, 157);
+  assert.equal(engineWorkerOrdinaryOperationKinds.length, 158);
   assert.equal(
     new Set(engineWorkerOrdinaryOperationKinds).size,
     engineWorkerOrdinaryOperationKinds.length,

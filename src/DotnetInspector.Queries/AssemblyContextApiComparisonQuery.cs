@@ -97,8 +97,8 @@ public static class AssemblyContextApiComparisonQuery
         // Both endpoints project with one selection that already includes
         // either side's extension-declaring Types; see ApiTypeSelection.
         typeSelection = typeSelection?.PairWith(
-            ExtensionDeclaringTypeNames(beforeGroup, beforeParticipant),
-            ExtensionDeclaringTypeNames(afterGroup, afterParticipant));
+            ExtensionDeclaringTypeNames(beforeGroup, beforeParticipant, typeSelection),
+            ExtensionDeclaringTypeNames(afterGroup, afterParticipant, typeSelection));
         AssemblyContextApiComparisonEndpoint before =
             Project(beforeGroup, beforeParticipant, scope, perEndpointLimits, typeSelection);
         AssemblyContextApiComparisonEndpoint after =
@@ -113,13 +113,19 @@ public static class AssemblyContextApiComparisonQuery
         return new(scope, before, after, comparison);
     }
 
+    // An exact-name selection pairs with only the Types that declare an
+    // extension for a selected Type; any other selection pairs with every
+    // extension-declaring Type.
     static IReadOnlySet<string>? ExtensionDeclaringTypeNames(
         AssemblyContextGroup group,
-        AssemblyContextParticipant participant)
+        AssemblyContextParticipant participant,
+        ApiTypeSelection selection)
         => AssemblyContextQueryExecutor.ExecuteParticipant(
                 group,
                 participant,
-                session => session.ExtensionDeclaringTypeNames())
+                session => selection.FullNames is { } names
+                    ? session.ExtensionDeclaringTypeNamesFor(names)
+                    : session.ExtensionDeclaringTypeNames())
             is AssemblyContextEntry<IReadOnlySet<string>?>.Available { Value: { } names }
                 ? names
                 : null;

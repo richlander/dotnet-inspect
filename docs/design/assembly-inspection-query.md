@@ -1284,6 +1284,30 @@ overview activation already receives an
 issued definition and enters the operation's definition specialization, which
 composes the existing bounded ordinal document producer once. It does not add
 a query inventory or a duplicate identity probe before projection.
+Slice 5 supplies the same selection over a complete session declaration
+inventory. Selected-body and single-Type extraction consumers use its issued
+TypeDef coordinate in that image, rather than repeating query matching or
+Type admission. An already issued MethodDef is validated against its declaring
+Type and Member before any legacy name fallback. Legacy dotted-name fallback
+uses ordinal definition matching and refuses coincident projections; it does
+not apply query aliases or choose the first matching row. Member admission,
+accessor selection, and overload ordering retain their existing owners.
+The inventory reuses constructor-name and base-Type-name decoding within one
+reader operation. It still visits and validates the complete declaration
+population, and decodes each declaration's attribute values independently.
+The selected-body extension check compares heap names through the shared
+Member matcher without allocating unrelated method-name strings. These
+preparation reductions do not skip admission or rejected-declaration evidence.
+Session inventory consumes the retained admitted reader under
+[session-owned format admission](#session-owned-format-admission), rather than
+repeating the raw-PE compatibility admission and constructing another reader.
+
+The final audit found an additional independently owned route added after the
+original plan: API-coordinate source selection still owns local Type matching.
+Its focused adoption is tracked by
+[#11218](https://github.com/richlander/dotnet-inspect/issues/11218), preserving
+its source registration associations and source-only acquisition. The original
+five slices therefore do not close the tracker by themselves.
 This subsection extends the exact single-Type operation's selection
 contract to every consumer that resolves a user-written Type query. Assembly
 Inspection owns that shared operation; Metadata owns the name-selection
@@ -1439,6 +1463,30 @@ predicate. The wider cross-entry-point gates above remain required and
 unverified until the remaining slices land. Compact Tree now consumes the
 same transitional Public admission as the sectioned route; the eventual
 accessibility-only default remains with #10693.
+
+`ExactTypeBodySelectionTests` compares catalog, complete session inventory,
+bounded Library selection, and issued body coordinates for public, hidden,
+obsolete, protected, internal, and public-under-internal nested controls.
+The latter consumes Metadata's enclosing-visibility evidence, matching the
+existing extraction scope. A published witness is `System.Text.Json` 11.0.0,
+`lib/net11.0/System.Text.Json.dll`: public nested `FSharpKind` and
+`StructGetter<,>` under internal `FSharpCoreReflectionProxy` do not acquire
+Public reach merely from their own flags. This consumes current admission;
+it does not implement #10693's proposed default or classification changes.
+The composed `PublicWithNonPublicTypes` scope retains its existing own-flag
+hidden-status classification; its reconciliation remains with #10693.
+`MethodBodyDefinitionSelectionTests` gates literal dotted-name collisions,
+ordinal fallback, issued MethodDef preservation, and invalid TypeDef refusal.
+`MethodBodyApiOverloadResolverTests` compares every ordinary overload group
+in executing CoreLib, LINQ, and JSON with rich Member selection. CLI's
+`SelectedBodyFastPathsConsumeSharedTypeSelection` layering gate prevents
+lookup-local Type matching or attribute admission from returning.
+
+The remaining name predicates have distinct roles: `MetadataTypeLookup` owns
+exact query tiers; `TypeMatcher.Lookup` in the shared operation supplies
+diagnostic suggestions; Find retains discovery; metadata definition binding
+retains ordinal identity; source acquisition and Member matching retain their
+own contracts. API-coordinate source selection is the explicit residual above.
 
 `ExactTypeCatalogSelectionTests` gates catalog-wide full-name precedence,
 coincident names in distinct sources, ordinal definition selection, complete
