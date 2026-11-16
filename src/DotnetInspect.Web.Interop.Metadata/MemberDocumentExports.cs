@@ -153,16 +153,10 @@ public static partial class MetadataExports
         BrowserMemberDocumentInspection inspection =
             ProjectMemberDocument(
                 await ExecuteMemberDocumentAsync(
-                    resolution.Scope.UseParticipant(
+                    resolution.Scope.MaterializeSurfaceAsync(
                         resolution.Participant,
-                        (group, member) =>
-                            AssemblyContextLibraryAdapter.MaterializeAsync(
-                                group,
-                                member,
-                                AssemblyContextLibraryRole.Implementation,
-                                BrowserExactMemberPolicy
-                                    .MaterializationLimits,
-                                CancellationToken.None)),
+                        BrowserExactMemberPolicy.MaterializationLimits,
+                        CancellationToken.None),
                     typeIdentity,
                     memberName,
                     baselineOrdinal,

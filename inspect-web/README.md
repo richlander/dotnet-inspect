@@ -655,14 +655,14 @@ Each retained scope has an explicit compile role and implementation role. The
 compile group uses the selector's reference-preferred assets for API and type
 views; the implementation group uses matching `lib/` assets for bodies,
 Integrations, call graphs, and whole-assembly performance analysis.
-Opportunities use the compile group because they classify the package's
-reference-preferred public surface. Packages without `ref/` assets share one
-group for both roles. When both roles exist and differ, they split the scope's
-role budget rather than doubling it — half the 64 MB aggregate for an
-artifact-backed single-root scope, the whole aggregate for a composite scope. A
-reference-only package has one group and uses that role budget undivided;
-performance analysis falls back to that surface group when no implementation
-participant exists.
+Opportunities read the implementation-preferred participant, because they are
+computed with Integrations as their prerequisite. Packages without `ref/`
+assets share one group for both roles. When both roles exist and differ, they
+split the scope's role budget rather than doubling it — half the 64 MB
+aggregate for an artifact-backed single-root scope, the whole aggregate for a
+composite scope. A reference-only package has one group and uses that role
+budget undivided; performance analysis falls back to that surface group when
+no implementation participant exists.
 
 ### Platform scope roles
 

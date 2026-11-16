@@ -392,11 +392,11 @@ public class UnsafeEmitterTests
                 public sealed class Resource : IDisposable { public void Dispose() { } }
                 public static class Holder
                 {
-                    public static bool Risky { unsafe get => true; }
-                    public static object RiskyObject { unsafe get => new object(); }
-                    public static IDisposable RiskyDisposable { unsafe get => new Resource(); }
-                    public static int[] RiskyArray { unsafe get => new int[1]; }
-                    public static int RiskyInt { unsafe get => 1; }
+                    public static bool Risky { unsafe get => true; set { } }
+                    public static object RiskyObject { unsafe get => new object(); set { } }
+                    public static IDisposable RiskyDisposable { unsafe get => new Resource(); set { } }
+                    public static int[] RiskyArray { unsafe get => new int[1]; set { } }
+                    public static int RiskyInt { unsafe get => 1; set { } }
                 }
                 """),
             body);
@@ -1541,7 +1541,7 @@ public class UnsafeEmitterTests
             Recompile(
                 "static Func<int> M()",
                 body,
-                "public static class Holder { public static int Risky { unsafe get => 42; } }"),
+                "public static class Holder { public static int Risky { unsafe get => 42; set { } } }"),
             body);
     }
 
@@ -1586,7 +1586,7 @@ public class UnsafeEmitterTests
             Recompile(
                 "static int M()",
                 body,
-                "public static class Holder { public static int Risky { unsafe get => 42; } }"),
+                "public static class Holder { public static int Risky { unsafe get => 42; set { } } }"),
             body);
     }
 
@@ -1776,7 +1776,7 @@ public class UnsafeEmitterTests
             Recompile(
                 "static int M()",
                 body,
-                "public static class Holder { public static int Risky { unsafe get => 42; } }"),
+                "public static class Holder { public static int Risky { unsafe get => 42; set { } } }"),
             body);
     }
 
