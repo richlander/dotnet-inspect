@@ -293,7 +293,7 @@ public class TypeSearchServiceTests
     [Fact]
     public async Task FindTypesAsync_BarePackageUsesLatestStableHouseRoot()
     {
-        const string PackageId = "find.latestfixture";
+        const string PackageId = "Find.LatestFixture";
         string feed = Directory.CreateTempSubdirectory(
             "find-latest-package-test-").FullName;
         try

@@ -163,7 +163,7 @@ internal sealed class ConfiguredPackageSearchWorkspace : IAsyncDisposable
 
                 member = (WorkspaceMemberCoordinate.PackageMember)
                     WorkspaceMemberCoordinate.Package(
-                        selected.PackageId,
+                        member.PackageId,
                         selected.Version);
                 members = [member];
             }
