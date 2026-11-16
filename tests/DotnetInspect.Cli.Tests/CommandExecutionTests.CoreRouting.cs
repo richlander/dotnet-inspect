@@ -3426,22 +3426,27 @@ public partial class CommandExecutionTests
     [Theory]
     [InlineData("Microsoft.AspNetCore.Components.Endpoints.FormMapping.ArrayPoolBufferAdapter<T1,T2,T3>.PooledBuffer")]
     [InlineData("Microsoft.AspNetCore.Components.Endpoints.FormMapping.ArrayPoolBufferAdapter`3.PooledBuffer")]
-    public async Task BareQualifiedGenericAspNetCoreType_RoutesAcrossPlatformFrameworks(string target)
+    public async Task BareQualifiedGenericAspNetCoreType_ExactIdentityInTwoAssemblies_IsAmbiguous(string target)
     {
         SkipUnlessAspNetCoreAvailable();
 
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - a selected-domain ambiguity is a bounded non-success.
         // PooledBuffer is a public nested Type of the internal
         // ArrayPoolBufferAdapter, so it is outside the ordinary public API and
         // resolving it as a root requires --all
-        // (docs/design/api-population-scope.md).
+        // (docs/design/api-population-scope.md). The same exact definition
+        // is compiled into both Microsoft.AspNetCore.Components.Endpoints and
+        // Microsoft.AspNetCore.Http.Extensions in the AspNetCore family.
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
         var (exit, output, error) = await RunAppAsync(
             target, "--markdown", "--all");
 
-        Assert.Equal(0, exit);
-        Assert.DoesNotContain("not found", error, StringComparison.OrdinalIgnoreCase);
-        Assert.Contains("ArrayPoolBufferAdapter&lt;", output);
-        Assert.Contains(".PooledBuffer", output);
-        AssertLibraryAsset(output, "Microsoft.AspNetCore.Components.Endpoints");
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            $"Error: Type '{target}' matched multiple platform types. The target-bound catalog contains 2 equally preferred candidates.",
+            error.Trim());
+        AssertNoOtherDomainDecision(decisions);
     }
 
     [Fact]
