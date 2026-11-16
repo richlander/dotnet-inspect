@@ -552,6 +552,69 @@ public partial class CommandExecutionTests
         }
     }
 
+    [Theory]
+    [InlineData("Collections.Generic.List<T>", new[] { "-S", "Type Info", "--json" })]
+    [InlineData("Collections.Generic.List<T>.Add", new[] { "-S", "Overloads", "--count" })]
+    [InlineData("Generic.Dictionary<TKey,TValue>.KeyCollection", new[] { "--tree" })]
+    public async Task BareQualifiedPlatformType_DottedSuffix_IsNotFoundInSelectedPlatform(
+        string target, string[] options)
+    {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - an exact subject or a
+        // bounded non-success; a qualified Type matches its full identity, never a dotted suffix.
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
+        var (exit, output, error) = await RunAppAsync(
+            [target, "--platform", .. options]);
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            $"Error: Type or member '{target}' was not found in the selected Platform domain.",
+            error.Trim());
+        AssertNoOtherDomainDecision(decisions);
+    }
+
+    [Theory]
+    [InlineData("Collections.Generic.List<T>")]
+    [InlineData("Collections.Generic.List<T>.Add")]
+    public async Task BareQualifiedFrameworkType_DottedSuffix_IsNotFoundInSelectedFramework(
+        string target)
+    {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - an exact subject or a
+        // bounded non-success; the explicit-framework Router branch applies the same identity rule.
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
+        var (exit, output, error) = await RunAppAsync(
+            target, "--framework", "runtime", "-S", "Methods", "--count");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            $"Error: Type or member '{target}' was not found in framework 'runtime'.",
+            error.Trim());
+        AssertNoOtherDomainDecision(decisions);
+    }
+
+    [Theory]
+    [InlineData("System.Collections.Generic.List<T>", "type System.Collections.Generic.List<T> ")]
+    [InlineData("List<T>", "type System.Collections.Generic.List<T> ")]
+    [InlineData("System.Collections.Generic.List<T>.Add", "member System.Collections.Generic.List<T> ")]
+    [InlineData("System.Collections.Generic.Dictionary<TKey,TValue>.KeyCollection", "type System.Collections.Generic.Dictionary`2.KeyCollection ")]
+    [InlineData("System.Collections.Generic.Dictionary`2+KeyCollection", "type System.Collections.Generic.Dictionary`2.KeyCollection ")]
+    public async Task BareQualifiedPlatformType_FullOrUnqualifiedIdentity_StillResolves(
+        string target, string expectedRewrite)
+    {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - a complete
+        // qualified identity, or the documented unqualified spelling, selects one Type.
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
+        var (exit, _, error) = await RunAppAsync(
+            target, "--platform", "-S", "Methods", "--count");
+
+        Assert.True(exit == 0, error);
+        Assert.Contains(
+            decisions.Decisions,
+            decision => decision.Stage == "router-rewrite"
+                && decision.Detail.Contains($"-> {expectedRewrite}", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task BareName_PlatformNamespacePrefix_FailsInSelectedPlatformWithoutPrefixBrowse()
     {

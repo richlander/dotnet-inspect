@@ -147,34 +147,56 @@ internal static class RouterTargetAnalysis
             cancellationToken.ThrowIfCancellationRequested();
         }
 
-        PlatformTypeLookupOutcome lookup =
-            PlatformResolver.LookupTypeInFramework(target, framework);
+        // Only candidates whose identity satisfies the Router's exact-subject
+        // rule count; a dotted suffix never selects a Type.
+        var (lookup, accepted) = Lookup(target);
         string? member = null;
-        if (lookup is PlatformTypeLookupOutcome.Missing)
+        if (lookup is not PlatformTypeLookupOutcome.Rejected && accepted.Length == 0)
         {
             foreach (TypeMemberSelectionCandidate candidate in
                 ExactTypeInspectionOperation.GetTypeMemberCandidates(target))
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                lookup = PlatformResolver.LookupTypeInFramework(
-                    candidate.TypeName, framework);
-                if (lookup is PlatformTypeLookupOutcome.Missing)
+                var next = Lookup(candidate.TypeName);
+                if (next.Lookup is not PlatformTypeLookupOutcome.Rejected
+                    && next.Accepted.Length == 0)
+                {
                     continue;
+                }
+                (lookup, accepted) = next;
                 member = candidate.MemberSelector;
                 break;
             }
         }
 
-        return lookup switch
+        if (lookup is PlatformTypeLookupOutcome.Rejected rejected)
+            return (null, $"Platform type lookup in framework '{framework}' failed ({rejected.Failure.Kind}): {rejected.Failure.Detail}");
+        return accepted.Length switch
         {
-            PlatformTypeLookupOutcome.Resolved resolved =>
-                (RouterResolvedTarget.From(resolved.Candidate, framework, member), null),
-            PlatformTypeLookupOutcome.Ambiguous ambiguous =>
-                (null, $"Type '{target}' matched {ambiguous.Candidates.Length} types in framework '{framework}'."),
-            PlatformTypeLookupOutcome.Rejected rejected =>
-                (null, $"Platform type lookup in framework '{framework}' failed ({rejected.Failure.Kind}): {rejected.Failure.Detail}"),
-            _ => (null, $"Type or member '{target}' was not found in framework '{framework}'."),
+            1 => (RouterResolvedTarget.From(accepted[0], framework, member), null),
+            0 => (null, $"Type or member '{target}' was not found in framework '{framework}'."),
+            _ => (null, $"Type '{target}' matched {accepted.Length} types in framework '{framework}'."),
         };
+
+        (PlatformTypeLookupOutcome Lookup, PlatformTypeLookupCandidate[] Accepted)
+            Lookup(string pattern)
+        {
+            PlatformTypeLookupOutcome outcome =
+                PlatformResolver.LookupTypeInFramework(pattern, framework);
+            PlatformTypeLookupCandidate[] candidates = outcome switch
+            {
+                PlatformTypeLookupOutcome.Resolved resolved => [resolved.Candidate],
+                PlatformTypeLookupOutcome.Ambiguous ambiguous => [.. ambiguous.Candidates],
+                _ => [],
+            };
+            return (
+                outcome,
+                [
+                    .. candidates.Where(candidate =>
+                        PlatformTypeLocatorRouting.IsRouterIdentityMatch(
+                            candidate.Type, pattern)),
+                ]);
+        }
     }
 
     internal static async ValueTask<(

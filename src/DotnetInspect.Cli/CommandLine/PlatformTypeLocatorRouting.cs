@@ -545,6 +545,25 @@ internal static class PlatformTypeLocatorRouting
                         normalizedPattern);
                 }),
         ];
+        // A dotted (qualified) target names one complete identity: the full
+        // namespace-qualified name, or the complete nesting chain with the
+        // namespace omitted entirely (the unqualified spelling). A dotted
+        // suffix such as a partial namespace never selects a Type.
+        if (normalizedPattern.Contains('.'))
+        {
+            preferred =
+            [
+                .. preferred.Where(
+                    candidate =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return IsCompleteIdentity(
+                            candidate.Name, normalizedPattern, explicitGeneric);
+                    }),
+            ];
+            if (preferred.IsDefaultOrEmpty)
+                return [];
+        }
         ImmutableArray<TypeDeclarationLocatorSectionCandidate> exact =
         [
             .. preferred.Where(
@@ -610,6 +629,60 @@ internal static class PlatformTypeLocatorRouting
 
         rejection = default;
         return false;
+    }
+
+    // The Router's Type identity rule for one requested spelling. An
+    // unqualified (dotless) spelling keeps its documented route; a dotted one
+    // must name the complete identity (see IsCompleteIdentity).
+    internal static bool IsRouterIdentityMatch(
+        MetadataTypeDefinitionName name,
+        string pattern)
+    {
+        ArgumentNullException.ThrowIfNull(name);
+        string normalizedPattern =
+            FqnParser.NormalizeTypeName(pattern.Trim()).Replace('+', '.');
+        return !normalizedPattern.Contains('.')
+            || IsCompleteIdentity(
+                name,
+                normalizedPattern,
+                TypeMatcher.HasExplicitGenericNotation(pattern));
+    }
+
+    // Ordinal identity for a qualified Router target. Without explicit generic
+    // notation the pattern may omit arity markers, as the unqualified route
+    // does; it may never omit part of the namespace or nesting chain.
+    private static bool IsCompleteIdentity(
+        MetadataTypeDefinitionName name,
+        string normalizedPattern,
+        bool explicitGeneric)
+    {
+        string chain = string.Join('.', name.Segments);
+        string full = Normalize(name);
+        if (normalizedPattern.Equals(full, StringComparison.Ordinal)
+            || normalizedPattern.Equals(chain, StringComparison.Ordinal))
+        {
+            return true;
+        }
+        if (explicitGeneric)
+            return false;
+        return normalizedPattern.Equals(WithoutArity(full), StringComparison.Ordinal)
+            || normalizedPattern.Equals(WithoutArity(chain), StringComparison.Ordinal);
+
+        static string WithoutArity(string value)
+        {
+            var builder = new System.Text.StringBuilder(value.Length);
+            for (int index = 0; index < value.Length; index++)
+            {
+                if (value[index] == '`')
+                {
+                    while (index + 1 < value.Length && char.IsAsciiDigit(value[index + 1]))
+                        index++;
+                    continue;
+                }
+                builder.Append(value[index]);
+            }
+            return builder.ToString();
+        }
     }
 
     private static string Normalize(MetadataTypeDefinitionName name)
