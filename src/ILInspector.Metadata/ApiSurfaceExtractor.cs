@@ -1484,12 +1484,11 @@ public static partial class ApiSurfaceExtractor
                     reader,
                     typeDef.GetCustomAttributes(),
                     observeDecodeWork),
-                Attributes = AttributeReader.RenderAttributes(
+                Attributes = RenderTypeAttributes(
                     reader,
                     typeDef.GetCustomAttributes(),
-                    qualifyNames: true,
-                    beforeRetain: observeText,
-                    beforeMaterialize: observeAttributeMaterialize),
+                    observeText,
+                    observeAttributeMaterialize),
             };
 
             // Determine kind

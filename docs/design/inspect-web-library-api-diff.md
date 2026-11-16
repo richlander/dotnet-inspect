@@ -170,17 +170,24 @@ Before is the target version and After is the current version. Each scope is
 released after the shared comparison and wire projection complete.
 
 The whole-Library comparison and its `LibraryApiDiffOutcome` do not depend on
-the requested surface, Types, or Members. The Worker therefore retains the
-most recent completed pair (`LibraryApiComparisonMemo`) and passes it to
-`DiffOperation.ExecuteLibraryPair` for a later request over the same
-endpoint pair, so Library, Type, and Member Compare complete it once. The key
-is both endpoints' acquired content generation identity, package coordinates,
-and selected compile assets, plus the framework. Reacquired content never
-reuses an entry. One entry is retained, a different pair replaces it, and a
-failed computation is not retained. The retained value is Worker-epoch state:
-a Worker restart discards it. Every surface still receives the same result it
-would compute
-(`BrowserLibraryApiDiffOperationTests.LibraryTypeAndMemberRequestsCompleteTheComparisonOnce`).
+the requested surface, Types, or Members. A Library request computes it, and
+the Worker retains the most recent completed pair (`LibraryApiComparisonMemo`)
+and passes it to `DiffOperation.ExecuteLibraryPair` for a later request over
+the same endpoint pair. The key is both endpoints' acquired content generation
+identity, package coordinates, and selected compile assets, plus the
+framework. Reacquired content never reuses an entry. One entry is retained, a
+different pair replaces it, and a failed computation is not retained. The
+retained value is Worker-epoch state: a Worker restart discards it.
+
+The retained comparison is the Library's richest printing, not a precondition
+for a narrower request. A Type or Member request over a retained pair reuses
+it. Otherwise the request performs an
+[exact Type load](library-api-diff-presentation.md#exact-type-load) of its
+target Types, or a Member request's owner Types, and its result's changed-Type
+inventory and aggregate cover only those Types. It never computes or retains
+the whole comparison. Both answers give the requested Type the same row and
+analysis outcomes
+(`BrowserLibraryApiDiffOperationTests.TypeRequestsLoadTheirTypesUnlessTheLibraryComparisonIsRetained`).
 
 Both hosts consume the same host-neutral `DiffAnalysisInspection` operation.
 The selected-Library composition returns

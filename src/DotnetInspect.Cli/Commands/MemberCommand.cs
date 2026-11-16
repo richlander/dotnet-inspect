@@ -2449,14 +2449,16 @@ public static partial class MemberCommand
     // Returns a selector that limits API extraction to the requested Type, or
     // null when the request needs the complete surface. A same-image
     // extension method with the member's name would be projected onto its
-    // receiver Type only by the complete surface, so it keeps that route; so
-    // does a Type the metadata owner cannot find by full name.
+    // receiver Type only by the complete surface, so it keeps that route.
+    // Shared exact Type selection issues the coordinate used by extraction;
+    // non-success keeps the complete route and its diagnostics.
     static Func<string, Func<TypeDefinitionHandle, bool>?>?
         SingleTypeSurfaceSelector(
             string? typeName,
             MemberOptions options)
     {
         if (string.IsNullOrWhiteSpace(typeName)
+            || TypeMatcher.IsTypeGlobPattern(typeName)
             || options.RouterDeferredTypeOrMember
             || options.EffectiveDiscovery
             || options.HasCallerScope
@@ -2479,12 +2481,16 @@ public static partial class MemberCommand
             {
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Open(assemblyPath);
-                if (session.MethodBodies.FindUniqueLookupTypeToken(typeName) is not { } token
+                ExactTypeDefinitionSelection selection = ExactTypeInspectionOperation.SelectDeclarations(
+                    session.TypeDeclarations(), typeName,
+                    options.IncludeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.Public).Content;
+                if (selection.Outcome != ExactTypeInspectionOutcome.Available
+                    || selection.DefinitionToken is not { } token
                     || session.MethodBodies.DeclaresExtensionMethod(memberName))
                 {
                     return null;
                 }
-                return handle => MetadataTokens.GetToken(handle) == token;
+                return handle => MetadataTokens.GetToken(handle) == token.Value;
             }
             catch (BadImageFormatException)
             {

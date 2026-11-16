@@ -20,7 +20,10 @@ public sealed class LibraryPairDiffRequest : DiffRequest
 {
     /// <summary>
     /// Asks for the analysis set's outcomes, and for the Library API
-    /// presentation when <paramref name="libraryApi"/> is set.
+    /// presentation when <paramref name="libraryApi"/> is set. With
+    /// <paramref name="loadTargetTypes"/>, a Type or Member request compares
+    /// only its target Types, by exact name, and presents only them
+    /// (library-api-diff-presentation.md#exact-type-load).
     /// </summary>
     public LibraryPairDiffRequest(
         string name,
@@ -33,7 +36,8 @@ public sealed class LibraryPairDiffRequest : DiffRequest
         DiffTargets targets,
         ApiSurfaceScope view,
         ApiSurfaceProjectionLimits bounds,
-        StringLiteralComparisonQueryPlan? stringLiteralQuery = null)
+        StringLiteralComparisonQueryPlan? stringLiteralQuery = null,
+        bool loadTargetTypes = false)
         : this(name, beforeVersion, afterVersion, targets, view, bounds)
     {
         ArgumentNullException.ThrowIfNull(catalog);
@@ -51,6 +55,18 @@ public sealed class LibraryPairDiffRequest : DiffRequest
         Views = views;
         LibraryApi = libraryApi;
         StringLiteralQuery = stringLiteralQuery;
+        if (loadTargetTypes)
+        {
+            IReadOnlyList<string> typeNames = targets switch
+            {
+                DiffTargets.Types types => types.Names,
+                DiffTargets.Members members => members.OwnerTypeNames,
+                _ => throw new ArgumentException(
+                    "Only Type and Member targets load their Types.",
+                    nameof(loadTargetTypes)),
+            };
+            TypeSelection = ApiTypeSelection.ForFullNames(typeNames);
+        }
     }
 
     /// <summary>
@@ -141,8 +157,9 @@ public sealed class LibraryPairDiffRequest : DiffRequest
     public StringLiteralComparisonQueryPlan? StringLiteralQuery { get; }
 
     /// <summary>
-    /// The Type selection that narrows a Library API-only comparison, or null
-    /// for every Type.
+    /// The Type selection that narrows the comparison, or null for every
+    /// Type: a Library API-only request's selection, or the exact target
+    /// Types an analysis request loads.
     /// </summary>
     public ApiTypeSelection? TypeSelection { get; }
 }

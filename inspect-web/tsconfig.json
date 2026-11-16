@@ -27,7 +27,6 @@
     "verbatimModuleSyntax": true
   },
   "include": [
-    "src/**/*.ts",
-    "DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js"
+    "src/**/*.ts"
   ]
 }
