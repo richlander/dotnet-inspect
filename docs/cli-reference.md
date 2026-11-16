@@ -114,9 +114,9 @@ unsupported output regardless of how confident it looks. Tracked by
 
 **Breaking change — bare targets:** The Router selects exactly one domain
 before looking up the target. An Ecosystem-configured Platform-eligible
-assembly-name claim selects Platform; otherwise it selects Package, regardless
-of whether a NuGet package exists or the selected Platform target can be
-found. `System.CommandLine` therefore defaults to Platform even when a
+assembly-name claim selects Platform when that Ecosystem declares its own
+Platform population; otherwise it selects Package, regardless of whether a
+NuGet package exists or the selected Platform target can be found. `System.CommandLine` therefore defaults to Platform even when a
 same-named package is published. Use `package System.CommandLine` or
 `System.CommandLine --package` to select Package instead. A coordinate such as
 `System.Text.Json@10.0.0` selects Package. Microsoft.Extensions names such

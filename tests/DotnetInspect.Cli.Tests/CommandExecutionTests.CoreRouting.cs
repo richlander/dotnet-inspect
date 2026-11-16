@@ -715,6 +715,29 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Library: System.CommandLine.dll | Types:", output);
     }
 
+    // Owner: docs/design/ecosystem-dependency-recognition.md#direct-assembly-name-claims.
+    // Both names are published NuGet packages that also ship in a shared
+    // framework (Logging in ASP.NET Core, Abstractions in Runtime). The
+    // Microsoft.Extensions claimant declares no Platform population, so the
+    // bare name resolves through the real feed as a Package.
+    [Theory]
+    [InlineData("Microsoft.Extensions.Logging")]
+    [InlineData("Microsoft.Extensions.Logging.Abstractions")]
+    public async Task BareName_PublishedMicrosoftExtensionsPackage_RoutesToPackage(string name)
+    {
+        var (exit, output, error) = await RunAppAsync(name);
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith(
+            $"Note: Routing to NuGet package '{name}' · Microsoft.Extensions",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("platform library", error, StringComparison.Ordinal);
+        Assert.StartsWith($"{name}@", output, StringComparison.Ordinal);
+        Assert.Contains("(NuGet;", output, StringComparison.Ordinal);
+        Assert.Contains($"{name}.dll", output, StringComparison.Ordinal);
+    }
+
     [Fact]
     public async Task BareName_CommandTypo_SuggestsCommandWithoutNuGetLookup()
     {
