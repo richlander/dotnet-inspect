@@ -138,54 +138,47 @@ internal static class BrowserRetainedCallGraphOperations
         }
 
         CompleteRestorationPackageLibrary library = libraries[0];
-        AssemblyContextParticipant[] participants =
-        [
-            .. admitted.Group.Participants.Where(
-                candidate =>
-                    AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                        candidate.Assembly.Identity,
-                        library.Subject.Identity)),
-        ];
-        if (participants.Length != 1)
+        WorkspacePackageOccurrenceDescriptor? occurrence =
+            operation.Scope.FindExactPackageOccurrence(admitted.Binding);
+        if (occurrence?.Occurrence.Correspondence
+                is not PackageArtifactRootCorrespondence correspondence
+            || occurrence.Realization.Status
+                is not ArtifactRootRealizationStatus.Ready ready)
         {
             throw new InvalidOperationException(
-                participants.Length == 0
-                    ? "ContextUnavailable: the admitted Workspace Package "
-                        + "implementation participant is unavailable."
-                    : "ContextUnavailable: the admitted Workspace Package "
-                        + "implementation participant is ambiguous.");
+                "ContextUnavailable: the admitted Workspace Package Root "
+                    + "generation is unavailable.");
         }
 
-        AssemblyContextMemberBody member =
-            BrowserMemberResolution.ResolveImplementationMember(
-                admitted.Group,
-                participants[0],
-                typeIdentity,
-                memberName,
-                selectorKey,
-                metadataToken);
-        ProjectedMethodAddress address =
-            AssemblyContextMethodAddressQuery.ExecuteParticipant(
-                admitted.Group,
-                participants[0],
-                member.BodyToken) switch
-            {
-                AssemblyContextEntry<ProjectedMethodAddress>.Available
-                    available => available.Value,
-                AssemblyContextEntry<ProjectedMethodAddress>.Rejected
-                    rejected => throw new InvalidOperationException(
-                        "ContextUnavailable: the admitted Call Graph "
-                            + "implementation could not be opened: "
-                            + rejected.Failure),
-                AssemblyContextEntry<ProjectedMethodAddress>.Failed failed =>
-                    throw new InvalidOperationException(
-                        "ContextUnavailable: the admitted Call Graph "
-                            + "implementation could not be inspected.",
-                        failed.Error),
-                _ => throw new InvalidOperationException(
-                    "ContextUnavailable: the admitted Call Graph "
-                        + "implementation address is unavailable."),
-            };
+        ArtifactRootResult<ProjectedMethodAddress> addressQuery =
+            await operation.Workspace.ExecutePackageRootQueryAsync(
+                correspondence,
+                ready.Generation,
+                (realization, token) =>
+                {
+                    token.ThrowIfCancellationRequested();
+                    return ValueTask.FromResult(
+                        ResolveImplementationAddress(
+                            realization,
+                            library,
+                            typeIdentity,
+                            memberName,
+                            selectorKey,
+                            metadataToken));
+                },
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+        ProjectedMethodAddress address = addressQuery switch
+        {
+            ArtifactRootResult<ProjectedMethodAddress>.Available available =>
+                available.Value,
+            ArtifactRootResult<ProjectedMethodAddress>.Rejected rejected =>
+                throw new InvalidOperationException(
+                    "ContextUnavailable: the admitted Workspace Package Root "
+                        + $"generation could not be opened: {rejected.Failure}"),
+            _ => throw new InvalidOperationException(
+                "ContextUnavailable: the admitted Workspace Package Root "
+                    + "generation is unavailable."),
+        };
         var focus =
             new PackageDependencyMemberCallGraphInspectionFocus(
                 address.ModuleVersionId,
@@ -201,5 +194,80 @@ internal static class BrowserRetainedCallGraphOperations
                 platformPruning,
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    static ProjectedMethodAddress ResolveImplementationAddress(
+        PackageAssemblyContextRealization realization,
+        CompleteRestorationPackageLibrary library,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken)
+    {
+        if (!realization.HasAssemblyContexts
+            || realization.ImplementationGroup
+                is not { } implementationGroup)
+        {
+            throw new InvalidOperationException(
+                "ContextUnavailable: the admitted Workspace Package "
+                    + "implementation context is unavailable.");
+        }
+
+        PackageAssemblyRoleParticipant[] surfaceParticipants =
+        [
+            .. realization.SurfaceParticipants.Where(
+                candidate =>
+                    candidate.Asset == library.Asset
+                    && AssemblyReferenceIdentity.EquivalentComparer.Equals(
+                        candidate.Participant.Assembly.Identity,
+                        library.Subject.Identity)),
+        ];
+        if (surfaceParticipants.Length != 1)
+        {
+            throw new InvalidOperationException(
+                surfaceParticipants.Length == 0
+                    ? "ContextUnavailable: the admitted Workspace Package "
+                        + "surface participant is unavailable."
+                    : "ContextUnavailable: the admitted Workspace Package "
+                        + "surface participant is ambiguous.");
+        }
+
+        PackageAssemblyRoleParticipant? implementation =
+            realization.ImplementationParticipant(surfaceParticipants[0]);
+        if (implementation is null)
+        {
+            throw new InvalidOperationException(
+                "ContextUnavailable: the admitted Workspace Package "
+                    + "implementation participant is unavailable.");
+        }
+        AssemblyContextMemberBody member =
+            BrowserMemberResolution.ResolveImplementationMember(
+                implementationGroup,
+                implementation.Participant,
+                typeIdentity,
+                memberName,
+                selectorKey,
+                metadataToken);
+        return AssemblyContextMethodAddressQuery.ExecuteParticipant(
+            implementationGroup,
+            implementation.Participant,
+            member.BodyToken) switch
+        {
+            AssemblyContextEntry<ProjectedMethodAddress>.Available available =>
+                available.Value,
+            AssemblyContextEntry<ProjectedMethodAddress>.Rejected rejected =>
+                throw new InvalidOperationException(
+                    "ContextUnavailable: the admitted Call Graph "
+                        + "implementation could not be opened: "
+                        + rejected.Failure),
+            AssemblyContextEntry<ProjectedMethodAddress>.Failed failed =>
+                throw new InvalidOperationException(
+                    "ContextUnavailable: the admitted Call Graph "
+                        + "implementation could not be inspected.",
+                    failed.Error),
+            _ => throw new InvalidOperationException(
+                "ContextUnavailable: the admitted Call Graph "
+                    + "implementation address is unavailable."),
+        };
     }
 }

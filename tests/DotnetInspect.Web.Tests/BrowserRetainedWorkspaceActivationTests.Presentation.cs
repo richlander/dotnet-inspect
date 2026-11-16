@@ -530,6 +530,154 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
     }
 
     [Fact]
+    public async Task
+        EcosystemScopeRetainedCallGraph_MapsReferenceMemberToImplementation()
+    {
+        const string packageId = "Aspire.Hosting";
+        const string version = "9.0.0";
+        const string sourceUrl = "https://api.nuget.org/v3/index.json";
+        string archivePath = Path.Combine(
+            FindRepositoryRoot(),
+            "fixtures",
+            "cli",
+            "package-archives",
+            "avalonia.12.1.2.nupkg");
+        using var source = new System.IO.Compression.ZipArchive(
+            File.OpenRead(archivePath),
+            System.IO.Compression.ZipArchiveMode.Read);
+        byte[] ReadEntry(string path)
+        {
+            using Stream input = source.GetEntry(path)!.Open();
+            using var output = new MemoryStream();
+            input.CopyTo(output);
+            return output.ToArray();
+        }
+
+        byte[] package = Archive(
+            ($"{packageId}.nuspec", System.Text.Encoding.UTF8.GetBytes(
+                $"""
+                 <package>
+                   <metadata>
+                     <id>{packageId}</id>
+                     <version>{version}</version>
+                     <authors>Tests</authors>
+                     <description>Reference and implementation Call Graph fixture.</description>
+                   </metadata>
+                 </package>
+                 """)),
+            ("ref/net8.0/Avalonia.Base.dll",
+                ReadEntry("ref/net8.0/Avalonia.Base.dll")),
+            ("lib/net8.0/Avalonia.Base.dll",
+                ReadEntry("lib/net8.0/Avalonia.Base.dll")));
+        await BrowserPackageWorkspace.RegisterGalleryPackageAsync(
+            new BrowserPackage(
+                packageId,
+                version,
+                package,
+                fromCache: false,
+                producerKey: NuGetCache.GetSourceKey(sourceUrl)));
+
+        _ = await OptionsAsync();
+        await Catalog.BrowserRetainedWorkspaceActivationService
+            .ResetForTestsAsync();
+        try
+        {
+            BrowserRetainedWorkspaceActivationOwner owner =
+                Catalog.BrowserRetainedWorkspaceActivationService.Owner;
+            WorkspacePlan plan = EcosystemPackCatalog.CreateWorkspacePlan(
+                [EcosystemPackIds.Aspire]);
+            WorkspaceRegistration.Ecosystem registration =
+                Assert.Single(
+                    plan.Registrations
+                        .OfType<WorkspaceRegistration.Ecosystem>(),
+                    candidate =>
+                        candidate.Declaration.Id.Value
+                            == EcosystemPackIds.Aspire.Value);
+            var activationRequest =
+                new BrowserRetainedWorkspaceActivationRequest(
+                    "avalonia-call-graph",
+                    "Avalonia Call Graph",
+                    "/workspace/avalonia-call-graph",
+                    new CompleteRestorationRequestBasis
+                        .RegistrationOnlyEcosystemInput(
+                            plan,
+                            registration.Declaration.Id,
+                            new ViewFacetId("ecosystem.overview")));
+            BrowserRetainedWorkspacePosting initial =
+                Assert.IsType<
+                    BrowserRetainedWorkspaceActivationResult.Activated>(
+                        await owner.ActivateAsync(
+                            activationRequest,
+                            TestContext.Current.CancellationToken)).Posting;
+            SettleNavigation(initial.NavigationState, initial.Navigation);
+            BrowserEcosystemPackageAdmissionResult.Admitted admission =
+                Assert.IsType<BrowserEcosystemPackageAdmissionResult.Admitted>(
+                    await owner.AdmitEcosystemPackageAsync(
+                        "avalonia-call-graph",
+                        initial.RealizationId,
+                        packageId,
+                        version,
+                        new(
+                            registration.Declaration.Id,
+                            PackageQueryEcosystemMembershipBasis.ExactPackage,
+                            packageId),
+                        TestContext.Current.CancellationToken));
+            SettleNavigation(
+                admission.Posting.NavigationState,
+                admission.Navigation.Consumer);
+            BrowserRetainedWorkspacePackagePresentation presentation =
+                Assert.Single(admission.Posting.Packages);
+            (BrowserTypeSurfaceInfo type,
+                BrowserMemberBodySelectorInfo body) =
+                presentation.Surface.Types
+                    .Where(candidate =>
+                        candidate.QueryId == "Avalonia.AvaloniaProperty")
+                    .SelectMany(candidate => candidate.Api.SelectMany(
+                        member => member.BodySelectors.Select(
+                            body => (candidate, body))))
+                    .Single(candidate =>
+                        candidate.body.MemberName == "get_Name");
+            Catalog.BrowserProductWorkspacePlans.ConfigurePlatform();
+
+            string callGraphJson =
+                await CallGraph.CallGraphExports
+                    .QueryRetainedMemberCallGraph(
+                        admission.Posting.RetainedDefinitionId,
+                        admission.Posting.RealizationId,
+                        presentation.NavigationId,
+                        JsonSerializer.Serialize(
+                            new CallGraph
+                                .BrowserRetainedMemberCallGraphRequest(
+                                    presentation.Surface.Package,
+                                    presentation.Surface.Version,
+                                    presentation.Surface.ActiveFramework,
+                                    type.AssemblyId,
+                                    type.DefinitionId,
+                                    body.MemberName,
+                                    body.SelectorKey,
+                                    body.Token,
+                                    "net11.0",
+                                    CatalogCallGraphPruningInventory(),
+                                    presentation.Inventory.Package
+                                        .RuntimeIdentifier),
+                            CallGraph.BrowserCallGraphJsonContext.Default
+                                .BrowserRetainedMemberCallGraphRequest));
+            CallGraph.BrowserCallGraph callGraph =
+                JsonSerializer.Deserialize(
+                    callGraphJson,
+                    CallGraph.BrowserCallGraphJsonContext.Default
+                        .BrowserCallGraph)!;
+            Assert.Equal(body.MemberName, callGraph.Callees.MemberName);
+            Assert.True(callGraph.Scope.Packages >= 1);
+        }
+        finally
+        {
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .ResetForTestsAsync();
+        }
+    }
+
+    [Fact]
     public async Task RetainedPackageOperations_IgnoreAmbiguousLegacyScopes()
     {
         _ = await OptionsAsync();
