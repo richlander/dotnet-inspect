@@ -112,10 +112,12 @@ completion, and the per-state resume join are iterator protocol.
 3. **No protocol storage survives.** After rebinding, a machine field, the
    state local, or the machine receiver outside a field access declines.
 4. **Validation follows the pipeline.** The result must be fully structured,
-   carry no machine field and no value return of its own, and contain exactly
-   as many `yield return` statements as proven seams. A return inside a
-   lambda or local function the pipeline raised into the body belongs to that
-   callable: it is neither a completion nor a surviving value return.
+   carry no machine field and no value return, and contain exactly as many
+   `yield return` statements as proven seams. A body into which the pipeline
+   raised a lambda or local function declines: closure raising can name the
+   variable a capture was copied from instead of the capture (#11208), and
+   nothing here can check it. A closure the pipeline leaves lowered is
+   honest and does not decline.
 
 The decline boundary: a machine with a fault region (finally frames) declines
 before any transform; a value-type receiver read as a whole value declines;
@@ -125,6 +127,16 @@ declines; the kickoff with
 user-visible work before the handoff never reaches the inverse. A generic
 iterator method's machine is not imported through the kickoff seam today, so
 neither the matchers nor the inverse see it.
+
+Removing dispatch leaves blocks nothing reaches, and the inverse prunes them.
+That prune never drops an IL successor, and may keep a block nothing
+reaches: in particular a `switch`
+instruction falls through to the next instruction when no case matches, so a
+user `switch` keeps its `default` arm, or the branch around its cases when it
+has none. Treating `switch` as a terminator deleted that arm and folded
+`default` onto `case 0` at `Full`; stage 1 had this defect for the iterators
+it reached, and running the inverse first would have extended it to every
+Release iterator with a `switch` outside a yield.
 
 A reconstructed body carries no `MoveNext` offset: those are another method's
 coordinates. That includes the origins the structurer retains when it moves
@@ -156,10 +168,10 @@ clear.
 
 | Measure on the pinned real-world corpus | `bf89e224b` | Stage 1 | Stage 3a |
 | --- | ---: | ---: | ---: |
-| State-machine kickoffs fully raised (of 540) | 278 | 336 | 338 |
+| State-machine kickoffs fully raised (of 540) | 278 | 336 | 337 |
 | Branching methods fully raised (of 27,753) | 23,143 | 23,143 | 23,143 |
 | Public API bodies fully raised (of 20,273) | 19,915 | 19,924 | 19,924 |
-| All methods fully raised (of 89,065) | 79,426 | 79,484 | 79,486 |
+| All methods fully raised (of 89,065) | 79,426 | 79,484 | 79,485 |
 | Methods that lost `Full` or fully raised | — | 0 | 0 |
 
 Stage 1 declines on the same corpus: 61 finally frames, 5 where a transfer
@@ -174,11 +186,10 @@ stateless, switch, yield-break-loop, and reducible matchers accept no corpus
 machine. In the test fixtures the switch matcher keeps the compiler-produced
 `switch` with a yield in each section, which the inverse declines on a
 surviving transfer; the yield-break-loop and stateless matchers keep one
-fixture each; the linear, counting-loop, multi-yield, and reducible matchers
-accept nothing. That was measured with every non-foreach matcher's acceptance
-site instrumented across the whole Decompiler test gate, slow tests included
-(8,283 tests): three switch machines, one yield-break loop, and one stateless
-machine were accepted, and nothing else. The stage 3a corpus measurement does not show how many
+fixture each; the reducible matcher keeps two lambda-bearing fixtures the
+inverse declines on the raised callable (the ladder row `LambdaClosure`,
+at `Full`, and `VoidReadOfCopy` built Release, below `Full`); the linear,
+counting-loop, and multi-yield matchers accept nothing. The stage 3a corpus measurement does not show how many
 bodies changed rendering without changing grade: the snapshot records grade,
 not text.
 
@@ -188,6 +199,30 @@ and the finally-frame decline with its reason. `IteratorReconstructionPassTests`
 pins the Release reconstruction and the Debug decline of the post-yield
 side-effect loops, and `LadderIteratorGateTests` moves the two
 captured-parameter rows from owned residuals to recovered rows.
+
+The raised-callable decline costs correct bodies as well as wrong ones. An
+iterator whose lambda returns nothing and captures nothing
+(`Run(() => Log(1)); yield return n;`) reconstructed correctly at `Full`
+before the decline and is now not reconstructed. No corpus method is in that
+set. Through the inverse, a raised lambda or local function that returns a
+value never reconstructed: its `return` is a surviving value return, which
+validation declines on its own. The decline is not narrowed to capturing callables because nothing on a
+raised `Lambda` proves it captures nothing. A matcher that accepts a machine
+after this decline still renders its lambdas as the pipeline raised them, as
+before stage 3a. Lifting the decline needs #11208, and reconstructing a
+value-returning callable also needs validation to tell its return from the
+iterator's.
+`IteratorThatCapturesIntoALambda_IsNotGradedFull` pins that none of its six
+fixtures is graded `Full`, built Release and Debug. Only the raised-callable decline
+stops `VoidReadOfCopy` and `VoidReadOfCopyAfterYield` (a void lambda that
+reads a copied parameter): those four rows fail with the decline removed.
+Without it `CopyOfParameter` and `PerIteration` still decline, on the value
+return. `VoidLambda` and `LocalFunction` keep their closure lowered and
+reconstruct below `Full` either way.
+
+`SwitchBeforeAYield_KeepsItsDefaultArm` pins the prune over a `switch` with
+and without `default`, before one yield, before two, and inside a loop, built
+Release and Debug.
 
 Stage 3a tests: `ReceiverAndBranchShapes_ReconstructThroughTheGeneralInverse`
 pins four shapes a matcher used to render wrongly, and the counting-loop and

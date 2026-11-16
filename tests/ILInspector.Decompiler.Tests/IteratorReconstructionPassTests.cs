@@ -179,6 +179,111 @@ public class IteratorReconstructionPassTests
                     do { yield return n; n--; } while (n > 0);
                 }
             }
+
+            public static class CapturingIterators
+            {
+                public static IEnumerable<int> CopyOfParameter(int n)
+                {
+                    int c = n;
+                    Func<int> f = () => c * 2;
+                    n += 5;
+                    yield return f();
+                    yield return n;
+                }
+
+                public static IEnumerable<int> PerIteration(int n)
+                {
+                    var fs = new List<Func<int>>();
+                    for (int i = 0; i < n; i++)
+                    {
+                        int c = i;
+                        fs.Add(() => c * 2);
+                        yield return i;
+                    }
+                    for (int k = fs.Count - 1; k >= 0; k--)
+                        yield return fs[k]();
+                }
+
+                public static IEnumerable<int> VoidLambda(int n)
+                {
+                    int c = n;
+                    Action bump = () => c++;
+                    n += 5;
+                    bump();
+                    yield return c;
+                    yield return n;
+                }
+
+                public static IEnumerable<int> LocalFunction(int n)
+                {
+                    int c = n;
+                    int Twice() => c * 2;
+                    n += 5;
+                    yield return Twice();
+                    yield return n;
+                }
+
+                public static int Seen;
+
+                public static void See(int value) => Seen = value;
+
+                // The lambda returns nothing and writes no capture, so the
+                // pipeline raises it and no other validation objects: the
+                // raised-callable decline is the only barrier.
+                public static IEnumerable<int> VoidReadOfCopy(int n)
+                {
+                    int c = n;
+                    Action a = () => See(c * 2);
+                    n += 5;
+                    a();
+                    yield return n;
+                }
+
+                public static IEnumerable<int> VoidReadOfCopyAfterYield(int n)
+                {
+                    yield return 1;
+                    int c = n;
+                    Action a = () => See(c);
+                    n = 4;
+                    a();
+                    yield return n;
+                }
+            }
+
+            public static class SwitchBeforeYield
+            {
+                public static int G;
+
+                public static IEnumerable<int> WithDefault(int n)
+                {
+                    int k;
+                    switch (n) { case 0: k = 5; break; case 1: k = 7; break; case 2: k = 9; break; default: k = 1; break; }
+                    yield return k;
+                }
+
+                public static IEnumerable<int> TwoYields(int n)
+                {
+                    int k;
+                    switch (n) { case 0: k = 5; break; case 1: k = 7; break; case 2: k = 9; break; default: k = 1; break; }
+                    yield return k;
+                    yield return n;
+                }
+
+                public static IEnumerable<int> NoDefault(int n)
+                {
+                    switch (n) { case 0: G = 5; break; case 1: G = 7; break; case 2: G = 9; break; }
+                    yield return n;
+                }
+
+                public static IEnumerable<int> InLoop(int n)
+                {
+                    for (int i = 0; i < n; i++)
+                    {
+                        switch (i) { case 0: G = 5; break; case 1: G = 7; break; case 2: G = 9; break; default: G = 0; break; }
+                        yield return G;
+                    }
+                }
+            }
             """;
 
         var directory = Path.Combine(AppContext.BaseDirectory, "Issue2868GeneratedFixtures");
@@ -795,6 +900,70 @@ public class IteratorReconstructionPassTests
 
         Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
         Assert.Equal(expected, result.Output.Trim());
+    }
+
+    // The IL `switch` falls through to its `default` arm (or past the cases
+    // when there is none). The inverse's reachability prune must keep that
+    // successor: dropping it folded `default` onto `case 0` at `Full`.
+    [Theory]
+    [InlineData(OptimizationLevel.Release, "WithDefault", "default:", 4)]
+    [InlineData(OptimizationLevel.Debug, "WithDefault", "default:", 4)]
+    [InlineData(OptimizationLevel.Release, "TwoYields", "default:", 4)]
+    [InlineData(OptimizationLevel.Debug, "TwoYields", "default:", 4)]
+    [InlineData(OptimizationLevel.Release, "NoDefault", null, 3)]
+    [InlineData(OptimizationLevel.Debug, "NoDefault", null, 3)]
+    [InlineData(OptimizationLevel.Release, "InLoop", "default:", 4)]
+    [InlineData(OptimizationLevel.Debug, "InLoop", "default:", 4)]
+    public void SwitchBeforeAYield_KeepsItsDefaultArm(
+        OptimizationLevel optimization, string methodName, string? defaultLabel, int expectedSections)
+    {
+        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.SwitchBeforeYield", methodName);
+
+        Assert.DoesNotContain("not reconstructed", result.Output);
+        Assert.Equal(DecompilationFidelity.Full, result.Function.Fidelity);
+        var section = Assert.Single(result.Function.Descendants.OfType<Switch>());
+        Assert.Equal(expectedSections, section.Sections.Count);
+        // No section carries both a case label and the default.
+        Assert.All(section.Sections, static s => Assert.True(!s.IsDefault || s.Labels.Length == 0));
+        Assert.Equal(defaultLabel is not null, section.Sections.Any(static s => s.IsDefault));
+        if (defaultLabel is not null)
+            Assert.Contains(defaultLabel, result.Output);
+        else
+            Assert.DoesNotContain("default:", result.Output);
+    }
+
+    // A lambda raised into the body names its captures, and closure raising
+    // can name the wrong one: `c = n` captured by `() => c` came back as
+    // `() => n` at `Full`. Until that is proven, the inverse declines every
+    // body that raises a lambda or local function (#11208).
+    [Theory]
+    [InlineData(OptimizationLevel.Release, "CopyOfParameter")]
+    [InlineData(OptimizationLevel.Debug, "CopyOfParameter")]
+    [InlineData(OptimizationLevel.Release, "PerIteration")]
+    [InlineData(OptimizationLevel.Debug, "PerIteration")]
+    [InlineData(OptimizationLevel.Release, "VoidLambda")]
+    [InlineData(OptimizationLevel.Debug, "VoidLambda")]
+    [InlineData(OptimizationLevel.Release, "LocalFunction")]
+    [InlineData(OptimizationLevel.Debug, "LocalFunction")]
+    [InlineData(OptimizationLevel.Release, "VoidReadOfCopy")]
+    [InlineData(OptimizationLevel.Debug, "VoidReadOfCopy")]
+    [InlineData(OptimizationLevel.Release, "VoidReadOfCopyAfterYield")]
+    [InlineData(OptimizationLevel.Debug, "VoidReadOfCopyAfterYield")]
+    public void IteratorThatCapturesIntoALambda_IsNotGradedFull(OptimizationLevel optimization, string methodName)
+    {
+        using var compiled = CompileComplexIteratorFixture(optimization);
+        using var source = MetadataSource.Open(compiled.Path);
+
+        var result = RaisedFrom(source, "Issue2868.CapturingIterators", methodName);
+
+        // Below `Full` the text is not a claim: a closure left lowered is
+        // honest, and the shape matcher that accepts Release `VoidReadOfCopy`
+        // after the inverse declines renders its lambda as the pipeline
+        // raised it, with a cause.
+        Assert.NotEqual(DecompilationFidelity.Full, result.Function.Fidelity);
     }
 
     [Fact]
