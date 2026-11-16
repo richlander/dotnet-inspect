@@ -65,7 +65,7 @@ internal sealed record CSharpRenderedDeclaration(
 /// Cheap C# declaration and signature composition over the API metadata model.
 /// It never imports method bodies, opens inspected assemblies, or depends on the decompiler.
 /// </summary>
-internal static class CSharpDeclarationWriter
+internal static partial class CSharpDeclarationWriter
 {
     public static CSharpRenderedDeclaration RenderMemberUnit(
         ApiType type,
@@ -75,41 +75,7 @@ internal static class CSharpDeclarationWriter
     {
         options ??= new CSharpDeclarationOptions();
         member = ExplicitAccessorShape(type, member);
-        ApiMember? signatureMember = options.IncludeSignatureAttributes ? member : null;
-        var attributeReferences = CollectAttributeTypeReferences(member.Attributes, signatureMember)
-            .ToHashSet(StringComparer.Ordinal);
-        var attributeValueReferences = CollectAttributeValueTypeReferences(
-                member.Attributes,
-                signatureMember)
-            .ToHashSet(StringComparer.Ordinal);
-        var qualificationOnlyAttributeReferences = (options.IncludeSignatureAttributes
-                ? CollectQualificationOnlyAttributeTypeReferences(member.Attributes, member)
-                : CollectDeclaredAttributeTypeReferences(member.Attributes))
-            .Concat(CollectExplicitInterfaceTypeReferences(member))
-            .ToHashSet(StringComparer.Ordinal);
-        var synthesizedAttributeReferences = member.IsObsolete && options.IncludeObsoleteAttribute
-            ? new HashSet<string>(["System.Obsolete"], StringComparer.Ordinal)
-            : new HashSet<string>(StringComparer.Ordinal);
-        var memberReferences = CollectMemberTypeReferences(
-                member,
-                options.IncludeSignatureAttributes)
-            .ToHashSet(StringComparer.Ordinal);
-        var explicitInterfaceReferences = CollectExplicitInterfaceTypeReferences(member)
-            .ToHashSet(StringComparer.Ordinal);
-        var references = memberReferences
-            .Concat(attributeReferences)
-            .Concat(explicitInterfaceReferences)
-            .Concat(synthesizedAttributeReferences);
-        var plan = TypeNamePlan.Create(
-            references,
-            options,
-            CollectShadowingNames(type, [member]),
-            CSharpFormatter.StripArity(type.Name),
-            TypedNestedTypeRoots(MemberTypeReferenceIdentities(member)),
-            qualificationOnlyAttributeReferences,
-            memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
-            attributeValueReferences,
-            synthesizedAttributeReferences);
+        var plan = MemberPlanInputs.Collect(type, member, options).CreatePlan(options);
         var declaration = RenderMemberDeclarationCore(
             type,
             member,
@@ -134,41 +100,29 @@ internal static class CSharpDeclarationWriter
     {
         options ??= new CSharpDeclarationOptions();
         member = ExplicitAccessorShape(type, member);
-        ApiMember? signatureMember = options.IncludeSignatureAttributes ? member : null;
-        var attributeReferences = CollectAttributeTypeReferences(member.Attributes, signatureMember)
-            .ToHashSet(StringComparer.Ordinal);
-        var attributeValueReferences = CollectAttributeValueTypeReferences(
-                member.Attributes,
-                signatureMember)
-            .ToHashSet(StringComparer.Ordinal);
-        var qualificationOnlyAttributeReferences = (options.IncludeSignatureAttributes
-                ? CollectQualificationOnlyAttributeTypeReferences(member.Attributes, member)
-                : CollectDeclaredAttributeTypeReferences(member.Attributes))
-            .Concat(CollectExplicitInterfaceTypeReferences(member))
-            .ToHashSet(StringComparer.Ordinal);
-        var synthesizedAttributeReferences = member.IsObsolete && options.IncludeObsoleteAttribute
-            ? new HashSet<string>(["System.Obsolete"], StringComparer.Ordinal)
-            : new HashSet<string>(StringComparer.Ordinal);
-        var memberReferences = CollectMemberTypeReferences(
-                member,
-                options.IncludeSignatureAttributes)
-            .ToHashSet(StringComparer.Ordinal);
-        var explicitInterfaceReferences = CollectExplicitInterfaceTypeReferences(member)
-            .ToHashSet(StringComparer.Ordinal);
-        var references = memberReferences
-            .Concat(attributeReferences)
-            .Concat(explicitInterfaceReferences)
-            .Concat(synthesizedAttributeReferences);
-        var plan = TypeNamePlan.Create(
-            references,
+        var plan = MemberPlanInputs.Collect(type, member, options).CreatePlan(options);
+        return RenderPlannedMemberDeclaration(
+            type,
+            member,
             options,
-            CollectShadowingNames(type, [member]),
-            CSharpFormatter.StripArity(type.Name),
-            TypedNestedTypeRoots(MemberTypeReferenceIdentities(member)),
-            qualificationOnlyAttributeReferences,
-            memberReferences.Except(explicitInterfaceReferences).ToHashSet(StringComparer.Ordinal),
-            attributeValueReferences,
-            synthesizedAttributeReferences);
+            plan,
+            methodParameters,
+            parameterNames);
+    }
+
+    /// <summary>
+    /// Renders a member declaration with a type-name plan the caller made.
+    /// <paramref name="member"/> has already had its explicit accessor shape
+    /// applied.
+    /// </summary>
+    static string RenderPlannedMemberDeclaration(
+        ApiType type,
+        ApiMember member,
+        CSharpDeclarationOptions options,
+        TypeNamePlan plan,
+        IReadOnlyList<string>? methodParameters = null,
+        IReadOnlyList<string>? parameterNames = null)
+    {
         var declaration = RenderMemberDeclarationCore(
             type,
             member,
@@ -1224,32 +1178,95 @@ internal static class CSharpDeclarationWriter
         if (!options.AbbreviateSignature && !renderedFromModel)
             signature = EscapeParameterLists(signature);
 
-        List<string> attributeLines = [];
-        bool hasLayoutAttribute = false;
+        var attributeLines = MemberAttributeLines(type, member, options, out bool hasLayoutAttribute);
+        var modifiers = MemberModifiers(type, member, options, safety.Modifier);
+
+        List<string> parts = [];
+        if (modifiers.Count > 0)
+            parts.Add(string.Join(" ", modifiers));
+        parts.Add(signature);
+
+        string declarationLine = string.Join(" ", parts);
+        if (attributeLines.Count == 0)
+            return declarationLine;
+
+        string separator = AttributeLineSeparator(options, hasLayoutAttribute);
+        return string.Join(separator, attributeLines.Select(static line => line.Text)) + separator + declarationLine;
+    }
+
+    // On the opt-in surfaces that emit custom attributes (annotated source and
+    // the full type printer) each leading attribute goes on its own line, as is
+    // idiomatic C#. Single-line/table contexts (which never emit custom
+    // attributes) keep obsolete/return attributes inline so the row stays intact.
+    static string AttributeLineSeparator(CSharpDeclarationOptions options, bool hasLayoutAttribute)
+        => options.IncludeCustomAttributes || hasLayoutAttribute
+            ? "\n"
+            : " ";
+
+    /// <summary>
+    /// The attribute lines that precede a member declaration, in order, each
+    /// tagged with its part: the field layout attribute, each custom attribute
+    /// keyed by its metadata Type when <see cref="ApiMember.AttributeTypes"/>
+    /// records it, the synthesized <c>[Obsolete]</c>, and the return attributes.
+    /// </summary>
+    static List<DeclarationSegment> MemberAttributeLines(
+        ApiType type,
+        ApiMember member,
+        CSharpDeclarationOptions options,
+        out bool hasLayoutAttribute)
+    {
+        List<DeclarationSegment> attributeLines = [];
+        hasLayoutAttribute = false;
         if (CSharpMemorySafetySpelling.FieldLayoutAttribute(
                 type,
                 member,
                 options.MemorySafetyLanguage) is { } fieldLayoutAttribute)
         {
-            attributeLines.Add($"[{fieldLayoutAttribute}]");
+            attributeLines.Add(new(
+                $"[{fieldLayoutAttribute}]",
+                CSharpDeclarationPartKind.Attribute,
+                "System.Runtime.InteropServices.FieldOffsetAttribute"));
             hasLayoutAttribute = true;
         }
         if (options.IncludeCustomAttributes)
         {
-            foreach (var attribute in member.Attributes)
-                attributeLines.Add($"[{attribute}]");
+            bool typesKnown = member.AttributeTypes is { } types
+                && types.Count == member.Attributes.Count;
+            for (int index = 0; index < member.Attributes.Count; index++)
+            {
+                attributeLines.Add(new(
+                    $"[{member.Attributes[index]}]",
+                    CSharpDeclarationPartKind.Attribute,
+                    typesKnown ? member.AttributeTypes[index] : null));
+            }
         }
         if (options.IncludeObsoleteAttribute && member.IsObsolete)
         {
-            attributeLines.Add(FormatObsoleteAttribute(
-                member.ObsoleteMessage,
-                member.ObsoleteIsError));
+            attributeLines.Add(new(
+                FormatObsoleteAttribute(
+                    member.ObsoleteMessage,
+                    member.ObsoleteIsError),
+                CSharpDeclarationPartKind.Attribute,
+                "System.ObsoleteAttribute"));
         }
         if (options.IncludeSignatureAttributes
             && member.SignatureModel?.ReturnAttributes is { Count: > 0 } returnAttributes)
-            attributeLines.Add($"[return: {string.Join(", ", returnAttributes)}]");
+        {
+            attributeLines.Add(new(
+                $"[return: {string.Join(", ", returnAttributes)}]",
+                CSharpDeclarationPartKind.ReturnAttributes,
+                "return"));
+        }
+        return attributeLines;
+    }
 
-        List<string> parts = [];
+    /// <summary>The member's modifier keywords, in declaration order.</summary>
+    static List<string> MemberModifiers(
+        ApiType type,
+        ApiMember member,
+        CSharpDeclarationOptions options,
+        string? safetyModifier)
+    {
         List<string> modifiers = [];
         if (member.Name == ".cctor")
         {
@@ -1313,7 +1330,7 @@ internal static class CSharpDeclarationWriter
                 modifiers.Add("readonly");
         }
 
-        if (safety.Modifier is { } safetyModifier)
+        if (safetyModifier is not null)
             modifiers.Add(safetyModifier);
         if (options.IsExtern)
             modifiers.Add("extern");
@@ -1323,22 +1340,7 @@ internal static class CSharpDeclarationWriter
             && member.Kind is "method" or "extension-method" or "explicit-interface-implementation")
             modifiers.Add("async");
 
-        if (modifiers.Count > 0)
-            parts.Add(string.Join(" ", modifiers));
-        parts.Add(signature);
-
-        string declarationLine = string.Join(" ", parts);
-        if (attributeLines.Count == 0)
-            return declarationLine;
-
-        // On the opt-in surfaces that emit custom attributes (annotated source and
-        // the full type printer) each leading attribute goes on its own line, as is
-        // idiomatic C#. Single-line/table contexts (which never emit custom
-        // attributes) keep obsolete/return attributes inline so the row stays intact.
-        string separator = options.IncludeCustomAttributes || hasLayoutAttribute
-            ? "\n"
-            : " ";
-        return string.Join(separator, attributeLines) + separator + declarationLine;
+        return modifiers;
     }
 
     static string RenderStandaloneEnumMember(
@@ -1791,9 +1793,23 @@ internal static class CSharpDeclarationWriter
         string declaration,
         ApiMember member,
         IReadOnlyList<TypeParameter> typeParameters)
+    {
+        foreach (var (_, clause) in MemberTypeParameterConstraintClauses(member, typeParameters))
+            declaration += " " + clause;
+        return declaration;
+    }
+
+    /// <summary>
+    /// The <c>where</c> clauses a member declaration states, each with the type
+    /// parameter it constrains, in declaration order: the restatement an
+    /// inheriting member owes, or the member's own constraints.
+    /// </summary>
+    static IEnumerable<(string TypeParameter, string Clause)> MemberTypeParameterConstraintClauses(
+        ApiMember member,
+        IReadOnlyList<TypeParameter> typeParameters)
         => member.IsOverride || member.Kind == "explicit-interface-implementation"
-            ? AppendInheritedConstraintRestatement(declaration, typeParameters)
-            : AppendTypeParameterConstraints(declaration, typeParameters);
+            ? InheritedConstraintRestatementClauses(typeParameters)
+            : TypeParameterConstraintClauses(typeParameters);
 
     /// <summary>
     /// Restates what C# permits on a member that inherits its constraints. The
@@ -1817,8 +1833,7 @@ internal static class CSharpDeclarationWriter
     /// omitted, which renders exactly as this member did before the rule existed --
     /// guessing would be CS8822 or CS8665 rather than merely incomplete.
     /// </remarks>
-    static string AppendInheritedConstraintRestatement(
-        string declaration,
+    static IEnumerable<(string TypeParameter, string Clause)> InheritedConstraintRestatementClauses(
         IReadOnlyList<TypeParameter> typeParameters)
     {
         foreach (var typeParameter in typeParameters)
@@ -1826,10 +1841,8 @@ internal static class CSharpDeclarationWriter
             if (RestatableConstraint(typeParameter) is not { } keyword)
                 continue;
 
-            declaration += $" where {SanitizeIdentifier(typeParameter.Name)} : {keyword}";
+            yield return (typeParameter.Name, $"where {SanitizeIdentifier(typeParameter.Name)} : {keyword}");
         }
-
-        return declaration;
     }
 
     /// <summary>
@@ -1859,15 +1872,23 @@ internal static class CSharpDeclarationWriter
 
     static string AppendTypeParameterConstraints(string declaration, IReadOnlyList<TypeParameter> typeParameters)
     {
+        foreach (var (_, clause) in TypeParameterConstraintClauses(typeParameters))
+            declaration += " " + clause;
+        return declaration;
+    }
+
+    static IEnumerable<(string TypeParameter, string Clause)> TypeParameterConstraintClauses(
+        IReadOnlyList<TypeParameter> typeParameters)
+    {
         foreach (var typeParameter in typeParameters)
         {
             if (typeParameter.Constraints.Count == 0)
                 continue;
 
-            declaration += $" where {SanitizeIdentifier(typeParameter.Name)} : {FormatConstraintList(typeParameter, typeParameters.Select(p => p.Name))}";
+            yield return (
+                typeParameter.Name,
+                $"where {SanitizeIdentifier(typeParameter.Name)} : {FormatConstraintList(typeParameter, typeParameters.Select(p => p.Name))}");
         }
-
-        return declaration;
     }
 
     /// <summary>
@@ -1936,7 +1957,37 @@ internal static class CSharpDeclarationWriter
         IReadOnlyList<string>? parameterNames,
         out string signature)
     {
-        signature = "";
+        if (!TryComposeSignatureModel(
+                type,
+                member,
+                options,
+                methodParameters,
+                parameterNames,
+                out var segments))
+        {
+            signature = "";
+            return false;
+        }
+        signature = DeclarationSegment.Concat(segments);
+        return true;
+    }
+
+    /// <summary>
+    /// Composes a model-rendered signature as segments: each identified part
+    /// (return type, name, parameter, accessor, constraint, <c>required</c>)
+    /// is its own segment, and the fixed punctuation between them is
+    /// untagged. Their concatenation is the signature
+    /// <see cref="TryRenderSignatureModel"/> prints.
+    /// </summary>
+    static bool TryComposeSignatureModel(
+        ApiType type,
+        ApiMember member,
+        CSharpDeclarationOptions options,
+        IReadOnlyList<string>? methodParameters,
+        IReadOnlyList<string>? parameterNames,
+        out List<DeclarationSegment> segments)
+    {
+        segments = [];
         if (member.SignatureModel is not { } model)
             return false;
         if (parameterNames is not null
@@ -1963,22 +2014,38 @@ internal static class CSharpDeclarationWriter
             return false;
         }
 
-        var parameters = string.Join(
-            ", ",
-            model.Parameters.Select((parameter, index) =>
+        List<DeclarationSegment> parameters = [];
+        for (int index = 0; index < model.Parameters.Count; index++)
+        {
+            if (index > 0)
+                parameters.Add(new(", "));
+            parameters.Add(new(
                 FormatParameter(
-                    parameter,
+                    model.Parameters[index],
                     options.IncludeSignatureAttributes,
-                    parameterNames?[index])));
+                    parameterNames?[index]),
+                CSharpDeclarationPartKind.Parameter,
+                index.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        }
         if (member.Name == ".cctor")
         {
-            signature = $"{FormatConstructorTypeName(type, options)}()";
+            segments.Add(new(
+                FormatConstructorTypeName(type, options),
+                CSharpDeclarationPartKind.Name,
+                DeclarationSegment.NameKey));
+            segments.Add(new("()"));
             return true;
         }
 
         if (member.Kind == "constructor")
         {
-            signature = $"{FormatConstructorTypeName(type, options)}({parameters})";
+            segments.Add(new(
+                FormatConstructorTypeName(type, options),
+                CSharpDeclarationPartKind.Name,
+                DeclarationSegment.NameKey));
+            segments.Add(new("("));
+            segments.AddRange(parameters);
+            segments.Add(new(")"));
             return true;
         }
         if (((member.Kind == "method"
@@ -1996,10 +2063,25 @@ internal static class CSharpDeclarationWriter
                 memberName +=
                     $"<{string.Join(", ", methodParameters.Select(SanitizeIdentifier))}>";
             }
-            signature = AppendMemberTypeParameterConstraints(
-                $"{returnType} {memberName}({parameters})",
+            segments.Add(new(
+                returnType,
+                CSharpDeclarationPartKind.ReturnType,
+                DeclarationSegment.ReturnTypeKey));
+            segments.Add(new(" "));
+            segments.Add(new(
+                memberName,
+                CSharpDeclarationPartKind.Name,
+                DeclarationSegment.NameKey));
+            segments.Add(new("("));
+            segments.AddRange(parameters);
+            segments.Add(new(")"));
+            foreach (var (typeParameter, clause) in MemberTypeParameterConstraintClauses(
                 member,
-                model.TypeParameters);
+                model.TypeParameters))
+            {
+                segments.Add(new(" "));
+                segments.Add(new(clause, CSharpDeclarationPartKind.Constraint, typeParameter));
+            }
             return true;
         }
         if ((member.Kind == "property" || IsExplicitInterfaceProperty(member))
@@ -2009,17 +2091,50 @@ internal static class CSharpDeclarationWriter
                 || IsOrdinaryPropertyName(member.Name)
                     && IsOrdinaryPropertyName(model.MemberName)))
         {
-            var head = model.IsRequired ? $"required {propertyType}" : propertyType;
-            var propertyMemberName = model.MemberName == "this[]"
-                ? IsExplicitInterfaceProperty(member)
-                    ? $"{member.Name[..(member.Name.LastIndexOf('.') + 1)]}this[{parameters}]"
-                    : $"this[{parameters}]"
-                : string.IsNullOrWhiteSpace(model.MemberName)
-                    ? member.Name
-                    : model.MemberName!;
-            signature = options.OmitPropertyAccessors
-                ? $"{head} {propertyMemberName}"
-                : $"{head} {propertyMemberName} {{ {string.Join(" ", model.Accessors.Select(accessor => AccessorDeclaration(accessor, options.IncludeSignatureAttributes)))} }}";
+            if (model.IsRequired)
+            {
+                segments.Add(new("required", CSharpDeclarationPartKind.Modifier, "required"));
+                segments.Add(new(" "));
+            }
+            segments.Add(new(
+                propertyType,
+                CSharpDeclarationPartKind.ReturnType,
+                DeclarationSegment.ReturnTypeKey));
+            segments.Add(new(" "));
+            if (model.MemberName == "this[]")
+            {
+                var indexerName = IsExplicitInterfaceProperty(member)
+                    ? $"{member.Name[..(member.Name.LastIndexOf('.') + 1)]}this"
+                    : "this";
+                segments.Add(new(indexerName, CSharpDeclarationPartKind.Name, DeclarationSegment.NameKey));
+                segments.Add(new("["));
+                segments.AddRange(parameters);
+                segments.Add(new("]"));
+            }
+            else
+            {
+                segments.Add(new(
+                    string.IsNullOrWhiteSpace(model.MemberName)
+                        ? member.Name
+                        : model.MemberName!,
+                    CSharpDeclarationPartKind.Name,
+                    DeclarationSegment.NameKey));
+            }
+            if (!options.OmitPropertyAccessors)
+            {
+                segments.Add(new(" { "));
+                for (int index = 0; index < model.Accessors.Count; index++)
+                {
+                    if (index > 0)
+                        segments.Add(new(" "));
+                    var accessor = model.Accessors[index];
+                    segments.Add(new(
+                        AccessorDeclaration(accessor, options.IncludeSignatureAttributes),
+                        CSharpDeclarationPartKind.Accessor,
+                        accessor.Kind));
+                }
+                segments.Add(new(" }"));
+            }
             return true;
         }
         if ((member.Kind == "event" || IsExplicitInterfaceEvent(member))
@@ -2031,7 +2146,12 @@ internal static class CSharpDeclarationWriter
             var eventMemberName = string.IsNullOrWhiteSpace(model.MemberName)
                 ? member.Name
                 : model.MemberName!;
-            signature = $"{eventType} {eventMemberName}";
+            segments.Add(new(
+                eventType,
+                CSharpDeclarationPartKind.ReturnType,
+                DeclarationSegment.ReturnTypeKey));
+            segments.Add(new(" "));
+            segments.Add(new(eventMemberName, CSharpDeclarationPartKind.Name, DeclarationSegment.NameKey));
             return true;
         }
 

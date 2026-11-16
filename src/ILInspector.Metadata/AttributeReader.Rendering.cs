@@ -22,6 +22,54 @@ public static partial class AttributeReader
         bool qualifyNames = false,
         Action<string>? beforeRetain = null,
         Action<int>? beforeMaterialize = null)
+        => RenderAttributesCore(
+            reader,
+            attributes,
+            namespaces,
+            skipAttribute,
+            qualifyNames,
+            beforeRetain,
+            beforeMaterialize,
+            attributeTypes: null);
+
+    /// <summary>
+    /// Renders attributes as <see cref="RenderAttributes(MetadataReader, CustomAttributeHandleCollection, SortedSet{string}?, Func{string, bool}?, bool, Action{string}?, Action{int}?)"/>
+    /// does, and also returns each retained attribute's metadata Type full name
+    /// (for example <c>System.ComponentModel.EditorBrowsableAttribute</c>) in
+    /// <paramref name="attributeTypes"/>, parallel to the rendered list: same
+    /// count, same order. The Member diff pairs attributes by this identity
+    /// rather than by their rendered text.
+    /// </summary>
+    public static List<string> RenderAttributesWithTypes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        out List<string> attributeTypes,
+        Func<string, bool>? skipAttribute = null,
+        bool qualifyNames = false,
+        Action<string>? beforeRetain = null,
+        Action<int>? beforeMaterialize = null)
+    {
+        attributeTypes = [];
+        return RenderAttributesCore(
+            reader,
+            attributes,
+            namespaces: null,
+            skipAttribute,
+            qualifyNames,
+            beforeRetain,
+            beforeMaterialize,
+            attributeTypes);
+    }
+
+    static List<string> RenderAttributesCore(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
+        SortedSet<string>? namespaces,
+        Func<string, bool>? skipAttribute,
+        bool qualifyNames,
+        Action<string>? beforeRetain,
+        Action<int>? beforeMaterialize,
+        List<string>? attributeTypes)
     {
         var result = new List<string>();
         foreach (var attrHandle in attributes)
@@ -47,6 +95,7 @@ public static partial class AttributeReader
                 namespaces?.Add(typeName[..lastDot]);
             beforeRetain?.Invoke(rendered);
             result.Add(rendered);
+            attributeTypes?.Add(typeName);
         }
         return result;
     }

@@ -1967,7 +1967,9 @@ public static partial class ApiSurfaceExtractor
                         reader,
                         methodCustomAttributes,
                         observeText,
-                        observeAttributeMaterialize)
+                        observeAttributeMaterialize,
+                        out List<string> attributeTypes),
+                    AttributeTypes = attributeTypes
                 };
 
                 if (member.Kind == "constructor")
@@ -2249,7 +2251,9 @@ public static partial class ApiSurfaceExtractor
                         reader,
                         prop.GetCustomAttributes(),
                         observeText,
-                        observeAttributeMaterialize),
+                        observeAttributeMaterialize,
+                        out List<string> attributeTypes),
+                    AttributeTypes = attributeTypes,
                     GetterToken = accessors.Getter.IsNil ? null : MetadataTokens.GetToken(accessors.Getter),
                     SetterToken = accessors.Setter.IsNil ? null : MetadataTokens.GetToken(accessors.Setter),
                     GetterHasMethodBody = accessors.Getter.IsNil
@@ -2512,7 +2516,9 @@ public static partial class ApiSurfaceExtractor
                         reader,
                         field.GetCustomAttributes(),
                         observeText,
-                        observeAttributeMaterialize)
+                        observeAttributeMaterialize,
+                        out List<string> attributeTypes),
+                    AttributeTypes = attributeTypes
                 };
 
                 if (!isEnum && member.IsConst)

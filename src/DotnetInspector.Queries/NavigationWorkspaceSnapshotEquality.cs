@@ -141,6 +141,7 @@ internal static class NavigationWorkspaceSnapshotEquality
     internal static bool Member(ApiMember a, ApiMember b) =>
         ReferenceEquals(a, b)
         || a.Name == b.Name && a.Kind == b.Kind && Sequence(a.Attributes, b.Attributes)
+        && Sequence(a.AttributeTypes, b.AttributeTypes)
         && a.MethodSemantics == b.MethodSemantics && a.FieldLayout == b.FieldLayout
         && a.ReturnType == b.ReturnType && a.Signature == b.Signature && a.Digest == b.Digest
         && a.CanonicalSignature == b.CanonicalSignature && Same(a.SignatureModel, b.SignatureModel, Signature)

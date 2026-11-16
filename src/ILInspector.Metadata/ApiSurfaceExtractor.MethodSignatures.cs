@@ -319,11 +319,13 @@ public static partial class ApiSurfaceExtractor
     private static List<string> RenderMemberAttributes(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
-        Action<string>? beforeRetain = null,
-        Action<int>? beforeMaterialize = null)
-        => AttributeReader.RenderAttributes(
+        Action<string>? beforeRetain,
+        Action<int>? beforeMaterialize,
+        out List<string> attributeTypes)
+        => AttributeReader.RenderAttributesWithTypes(
             reader,
             attributes,
+            out attributeTypes,
             skipAttribute: static name => name == "System.ObsoleteAttribute",
             qualifyNames: true,
             beforeRetain: beforeRetain,

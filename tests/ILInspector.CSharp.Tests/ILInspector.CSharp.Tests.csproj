@@ -22,6 +22,9 @@
     <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.3.26522.148\runtimes\linux-x64\lib\net11.0\System.Private.CoreLib.dll"
           Link="PinnedArtifacts\System.Private.CoreLib.dll"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NuGetPackageRoot)microsoft.netcore.app.runtime.linux-x64\11.0.0-rc.3.26522.148\runtimes\linux-x64\lib\net11.0\System.Text.Json.dll"
+          Link="PinnedArtifacts\System.Text.Json.dll"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

@@ -117,6 +117,7 @@ public static partial class ApiSurfaceExtractor
         AddText(ref count, member.Name);
         AddText(ref count, member.Kind);
         AddText(ref count, member.Attributes);
+        AddText(ref count, member.AttributeTypes);
         AddText(ref count, member.ReturnType);
         AddText(ref count, member.Signature);
         AddText(ref count, member.CanonicalSignature);
