@@ -475,9 +475,7 @@ public static class MemberMetricsInspectionOperation
         ImmutableArray<MemberOverloadShape> members,
         MemberMetricsQueryRequestResult.Accepted query)
     {
-        if (query.RequestedEvidence.HasFlag(
-                MemberMetricEvidenceKind.SiblingCalls)
-            || query.SourcePredicates.PredicateKeyIdentities.Count == 0)
+        if (query.SourcePredicates.PredicateKeyIdentities.Count == 0)
         {
             return members;
         }
@@ -490,7 +488,11 @@ public static class MemberMetricsInspectionOperation
                         SourcePredicateRow(member),
                         query.SourcePredicates)),
         ];
-        return narrowed;
+        return narrowed.Length == 0
+            || !query.RequestedEvidence.HasFlag(
+                MemberMetricEvidenceKind.SiblingCalls)
+            ? narrowed
+            : members;
     }
 
     private static ExactMethodSemanticAnalysisResult EmptyAnalysisResult() =>
