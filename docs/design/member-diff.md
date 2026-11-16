@@ -230,19 +230,17 @@ the declaration changed:
   related Member whose two declarations print the same is still Changed: its
   lines are context and its classified changes are notes on the declaration,
   because the change lies outside what the declaration prints.
-- A related Member under an incomplete comparison is still diffed from the
-  relation's two sides, and the document records the comparison as
-  incomplete. The host reports that incompleteness as it reports any
-  incomplete result.
 - A Member with no relation, under a complete comparison, pairs with the
   baseline Member of the same exact identity, the pairing
   [#10201](https://github.com/richlander/dotnet-inspect/issues/10201) owns.
   The declaration comparison decides, so an attribute change outside the
   comparison's classified scope is a difference with its caret and no
   classification note. A missing counterpart is a failure, not an addition.
-- A Member with no relation, under an incomplete comparison, is Unavailable
-  with the comparison's reason and holds no lines, because the missing
-  relation may be a correspondence the comparison did not reach.
+- Under an incomplete comparison, every Member diff is Unavailable with the
+  comparison's reason and holds no lines. Library API Diff issues no
+  relations for an incomplete comparison, and a missing relation may be a
+  correspondence the comparison did not reach. The host reports the
+  incompleteness as it reports any incomplete result.
 
 This design does not change Member correspondence.
 
@@ -395,6 +393,11 @@ Each step is independently mergeable and lands with its production host.
 9. When the current version adds a Type with the same simple name as a Type
    in a Member's declaration, that Type is spelled the same way on both
    sides, and no line differs only in its spelling.
-10. A related Member under an incomplete comparison prints its diff, its JSON
-    records the comparison as incomplete, and the CLI reports the
+10. Under an incomplete comparison, a Member that changed is Unavailable with
+    the comparison's reason and holds no lines, and the CLI reports the
     incompleteness and exits nonzero.
+11. A related Member whose two declarations print the same is Changed, with
+    every line context and its classified changes as notes on the
+    declaration.
+12. A Member whose containing Type lies outside the compared surface records
+    that Type in enclosure by name only, without declaration text.
