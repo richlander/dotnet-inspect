@@ -1039,6 +1039,11 @@ for an individual group or the initial preparation.
 
 ### Member
 
+The proposed [demand-driven Member execution approach](finding-diff-member-execution.md)
+describes when to request detail and how to reuse the required Package and
+Library resources while the active inspection needs them. It is a composition
+plan, not a claim that targeted execution or warm resource reuse has landed.
+
 The Member level is the complete API and body diff of one Member, which
 [Library API Diff](inspect-web-library-api-diff.md) and
 [Member Body Diff](inspect-web-member-body-diff.md) own. Entered from a Type
