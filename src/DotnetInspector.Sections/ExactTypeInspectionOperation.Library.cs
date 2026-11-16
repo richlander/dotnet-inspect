@@ -7,6 +7,29 @@ namespace DotnetInspector.Sections;
 public static partial class ExactTypeInspectionOperation
 {
     /// <summary>
+    /// Selects a Type from a complete, producer-bounded inventory. The returned
+    /// TypeDef coordinate belongs to the inventory's supplying image; callers
+    /// keep that same session alive while consuming its body capability.
+    /// </summary>
+    public static InspectionEnvelope<ExactTypeDefinitionSelection> SelectDeclarations(
+        AssemblyTypeDeclarationInventoryOutcome inventory,
+        string type,
+        ApiSurfaceScope scope,
+        ExactTypeSelectionKind selectionKind = ExactTypeSelectionKind.Query)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        ExactTypeDefinitionSelection result = inventory is AssemblyTypeDeclarationInventoryOutcome.Read read
+            ? ExactTypeInspectionQuery.SelectDeclarations(read.Inventory, type, scope, selectionKind)
+            : new(ExactTypeInspectionOutcome.Unavailable, type, null, [],
+                "The exact Type declaration inventory is incomplete or unavailable.");
+        return new(result, new InspectionShare.NonProjectable(
+                "declaration-type/share", "A portable Workspace scenario was not supplied."),
+            result.Outcome == ExactTypeInspectionOutcome.Available ? []
+                : [new InspectionDiagnostic($"exact-type.{result.Outcome.ToString().ToLowerInvariant()}",
+                    InspectionDiagnosticSeverity.Error, result.Failure ?? "The Type selection is unavailable.")]);
+    }
+
+    /// <summary>
     /// Consumes an already issued Library definition identity. The document
     /// producer validates that identity ordinally within the same lease;
     /// no query inventory or second definition probe is required. Admission

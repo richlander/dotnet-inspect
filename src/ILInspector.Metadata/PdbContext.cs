@@ -1489,29 +1489,8 @@ public partial class PdbContext : IDisposable
                 : default;
         }
 
-        foreach (var typeDefHandle in reader.TypeDefinitions)
-        {
-            var typeDef = reader.GetTypeDefinition(typeDefHandle);
-            if (reader.GetFullTypeName(typeDef) != typeName)
-                continue;
-
-            int matchCount = 0;
-            foreach (var methodHandle in typeDef.GetMethods())
-            {
-                var method = reader.GetMethodDefinition(methodHandle);
-                if (reader.GetString(method.Name) != methodName)
-                    continue;
-                if (publicOnly
-                    && (method.Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Public)
-                {
-                    continue;
-                }
-                if (matchCount++ == overloadIndex)
-                    return methodHandle;
-            }
-        }
-
-        return default;
+        return MethodBodySource.ResolveMethodDefinition(
+            reader, typeName, methodName, overloadIndex, publicOnly) ?? default;
     }
 
     PdbMethodDocumentInfo? ResolveMethodDocumentRange(
