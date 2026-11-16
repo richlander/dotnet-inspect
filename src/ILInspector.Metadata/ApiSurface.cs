@@ -1208,6 +1208,16 @@ public class ApiMember
     public string Kind { get; set; } = "";  // method, property, field, event, constructor, operator, explicit-interface-implementation, extension-method
     public List<string> Attributes { get; set; } = [];
 
+    /// <summary>
+    /// Each retained attribute's metadata Type full name, parallel to
+    /// <see cref="Attributes"/> (same count, same order) when the extractor
+    /// recorded it, and empty otherwise. The Member diff pairs attributes by
+    /// this identity; a count that differs from <see cref="Attributes"/> means
+    /// the identities are unknown.
+    /// </summary>
+    [JsonIgnore]
+    public List<string> AttributeTypes { get; set; } = [];
+
     [JsonIgnore]
     public bool IsHidden { get; set; }
 

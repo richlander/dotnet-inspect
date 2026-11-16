@@ -1050,6 +1050,7 @@ public sealed class CSharpTypePrinter
             MetadataToken = member.MetadataToken,
             DeclarationMetadataToken = member.DeclarationMetadataToken,
             Attributes = attributes?.ToList()!,
+            AttributeTypes = member.AttributeTypes?.ToList()!,
             ReturnType = member.ReturnType,
             Signature = member.Signature,
             SignatureModel = signatureModel is null ? null : SnapshotSignature(signatureModel),
