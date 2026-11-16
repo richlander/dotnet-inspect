@@ -207,10 +207,17 @@ Parts are identified from the model, never inferred from text. When the
 printed declaration and the model's parts do not agree, the side records its
 parts as unidentified: the compared lines remain, and no part caret is placed.
 
+Attributes pair by their Type's identity, which the API surface records for
+each retained attribute beside its rendered text. The surface extractor knows
+that identity when it renders the attribute from metadata. MD1 records it
+where the surface keeps only rendered text today. A reordered attribute list
+therefore pairs `A("old")` with `A("new")` and carets the changed argument.
+
 Type names in both declarations are shortened against the names of both
-versions together, so the same Type prints the same way on each side. A Type
-added in one version can then never change how the other side prints, and a
-name never differs only because of how it was shortened.
+versions together, so the same Type is spelled the same way on each side. A
+name may be qualified more than either version alone would need, for example
+when the current version introduces a second Type with the same simple name.
+A name never differs between sides only because of how it was shortened.
 
 A containing Type that lies outside the compared surface is recorded in
 enclosure by its name only, without declaration text.
@@ -381,3 +388,13 @@ Each step is independently mergeable and lands with its production host.
    enclosure.
 7. The MD1 trials record, for each open printer choice, the chosen form and
    the agent answers it was judged on.
+8. A Member whose attributes were reordered and one argument changed pairs
+   each attribute with its counterpart by Type, and carets only the changed
+   argument. A removed `virtual` and an added setter each carry a caret on
+   their part.
+9. When the current version adds a Type with the same simple name as a Type
+   in a Member's declaration, that Type is spelled the same way on both
+   sides, and no line differs only in its spelling.
+10. A related Member under an incomplete comparison prints its diff, its JSON
+    records the comparison as incomplete, and the CLI reports the
+    incompleteness and exits nonzero.
