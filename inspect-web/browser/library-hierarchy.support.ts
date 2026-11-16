@@ -1804,11 +1804,24 @@ async function installFacades(
             };
       }
       function implementationPerformanceSurface(surface) {
-        const source = surface.types.find(type =>
+        const types = surface.types.map(type => ({
+          ...type,
+          api: type.api.map(member => member.name === "Narrow"
+            ? {
+                ...member,
+                signature: member.signature
+                  .replace("source1", "low")
+                  .replace("source2", "high"),
+              }
+            : member),
+        }));
+        const source = types.find(type =>
           type.api.some(member => member.name === "PrivateWork"));
         const implementationMembers = source?.api.filter(member =>
           member.name === "PrivateWork" || member.name === "OtherWork");
-        if (!source || !implementationMembers?.length) return surface;
+        if (!source || !implementationMembers?.length) {
+          return { ...surface, types };
+        }
         const implementationType = {
           ...source,
           id: source.assemblyId + ":Example.ImplementationOnlyWorker",
@@ -1823,7 +1836,7 @@ async function installFacades(
         };
         return {
           ...surface,
-          types: [...surface.types, implementationType],
+          types: [...types, implementationType],
         };
       }
       function typeMemberPopulation(
@@ -3178,11 +3191,24 @@ async function installFacades(
           surface.package, surface, selected, version, framework, selected.id);
       }
       function implementationPerformanceSurface(surface) {
-        const source = surface.types.find(type =>
+        const types = surface.types.map(type => ({
+          ...type,
+          api: type.api.map(member => member.name === "Narrow"
+            ? {
+                ...member,
+                signature: member.signature
+                  .replace("source1", "low")
+                  .replace("source2", "high"),
+              }
+            : member),
+        }));
+        const source = types.find(type =>
           type.api.some(member => member.name === "PrivateWork"));
         const implementationMembers = source?.api.filter(member =>
           member.name === "PrivateWork" || member.name === "OtherWork");
-        if (!source || !implementationMembers?.length) return surface;
+        if (!source || !implementationMembers?.length) {
+          return { ...surface, types };
+        }
         const implementationType = {
           ...source,
           id: source.assemblyId + ":Example.ImplementationOnlyWorker",
@@ -3197,7 +3223,7 @@ async function installFacades(
         };
         return {
           ...surface,
-          types: [...surface.types, implementationType],
+          types: [...types, implementationType],
         };
       }
       async function performanceFor(surface, selected, version, framework, requestKey) {

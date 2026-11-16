@@ -419,6 +419,29 @@ owner, and population receipt. A composed view does not infer those identities
 from where a row is displayed, and it does not combine their Counts unless the
 composition owner explicitly defines and completes that aggregate population.
 
+### Declaration participant provenance
+
+A logical declaration may correspond across an ordinary API participant and
+an implementation participant without making those images interchangeable.
+Parameter names, attributes, defaults, accessibility, and other
+participant-local declaration facts may differ while the declaration retains
+the same cross-image identity. Those facts do not become part of logical
+declaration equality.
+
+An interactive host that caches or suppresses stale declaration requests must
+therefore identify both the logical declaration and the selected participant.
+Changing from implementation browsing to an ordinary API view, or the reverse,
+requires a new declaration request even when the selected logical Member is
+unchanged. The participant choice comes from the population receipt or
+operation route; it is not reconstructed from rendered declaration text.
+
+`System.Numerics.Vectors` 4.5.0 for `net46` is the real motivating asset. Its
+reference declaration of `Vector.Narrow` names the two parameters `source1`
+and `source2`, while the implementation declaration names the same parameters
+`low` and `high`. The Type also contains a Performance Triage opportunity, so
+the Browser can reach the implementation declaration and later return to the
+ordinary reference declaration for the same logical Member.
+
 ## Progressive disclosure
 
 The cost of a population is controlled by the operation's explicit section,

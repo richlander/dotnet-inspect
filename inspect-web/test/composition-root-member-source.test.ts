@@ -270,6 +270,19 @@ test("member request identity distinguishes colliding type queries", () => {
     memberRequestKey([...request, "Example.Outer\\.Inner", "M:Run"]));
 });
 
+test("member declaration request identity includes its participant", () => {
+  const declarationSignature =
+    appSource.match(
+      /function memberDeclarationRequestSignature\([\s\S]*?\n}/)?.[0]
+    ?? "";
+  assert.match(
+    declarationSignature,
+    /memberRequestSignature\(type, overload\),\s+implementationMember \? "implementation" : "ordinary"/);
+  assert.notEqual(
+    memberRequestKey(["logical-member", "ordinary"]),
+    memberRequestKey(["logical-member", "implementation"]));
+});
+
 test("annotated source request identity includes the selected body", () => {
   const annotatedLoader =
     appSource.match(
@@ -401,13 +414,13 @@ test("member detail adapters preserve exact engine coordinates", () => {
     /inspectMemberFacts\(\s*request\.packageId,\s*request\.version,\s*request\.framework,\s*request\.assembly,\s*request\.typeIdentity,\s*request\.member,\s*request\.memberSignature,\s*request\.selectorKey,\s*request\.metadataToken,\s*request\.implementationBodySelected\)/);
   assert.match(
     documentationLoader,
-    /const signature = memberRequestSignature\(type, overload\);\s*const pkg = currentPackage\(\);\s*const platformCoordinates = pkg\.isRuntimePack\s*\?\s*\(\(\) => \{\s*const row = platformLibraryForRequest\(pkg, type\.assemblyId\);\s*return \{\s*assemblyFileName: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*\};\s*\}\)\(\)\s*:\s*null;\s*const assembly = platformCoordinates\?\.assemblyFileName \?\? type\.assembly;\s*const platformPack = platformCoordinates\?\.pack \?\? ""/);
+    /const signature = memberRequestSignature\(type, overload\);\s*const implementationMember =\s*selectedMemberUsesImplementationDeclaration\(type, overload\);\s*const declarationSignature = memberDeclarationRequestSignature\(\s*type,\s*overload,\s*implementationMember,\s*\);\s*const pkg = currentPackage\(\);\s*const platformCoordinates = pkg\.isRuntimePack\s*\?\s*\(\(\) => \{\s*const row = platformLibraryForRequest\(pkg, type\.assemblyId\);\s*return \{\s*assemblyFileName: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*\};\s*\}\)\(\)\s*:\s*null;\s*const assembly = platformCoordinates\?\.assemblyFileName \?\? type\.assembly;\s*const platformPack = platformCoordinates\?\.pack \?\? ""/);
   assert.match(
     documentationLoader,
     /await Promise\.all\(\[\s*memberDetailInspection\.loadDocumentation\(\{\s*signature,\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,\s*assembly,\s*platformPack,\s*overload,\s*isRuntimePack: Boolean\(state\.package\?\.isRuntimePack\),\s*isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
   assert.match(
     documentationLoader,
-    /memberDetailInspection\.loadDeclaration\(\{[\s\S]*?typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*?member: overload\.name,[\s\S]*?selectorKey: overload\.graphSelectorKey,[\s\S]*?metadataToken:[\s\S]*?overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,[\s\S]*?implementationMember:\s*selectedMemberUsesImplementationDeclaration\(type, overload\),\s*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,[\s\S]*?isCurrent: \(\) => memberRequestIsCurrent\(signature\)/);
+    /memberDetailInspection\.loadDeclaration\(\{\s*signature: declarationSignature,[\s\S]*?typeIdentity: type\.definitionId \?\? type\.id,[\s\S]*?member: overload\.name,[\s\S]*?selectorKey: overload\.graphSelectorKey,[\s\S]*?metadataToken:[\s\S]*?overload\.declarationMetadataToken \?\? overload\.metadataToken \?\? 0,[\s\S]*?implementationMember,\s*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,[\s\S]*?isCurrent: \(\) =>\s*memberDeclarationRequestIsCurrent\(declarationSignature\)/);
   assert.match(
     annotatedLoader,
     /const request = \{\s*signature,\s*typeIdentity: type\.definitionId \?\? type\.id,\s*type: type\.queryId \?\? type\.id,\s*member: state\.selectedBodyTarget\?\.memberName \?\? overload\.name,\s*memberSignature: overload\.signature,[\s\S]*taste: JSON\.stringify\(state\.taste\),[\s\S]*if \(pkg\.isRuntimePack\) \{[\s\S]*kind: "platform",[\s\S]*assembly: platformAssemblyRequest\(row\),\s*pack: row\.pack,\s*contextId: platformDemoContextIdFor\(pkg\),[\s\S]*kind: "package",\s*packageId: pkg\.id,\s*version: pkg\.version,\s*framework: pkg\.activeFramework,\s*assembly: type\.assembly,\s*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null/);

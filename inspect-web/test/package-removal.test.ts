@@ -467,6 +467,7 @@ function graphRemovalHarness() {
     {
       registerHost: (api: typeof host) => { host = api; },
       state, callGraphInspection: coordinator,
+      typeMemberPopulationSource: "ordinary",
       directUseClusterInspection: { reset: () => {} },
       selectedForwarder: () => null,
       createPackageRemoval, packageIdentityKey, memberRequestKey,
