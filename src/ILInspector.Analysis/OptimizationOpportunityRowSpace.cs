@@ -81,6 +81,9 @@ public sealed class OptimizationOpportunityCuratedQuery
 /// </summary>
 public static class OptimizationOpportunityRowSpace
 {
+    private const string RetiredSyncCallsInAsyncShape =
+        "sync-call-in-async";
+
     public const string RowSet = "optimization-opportunities";
     public const string RowScopeIdentity =
         "analysis/optimization-opportunities";
@@ -358,14 +361,33 @@ public static class OptimizationOpportunityRowSpace
         [
             .. candidates.Where(
                 opportunity =>
-                    opportunity.Shape
-                        == AnalysisFindings.StringMaterializationShape
-                    || OptimizationOpportunityRanking
-                        .IncludePerformanceOpportunity(
-                            opportunity,
-                            generatedFrameworkTypes)),
+                    opportunity.Shape != RetiredSyncCallsInAsyncShape
+                    && (opportunity.Shape
+                            == AnalysisFindings.StringMaterializationShape
+                        || OptimizationOpportunityRanking
+                            .IncludePerformanceOpportunity(
+                                opportunity,
+                                generatedFrameworkTypes))),
         ];
     }
+
+    public static RowSelectionResult<OptimizationOpportunity>
+        SelectPerformanceCandidates(
+            IEnumerable<OptimizationOpportunity> opportunities,
+            IEnumerable<OptimizationOpportunity>
+                allocationFanoutOpportunities,
+            IReadOnlySet<TypeRef> generatedFrameworkTypes,
+            bool includeAllocationFanout,
+            IReadOnlyCollection<string> admittedShapes,
+            ResolvedRowQueryPlan<OptimizationOpportunity> plan) =>
+        Apply(
+            PerformanceCandidates(
+                opportunities,
+                allocationFanoutOpportunities,
+                generatedFrameworkTypes,
+                includeAllocationFanout),
+            admittedShapes,
+            plan);
 
     public static OptimizationOpportunityCuratedQuery QueryForKind(
         OptimizationOpportunityKind kind) =>

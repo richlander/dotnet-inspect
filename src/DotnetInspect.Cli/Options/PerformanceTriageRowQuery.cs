@@ -98,20 +98,11 @@ internal static class PerformanceTriageRowQuery
 
     internal static ImmutableArray<Analysis.OptimizationOpportunity> Select(
         OptimizationOpportunitiesResult.Available available,
-        PerformanceTriageOptions options)
-    {
-        ImmutableArray<Analysis.OptimizationOpportunity> candidates =
-            Analysis.OptimizationOpportunityRowSpace.PerformanceCandidates(
-                available.Opportunities,
-                available.AllocationFanoutOpportunities,
-                available.GeneratedFrameworkTypes,
-                options.IncludesAllocationFanout);
-        return Apply(
-            candidates.Where(static opportunity =>
-                !PerformanceKinds.IsSyncCallsInAsyncShape(
-                    opportunity.Shape)),
-            options);
-    }
+        PerformanceTriageOptions options) =>
+        OptimizationOpportunitiesQuery.Select(
+            available,
+            options.Shapes,
+            options.GetResolvedPlan());
 
     internal static ImmutableArray<Analysis.OptimizationOpportunity> Apply(
         IEnumerable<Analysis.OptimizationOpportunity> opportunities,
