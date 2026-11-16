@@ -102,6 +102,12 @@ internal static class ReleaseCandidateWorkflowContract
             "Deep Inspect contract accepted active main verification cancellation.");
         AssertMutationRejected(
             deepInspect,
+            "            ref=$EVENT_REF\n",
+            "            ref=$EVENT_SHA\n",
+            ValidateDeepInspectAdoption,
+            "Deep Inspect contract accepted stale queued-event selection.");
+        AssertMutationRejected(
+            deepInspect,
             "        run: echo \"sha=$(git rev-parse HEAD)\" >> " +
             "\"$GITHUB_OUTPUT\"\n",
             "        run: echo \"sha=$GITHUB_SHA\" >> " +
@@ -463,6 +469,19 @@ internal static class ReleaseCandidateWorkflowContract
             "sha",
             "${{ steps.exact.outputs.sha }}",
             "Deep Inspect candidate outputs");
+        RequireScalarValue(
+            FindStep(candidate, "Select candidate reference"),
+            "run",
+            "set -euo pipefail\n"
+                + "ref=$EVENT_SHA\n"
+                + "if [[ \"$EVENT_NAME\" == push ]] ||\n"
+                + "   [[ \"$EVENT_NAME\" == schedule && \"$SCHEDULE\" == "
+                + "'30 11 * * *' ]] ||\n"
+                + "   [[ \"$LANE\" == test ]]; then\n"
+                + "  ref=$EVENT_REF\n"
+                + "fi\n"
+                + "echo \"ref=$ref\" >> \"$GITHUB_OUTPUT\"\n",
+            "Deep Inspect candidate selection");
         YamlMappingNode candidateCheckout = GetRequiredSequence(
                 candidate,
                 "steps",
