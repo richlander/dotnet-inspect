@@ -106,7 +106,10 @@ public sealed class LibraryStructuralReportTests
             LibraryBodyAnalysisService.ExecutePath(
                 path,
                 LibraryBodyAnalysisRequest
-                    .CreateCompleteImplementationProfile());
+                    .Create(
+                        LibraryBodyAnalysisFeatures.MethodEvidence
+                        | LibraryBodyAnalysisFeatures
+                            .ImplementationProfiles));
         LibraryBodyAnalysisExecution focused =
             LibraryBodyAnalysisService.ExecutePath(
                 path,
