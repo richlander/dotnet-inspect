@@ -328,11 +328,15 @@ test("a forwarded reference Type stays a forwarder while its inventory loads", a
   await page.keyboard.press("Enter");
   await expect(page.locator("#spotlight-input")).toHaveCount(0);
   await expect(page.locator(".inspected-target")).toContainText("XmlReader");
-  // While the inventory is held, the retained reference Type never opens or
-  // lists as an ordinary Type.
+  // While the inventory is held, the retained reference Type lists and opens
+  // as its forwarder, never as an ordinary Type, and cannot yet activate.
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+  await expect(page.locator(".forwarder-destination-status")).toHaveText("Loading…");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveCount(0);
   await expect(page.locator('[data-inspector-tab][data-lens="api"]')).toHaveCount(0);
   await expect(page.locator('[data-inspector-tab][data-lens="source"]')).toHaveCount(0);
-  await expect(reader).toHaveCount(0);
+  await expect(reader).toHaveCount(1);
+  await expect(reader).toContainText("Forwarded");
 
   await releaseFacade(page, "finish-forwarder-view");
   await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");

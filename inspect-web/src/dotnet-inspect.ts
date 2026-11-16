@@ -6388,15 +6388,35 @@ function selectedForwarder(): BrowserPlatformForwarderRow | null {
   // reference Type is still a forwarder, never an ordinary Type.
   const type = state.package?.types.find(
     candidate => candidate.id === state.selectedTypeId);
-  return type && isForwardedDefinition(type)
-    ? {
-        id: type.id,
-        name: type.namespace ? `${type.namespace}.${type.displayName}` : type.displayName,
-        namespace: type.namespace,
-        targetAssembly: "",
-        action: "",
-      }
-    : null;
+  return type && isForwardedDefinition(type) ? provisionalForwarderRow(type) : null;
+}
+
+// A marked reference Type's forwarder row before the inventory supplies it:
+// it lists and selects as a forwarder, but has no destination or action yet.
+function provisionalForwarderRow(type: AppTypeSurface): BrowserPlatformForwarderRow {
+  return {
+    id: type.id,
+    name: type.namespace ? `${type.namespace}.${type.displayName}` : type.displayName,
+    namespace: type.namespace,
+    targetAssembly: "",
+    action: "",
+  };
+}
+
+// The Library's forwarder rows: the inventory's, plus a provisional row for
+// each marked reference Type in scope that the inventory has not supplied, so
+// a forwarded Type lists and counts as its forwarder from the first render.
+function listedForwarderRows(): readonly BrowserPlatformForwarderRow[] {
+  const inventory = currentPlatformForwarderView()?.forwarders ?? [];
+  const pkg = state.package;
+  if (!pkg) return inventory;
+  const supplied = inventoryForwarderIds();
+  const provisional = pkg.types
+    .filter(type => isForwardedDefinition(type)
+      && (!state.libraryScope || state.libraryScope.has(libraryKey(type)))
+      && !supplied.has(type.id))
+    .map(provisionalForwarderRow);
+  return provisional.length === 0 ? inventory : [...inventory, ...provisional];
 }
 
 function isForwardedDefinition(item: AppTypeSurface) {
@@ -6410,15 +6430,18 @@ const forwarderRowIds = new WeakMap<object, ReadonlySet<string>>();
 // Such a Type lists and counts only as its forwarder row, which keeps the
 // forwarder's Overview, so it never appears as an ordinary Type.
 function isListedAsForwarder(item: AppTypeSurface) {
-  if (isForwardedDefinition(item)) return true;
+  return isForwardedDefinition(item) || inventoryForwarderIds().has(item.id);
+}
+
+function inventoryForwarderIds(): ReadonlySet<string> {
   const view = currentPlatformForwarderView();
-  if (!view) return false;
+  if (!view) return new Set();
   let ids = forwarderRowIds.get(view);
   if (!ids) {
     ids = new Set(view.forwarders.map(row => row.id));
     forwarderRowIds.set(view, ids);
   }
-  return ids.has(item.id);
+  return ids;
 }
 
 function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow> {
@@ -6427,7 +6450,7 @@ function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow>
   const forwarders = !state.typeTraitFilter
     && typeAccessibilityIncludesForwarders()
     ? filterForwardedTypes(
-      currentPlatformForwarderView()?.forwarders ?? [],
+      listedForwarderRows(),
       {
         text: state.typeFilter,
         namespace: exactNamespace ?? "",
@@ -7521,7 +7544,7 @@ function typeSelectorDefinitions() {
   const definitions = state.package?.types.filter(item =>
     (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
     && !isListedAsForwarder(item)) ?? [];
-  const forwarders = currentPlatformForwarderView()?.forwarders ?? [];
+  const forwarders = listedForwarderRows();
   return { definitions, forwarders };
 }
 
@@ -14761,7 +14784,7 @@ function renderLibraryCompositionOverview(
     const ns = type.namespace || "global";
     nsCounts.set(ns, (nsCounts.get(ns) || 0) + 1);
   }
-  const forwarders = currentPlatformForwarderView()?.forwarders ?? [];
+  const forwarders = listedForwarderRows();
   for (const row of forwarders) {
     const ns = row.namespace || "global";
     nsCounts.set(ns, (nsCounts.get(ns) ?? 0) + 1);
