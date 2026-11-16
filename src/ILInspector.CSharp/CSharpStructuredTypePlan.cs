@@ -281,7 +281,7 @@ public static class CSharpStructuredTypePlanProducer
         ApiType type,
         bool omitPropertyAccessors,
         IReadOnlyCollection<string> namespaces,
-        bool includeSignatureAttributes = true)
+        bool omitDelegateReturnAttributes = false)
     {
         CSharpDeclaredTypeSelfNameAdmission.Admitted? selfName = null;
         if (type.DefinitionName is not null
@@ -311,7 +311,7 @@ public static class CSharpStructuredTypePlanProducer
             ContainingNamespace = type.Namespace,
             Usings = namespaces,
             DeclaredTypeSelfName = selfName,
-            IncludeSignatureAttributes = includeSignatureAttributes,
+            OmitDelegateReturnAttributes = omitDelegateReturnAttributes,
         });
     }
 
@@ -337,7 +337,7 @@ public static class CSharpStructuredTypePlanProducer
             declared,
             omitPropertyAccessors: false,
             namespaces: [],
-            includeSignatureAttributes: false);
+            omitDelegateReturnAttributes: true);
         ApiMember invoke = type.Members.SingleOrDefault(static member => member is { Kind: "method", Name: "Invoke" })
             ?? throw new InvalidOperationException(
                 $"Delegate '{type.FullName}' has no Invoke member to declare it.");

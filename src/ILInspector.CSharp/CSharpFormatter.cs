@@ -62,6 +62,13 @@ public sealed record CSharpFormatOptions
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
     public bool OmitPropertyAccessors { get; init; }
+
+    /// <summary>
+    /// Omits a delegate's separate <c>[return: …]</c> line, as a Type's
+    /// enclosing declaration line omits its attribute lines; inline
+    /// parameter attributes remain.
+    /// </summary>
+    internal bool OmitDelegateReturnAttributes { get; init; }
 }
 
 /// <summary>
@@ -900,7 +907,8 @@ public sealed class CSharpFormatter
             IncludeSignatureAttributes = options.IncludeSignatureAttributes,
             IncludeObsoleteAttribute = options.IncludeObsoleteAttribute,
             OmitInterfaceMemberModifiers = options.OmitInterfaceMemberModifiers,
-            OmitPropertyAccessors = options.OmitPropertyAccessors
+            OmitPropertyAccessors = options.OmitPropertyAccessors,
+            OmitDelegateReturnAttributes = options.OmitDelegateReturnAttributes,
         };
 
     static CSharpFormattedDeclaration ToFormattedDeclaration(CSharpRenderedDeclaration declaration)

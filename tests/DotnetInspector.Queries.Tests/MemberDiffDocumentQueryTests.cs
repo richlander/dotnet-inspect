@@ -36,7 +36,7 @@ public sealed class MemberDiffDocumentQueryTests
             public delegate void Callback(int input);
             public sealed class Marker : Attribute { }
             [return: Marker]
-            public delegate bool Predicate();
+            public delegate bool Predicate([Marker] int value);
             public class Mover { public void Shift(int x) { } }
             public class Legacy { public void Old() { } }
         }
@@ -68,7 +68,7 @@ public sealed class MemberDiffDocumentQueryTests
             public delegate void Callback(int input);
             public sealed class Marker : Attribute { }
             [return: Marker]
-            public delegate bool Predicate();
+            public delegate bool Predicate([Marker] int value);
             public class Mover { }
             public static class MoverExtensions { public static void Shift(this Mover mover, int x) { } }
             public sealed class Gauge
@@ -274,13 +274,14 @@ public sealed class MemberDiffDocumentQueryTests
     }
 
     [Fact]
-    public async Task ReturnAttributedDelegate_IsEnclosedByOneDeclarationLine()
+    public async Task AttributedDelegate_IsEnclosedByOneDeclarationLineKeepingParameterAttributes()
     {
         // A listing prints the return attribute above the declaration, as it
-        // prints any Type's attributes; the enclosure line is the declaration.
+        // prints any Type's attributes; the enclosure line is the declaration,
+        // whose parameter attributes are part of it.
         MemberDiffDocument document = await Single("Example.Predicate", "Invoke");
 
-        Assert.Equal("public delegate bool Predicate();", document.CurrentEnclosure[^1].Text);
+        Assert.Equal("public delegate bool Predicate([Example.Marker] int value);", document.CurrentEnclosure[^1].Text);
     }
 
     [Fact]
