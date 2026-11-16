@@ -127,6 +127,75 @@ public sealed partial class UnsafeMemberFindingsTests
                 change.Detail);
         }
 
+        // A module that switches to the updated rules changes each member's
+        // safe-boundary state, which is part of the row's value.
+        [Fact]
+        public void SafeBoundaryChangesAreChanges()
+        {
+            MethodIdentity member = Method("Read");
+            UnsafeMemberFinding before = Finding(
+                member,
+                Evidence(UnsafeMemberUseKind.PointerDereference, member, 2));
+
+            var pairs = Pairs(
+                Complete(before),
+                Complete(before with { SafeBoundary = UnsafeMemberSafeBoundary.Yes }));
+
+            var change = Assert.IsType<PairFinding<UnsafeMemberFinding>.Changed>(
+                Assert.Single(pairs).Value);
+            Assert.Equal("safe boundary: legacy rules -> safe boundary", change.Detail);
+        }
+
+        // Library Diff lists each Type whose unsafe code changed, once: Added
+        // when only the new side has a finding in it, Removed when only the
+        // old side does, Changed otherwise. A Type whose members are all
+        // Present is not listed.
+        [Fact]
+        public void TypeFoldListsEachChangedTypeOnce()
+        {
+            MethodIdentity In(string type, string name, int token) =>
+                Method(name, token) with
+                {
+                    DeclaringType = TypeRef.Definition(
+                        Template.DeclaringType.Assembly, "Fold", type),
+                };
+            UnsafeMemberFinding Use(MethodIdentity member, UnsafeMemberUseKind kind) =>
+                Finding(member, Evidence(kind, member, 2));
+            MethodIdentity stable = In("Stable", "Read", 0x06000001);
+            MethodIdentity changed = In("Changed", "Read", 0x06000002);
+            MethodIdentity removed = In("Removed", "Read", 0x06000003);
+            MethodIdentity added = In("Added`1", "Read", 0x06000004);
+            MethodIdentity swappedOld = In("Swapped", "Old", 0x06000005);
+            MethodIdentity swappedNew = In("Swapped", "New", 0x06000006);
+            MethodIdentity grownStable = In("Grown", "Stable", 0x06000007);
+            MethodIdentity grownAdded = In("Grown", "Added", 0x06000008);
+
+            var pairs = Pairs(
+                Complete(
+                    Use(stable, UnsafeMemberUseKind.PointerDereference),
+                    Use(changed, UnsafeMemberUseKind.PointerDereference),
+                    Use(removed, UnsafeMemberUseKind.PointerDereference),
+                    Use(swappedOld, UnsafeMemberUseKind.PointerDereference),
+                    Use(grownStable, UnsafeMemberUseKind.PointerDereference)),
+                Complete(
+                    Use(stable, UnsafeMemberUseKind.PointerDereference),
+                    Use(changed, UnsafeMemberUseKind.StackAllocation),
+                    Use(added, UnsafeMemberUseKind.PointerDereference),
+                    Use(swappedNew, UnsafeMemberUseKind.PointerDereference),
+                    Use(grownStable, UnsafeMemberUseKind.PointerDereference),
+                    Use(grownAdded, UnsafeMemberUseKind.IndirectCall)));
+
+            Assert.Equal(
+                [
+                    new UnsafeCodeTypeChange("Fold.Added`1", PairKind.Added),
+                    new UnsafeCodeTypeChange("Fold.Changed", PairKind.Changed),
+                    new UnsafeCodeTypeChange("Fold.Grown", PairKind.Changed),
+                    new UnsafeCodeTypeChange("Fold.Removed", PairKind.Removed),
+                    new UnsafeCodeTypeChange("Fold.Swapped", PairKind.Changed),
+                ],
+                AnalysisFindings.FoldUnsafeCodeTypeChanges(pairs));
+        }
+
         // An incomplete census is never compared as complete: the comparison
         // fails and keeps both sides' observed findings.
         [Fact]
@@ -184,7 +253,7 @@ public sealed partial class UnsafeMemberFindingsTests
                 Evidence(UnsafeMemberUseKind.ExplicitContractCall, member, 12, "Unsafe::Add")));
 
             Assert.Equal(
-                "Public: pointer dereference; explicit-contract call ×3: Unsafe::Add, Unsafe::As",
+                "Public, legacy rules: pointer dereference; explicit-contract call ×3: Unsafe::Add, Unsafe::As",
                 summary.ToString());
         }
     }

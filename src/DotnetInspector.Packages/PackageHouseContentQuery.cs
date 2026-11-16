@@ -19,6 +19,19 @@ public abstract class PackageHouseContentNarrowing
     }
 
     /// <summary>
+    /// DLL candidates for package Find: owner-default layout, one exact TFM,
+    /// or every TFM when the requested framework is "all".
+    /// </summary>
+    public sealed class FindLibraries(string? targetFramework = null)
+        : PackageHouseContentNarrowing
+    {
+        public string? TargetFramework { get; } =
+            string.IsNullOrWhiteSpace(targetFramework)
+                ? null
+                : targetFramework;
+    }
+
+    /// <summary>
     /// The compile surface and corresponding implementation selected for one
     /// exact package target.
     /// </summary>
@@ -437,6 +450,13 @@ public sealed class PackageHouseContentQuery
         new(
             new PackageHouseContentNarrowing.PackageWide(),
             [new PackageHouseContentTerminal.FileList(includeDirectories)]);
+
+    /// <summary>Lists House-selected package Find candidates without opening images.</summary>
+    public static PackageHouseContentQuery FindLibraryFileList(
+        string? targetFramework = null) =>
+        new(
+            new PackageHouseContentNarrowing.FindLibraries(targetFramework),
+            [new PackageHouseContentTerminal.FileList()]);
 
     /// <summary>Creates a package-wide bounded root-nuspec query.</summary>
     public static PackageHouseContentQuery PackageNuspec() =>

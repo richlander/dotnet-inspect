@@ -664,6 +664,13 @@ reference-only package has one group and uses that role budget undivided;
 performance analysis falls back to that surface group when no implementation
 participant exists.
 
+### Platform scope roles
+
+A Platform Library has a reference-pack surface role and a runtime-pack
+implementation role.
+[Inspect Web Platform scope roles](../docs/design/inspect-web-platform-scope-roles.md)
+owns that contract.
+
 ### Artifact-backed package scope adoption
 
 **Status: implemented.** This section owns the Browser registry
@@ -1185,11 +1192,12 @@ Rows open the supported member Overview. Non-public opportunities remain visible
 in the aggregate count.
 
 `QueryPlatformPerformance` runs the same participant-scoped query and Browser
-projection for one selected platform participant. A platform scope holds only
-the runtime pack's implementation assemblies and has no separate compile role,
-so the analyzed assembly is also its own surface, as for a package without
-`ref/` assets: rows carry its bare assembly identity and platform pack, exactly
-as the Platform Type list names its Types.
+projection for one selected platform participant. Until the surface role in
+[Platform scope roles](../docs/design/inspect-web-platform-scope-roles.md)
+is adopted, a platform scope holds only the runtime pack's implementation
+assemblies, so the analyzed
+assembly is also its own surface: rows carry its bare assembly identity and
+platform pack, exactly as the Platform Type list names its Types.
 
 `QueryMemberFacts` resolves the selected reference-preferred member to its exact
 implementation body through the product's opaque member correspondence, then

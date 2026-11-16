@@ -28,6 +28,14 @@ The former documentation-source extension from
 [#6375](https://github.com/richlander/dotnet-inspect/issues/6375) transfers to
 [DocumentationHouse](documentation-house.md) under #6579.
 
+The unadopted package binding-to-implementation continuation and package/local
+selected-Library source-factory wrappers were retired under
+[#11204](https://github.com/richlander/dotnet-inspect/issues/11204).
+Their dedicated tests no longer provide adoption evidence. The underlying
+House executors, source adapters, materializers, and certification contracts
+remain. Future host adoption must establish a current typed composition plan;
+these retired wrappers do not constitute a production-consumer route.
+
 The design depends on:
 
 - [Platform Target Currency](platform-target-currency.md) for exact runtime

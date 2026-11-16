@@ -177,6 +177,57 @@ NativeAOT. `LibraryApiDiffTypeSelectionTests` gates subject parity, the
 projected Type set, the extension-declaring fallback, and operation-scoped
 completeness; `LibraryApiDiffTypeSelectionCommandTests` gates the CLI route.
 
+### Exact Type load
+
+A host that knows the exact Types it will present loads them with
+`ApiTypeSelection.ForFullNames`, an ordinal set of full names as
+`ApiType.FullName` spells them. Its claim:
+
+> An exact Type load gives each selected Type the changed-Type subject the
+> complete comparison gives it, and pairs with only the Types that declare an
+> extension for a selected Type, so its projection follows the selected Types
+> and their extensions rather than the Library.
+
+The metadata scans that find those extensions still read the whole image; they
+decode no Type's projection.
+
+Pairing differs from a predicate selection in one place. Before projecting
+either side, each endpoint reads the canonical same-image extension relation
+population of every selected Type, which holds extension methods and
+properties, and the comparison pairs the selection with the union of the
+top-level Types that declare those extensions. The read includes hidden,
+obsolete, and non-public extensions, because the complete comparison projects
+them and pairs a moved instance member with them. A Type that declares no
+extension for a selected Type is not projected. When a selected Type itself
+declares an extension, the endpoint returns every extension-declaring Type
+instead, and the comparison keeps both projections complete, as it does for
+any selection of such a Type: its extensions pair with members of the Types
+they extend, which an exact load cannot name in advance. An unreadable name,
+or a relation population that is not read completely, also keeps both
+projections complete.
+
+The load presents only the selected Types.
+`LibraryApiDiffPresentationAdapter.Create(result, typeDisplays)` drops the
+subjects of the Types the selection paired with, and the summary counts only
+the selected Types. Completeness stays operation-scoped, as above.
+
+`LibraryApiDiffTypeSelectionTests` gates the claim: for every Type on either
+side of both fixture pairs, at the Public, IncludeAll, and API axis scopes,
+the exact load's subject equals the complete comparison's, and an extension
+receiver projects itself and its extension-declaring Type only.
+`ExactTypeLoadExtensionPairingTests` gates the same agreement for instance
+members moved to obsolete, editor-hidden, internal, plain, and C# 14 block
+extensions, and for generic and nested receivers.
+`eng/measure-type-api-exact.cs` checks the same agreement for every Type of a
+Library pair and measures each load under NativeAOT.
+
+Loading a Type is distinct from retaining the Library's complete comparison,
+its richest printing. A host may answer a Type request from a retained
+complete comparison when it has one, and the two answers agree by the claim
+above; it never computes the complete comparison to answer a Type request.
+[Inspect Web Library API Diff](inspect-web-library-api-diff.md#managed-composition)
+applies this rule.
+
 ## Outcome cases and complete Document
 
 The projection returns the closed `LibraryApiDiffOutcome`:
