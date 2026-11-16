@@ -119,6 +119,7 @@ public class SourceTextDiffRendererTests
                 one();
 
                 two();
+                three();
                 first();
                 second();
                 a();
@@ -131,6 +132,7 @@ public class SourceTextDiffRendererTests
                 {
                     one();
                     two();
+                    three();
                     a();
                     b();
                     c();
@@ -147,6 +149,9 @@ public class SourceTextDiffRendererTests
             "Whitespace-only lines",
             "1 PDB comparison -> 0 Decompiled comparison");
         AssertField(summary, "Moved blocks", "1");
+        // Two unchanged lines separate each labeled change, so each keeps its
+        // own applicable hunk; closer changes with different labels share one
+        // unlabeled hunk (Markout 0.41.0).
         Assert.Contains("@@ whitespace-only: line breaks", detailed.Content);
         Assert.Contains("@@ moved (1) to +", detailed.Content);
         Assert.Contains("@@ moved (1) from -", detailed.Content);

@@ -275,10 +275,16 @@ test("retained Workspace Spotlight uses one streaming Type Find with opaque acti
     /commitManagedSpotlightSelection\(\{[\s\S]*installManagedSpotlightType/);
   assert.match(
     activation,
+    /associateRetainedPackageCallGraphAuthority\([\s\S]*installManagedSpotlightType/);
+  assert.match(
+    activation,
     /abandonRetainedWorkspaceNavigation/);
   assert.match(
     projection,
     /createNuGetPackageModelWithDefaultLibrary\(\s*admitted\.surface,\s*inventory\.defaultLibrary,\s*inventory\.implementationComparisonRuntimeIdentifier,\s*inventory\.runtimeIdentifier\)/);
+  assert.match(
+    projection,
+    /navigationId: inventory\.navigationId/);
   assert.doesNotMatch(
     activation,
     /result\.(?:library|package|namespace)|split\(|includes\(/);

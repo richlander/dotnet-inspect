@@ -1,0 +1,39 @@
+{
+  "S1": {
+    "changed": "Run's count parameter changed from int to long.",
+    "classification": "Breaking: parameter type changed",
+    "type_declaration_1_0_0": "not stated",
+    "type_changed": "not stated"
+  },
+  "S2": {
+    "changed": "Read(TimeSpan window) was added with Gauge in 2.0.0.",
+    "classification": "none",
+    "type_declaration_1_0_0": "did not exist",
+    "type_changed": "not stated"
+  },
+  "S3": {
+    "changed": "nothing",
+    "classification": "none",
+    "type_declaration_1_0_0": "not stated",
+    "type_changed": "not stated"
+  },
+  "S4": {
+    "changed": "Count's Tag attribute changed from \"a\" to \"b\".",
+    "classification": "none",
+    "type_declaration_1_0_0": "not stated",
+    "type_changed": "not stated"
+  },
+  "S5": {
+    "changed": "Flush now rents a buffer from ArrayPool<byte>.Shared instead of creating a byte array.",
+    "classification": "allocation removed",
+    "type_declaration_1_0_0": "not stated",
+    "type_changed": "not stated"
+  },
+  "S6": {
+    "changed": "Reset was removed.",
+    "classification": "Breaking: member removed",
+    "type_declaration_1_0_0": "not stated",
+    "type_changed": "not stated"
+  },
+  "format_notes": "Enclosure lines show location, not a compared baseline declaration or evidence that Widget's declaration was unchanged. Gauge's addition does not establish a change to an earlier declaration. I treated “allocation removed” as S5's classification; the output does not explicitly label it as such."
+}

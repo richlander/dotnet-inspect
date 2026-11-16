@@ -443,6 +443,10 @@ public static class MemberOptionsParser
             : null;
         if (workspacePacket is not null)
         {
+            if (sourceInputs.Args.Length == 0
+                || TypeMatcher.IsTypeGlobPattern(sourceInputs.Args[0]))
+                return new VersionError(
+                    "--workspace requires one explicit exact Type selector.");
             if (sourceInputs.ExplicitPackage is not null
                 || sourceInputs.ExplicitAssembly is not null
                 || sourceInputs.ExplicitPlatform is not null
@@ -476,7 +480,7 @@ public static class MemberOptionsParser
 
         bool routerDeferredTypeOrMember = deferredRouteValue is not null;
         // Handle projection discovery or help
-        if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && projectSourcePath is null)
+        if (sourceInputs.Args.Length == 0 && !sourceInputs.HasExplicitSource && projectSourcePath is null && workspacePacket is null)
         {
             if (opts.IsDiscoveryMode(parseResult))
                 return new Discovery(opts.ParseDiscover(parseResult), opts.ParseTree(parseResult));

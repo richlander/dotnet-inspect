@@ -385,8 +385,6 @@ Platform Analysis:
 - `QueryPlatformTypeImplementationHeat`
 - `QueryPlatformTypeMethodLeverage`
 
-The explicitly unavailable platform-performance operation stays in this facade
-so absence remains a visible capability result rather than a missing binding.
 `QueryCloneCandidates` belongs here because it adapts the Workspace structural
 Clone query and portable Presentation result without transferring candidate
 ranking or coverage semantics into the browser host.
@@ -496,20 +494,21 @@ dependency layering cannot distinguish. The DEBUG-only
 `QueryTypeSourceEvidence` diagnostic export is not part of the production
 facade inventory.
 
-### Call-graph facade: 2 exports
+### Call-graph facade: 3 exports
 
 - `ExpandPlatformCallGraph`
 - `QueryMemberCallGraph`
+- `QueryRetainedMemberCallGraph`
 
 Both package and platform traversal return the same browser call-graph
 contract. Graph-target member projection remains in the metadata facade because
 it projects one API member after navigation rather than expanding topology.
 Web Core consumes `AssemblyContextMemberCallGraphDocument` from Queries rather
 than constructing Analysis sessions or CallGraph projections. It retains
-package and Platform scope expansion, Browser Mermaid and tree rendering,
-target attribution, navigation policy, diagnostics lowering, and wire
-projection over detached Queries-owned member, tree, and diagnostic facts; Web
-Core does not reference Analysis types.
+package and Platform scope expansion, exact retained-Workspace operation
+admission, Browser Mermaid and tree rendering, target attribution, navigation
+policy, diagnostics lowering, and wire projection over detached Queries-owned
+member, tree, and diagnostic facts; Web Core does not reference Analysis types.
 
 ### Catalog facade: 31 exports
 

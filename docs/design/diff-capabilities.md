@@ -492,7 +492,10 @@ Each step is its own focused effort:
    records that as its known divergence, an interim exception to the [Exists
    contract](#the-exists-contract)'s second rule.
 2. **Uncertain kinds.** Promote or present each kind in the order the census
-   measured, removing every Exists fallback on the six measured pairs.
+   measured, removing every Exists fallback on the six measured pairs. The
+   first, renderable attributes, is presented through the owner's rendered
+   attribute list in [Finding Diff Any's API census
+   settlement](finding-diff-any.md#api-census-settlement).
 3. **Shared Body Exists.** The complete IL diff takes symbolic identity
    ([#9918](https://github.com/richlander/dotnet-inspect/issues/9918)) and a
    lockstep comparison without materialized instructions, then meets the latency

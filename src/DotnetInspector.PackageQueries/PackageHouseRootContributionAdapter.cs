@@ -118,8 +118,49 @@ public abstract class PackageHouseRootContributionOutcome
 /// </summary>
 public static class PackageHouseRootContributionAdapter
 {
+    /// <summary>
+    /// Adapts a House-issued no-library selection to a surface-only Root.
+    /// </summary>
+    public static bool TryCreateUnselectedSurfaceBinding(
+        PackageHouseSettlement settlement,
+        string? displayPackageId,
+        out PackageRootBinding? binding)
+    {
+        ArgumentNullException.ThrowIfNull(settlement);
+        binding = null;
+        if (settlement is not PackageHouseSettlement.Acquired acquired
+            || settlement.Result is not PackageHouseResult.NoMatch noMatch
+            || settlement.Result.Request.Operation.Profile
+                != PackageHouseOperationProfile.Realize
+            || !settlement.Result.Request.IsCompileLibraries
+            || settlement.Result.Request.AssetDemand
+                != PackageAssetDemand.Surface
+            || noMatch.Evidence.ContentNarrowing?.TargetSelection is not
+            {
+                Selection.Status:
+                    PackageCompileAssetSelectionStatus.NoCompileAssets
+                    or PackageCompileAssetSelectionStatus
+                        .NoMatchingTargetFramework
+                    or PackageCompileAssetSelectionStatus.EmptyCompileGroup,
+            } selection
+            || !PackageRootBinding.TryCreateFromSourceSelection(
+                acquired.Payload,
+                selection,
+                OriginalRequestedFramework(
+                    settlement.Result.Request.TargetContext),
+                out binding,
+                displayPackageId: displayPackageId))
+        {
+            return false;
+        }
+
+        binding = binding.WithAssetDemand(PackageAssetDemand.Surface);
+        return true;
+    }
+
     public static PackageHouseRootContributionOutcome Create(
-        PackageHouseSettlement settlement)
+        PackageHouseSettlement settlement,
+        string? displayPackageId = null)
     {
         ArgumentNullException.ThrowIfNull(settlement);
         PackageHouseResult result = settlement.Result;
@@ -151,7 +192,8 @@ public static class PackageHouseRootContributionAdapter
                 acquired.Payload,
                 realization.Receipt,
                 OriginalRequestedFramework(result.Request.TargetContext),
-                out PackageRootBinding? binding))
+                out PackageRootBinding? binding,
+                displayPackageId: displayPackageId))
         {
             return new PackageHouseRootContributionOutcome.NoContribution(
                 result,

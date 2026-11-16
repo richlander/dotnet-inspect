@@ -65,6 +65,13 @@ internal static class IteratorGeneralInverse
             return new Outcome.Declined($"a transfer survived the pipeline ({transfer.Describe()} in {transfer.Parent?.Describe()})");
         if (work.Descendants.FirstOrDefault(node => MachineField(node, machine) is not null) is { } survivor)
             return new Outcome.Declined($"a state-machine field survived the pipeline ({survivor.Describe()})");
+        // A lambda or local function raised into the body reads its captures
+        // by name. Closure raising does not yet prove that a captured copy and
+        // the variable it was copied from are distinct, so `c = n` captured
+        // by `() => c` can come back as `() => n`. Nothing here can check
+        // that, so the body is declined rather than graded (#11208).
+        if (work.Descendants.Any(static node => node is Lambda or LocalFunctionStatement))
+            return new Outcome.Declined("a lambda or local function was raised into the body");
         if (work.Descendants.OfType<Return>().Any(static ret => ret.Value is not null))
             return new Outcome.Declined("a value return survived the pipeline");
         int yields = work.Descendants.OfType<YieldReturn>().Count();
@@ -360,9 +367,12 @@ internal static class IteratorGeneralInverse
                 _ => [],
             };
 
+        // A `switch` instruction falls through to the next instruction when
+        // no case matches: that successor is the `default` arm, or the branch
+        // around the cases when there is none.
         static bool FallsThrough(Block block)
             => block.Children.Count == 0
-                || block.Children[^1] is not (Return or Branch or Leave or Throw or SwitchBranch or EndFinally);
+                || block.Children[^1] is not (Return or Branch or Leave or Throw or EndFinally);
 
         // The running marker (-1) and every advance are protocol; a state store
         // that is not a constant is not this lowering.

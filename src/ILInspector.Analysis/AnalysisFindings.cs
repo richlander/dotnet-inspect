@@ -499,6 +499,11 @@ public static class AnalysisFindings
             "explicit contract",
             oldSummary.HasExplicitUnsafeContract,
             newSummary.HasExplicitUnsafeContract);
+        AddChange(
+            changes,
+            "safe boundary",
+            UnsafeMemberFindingSummary.SafeBoundaryText(oldSummary.SafeBoundary),
+            UnsafeMemberFindingSummary.SafeBoundaryText(newSummary.SafeBoundary));
         AddChange(changes, "evidence", RolesText(oldSummary), RolesText(newSummary));
         return string.Join("; ", changes);
 
@@ -510,6 +515,51 @@ public static class AnalysisFindings
                 summary.Roles.Select(static role =>
                     UnsafeMemberFindingSummary.RoleText(role, static callee => callee)))
             + "]";
+    }
+
+    /// <summary>
+    /// Folds a member comparison of two unsafe member censuses into the Types
+    /// whose unsafe code changed, as Library Diff lists them
+    /// (docs/design/unsafe-code-section.md#diff). A Type is <c>Added</c> when
+    /// only the new side has a finding in it, <c>Removed</c> when only the old
+    /// side has one, and <c>Changed</c> when both do and some member's
+    /// transition is not <c>Present</c>. A Type with no such transition is
+    /// omitted, so a listed Type is exactly one whose Type-scope comparison
+    /// reports a transition. Types are named by their metadata full name and
+    /// ordered ordinally.
+    /// </summary>
+    public static ImmutableArray<UnsafeCodeTypeChange> FoldUnsafeCodeTypeChanges(
+        IEnumerable<PairFinding<UnsafeMemberFinding>> pairs)
+    {
+        ArgumentNullException.ThrowIfNull(pairs);
+
+        var types = new Dictionary<string, (bool Old, bool New, bool Differs)>(
+            StringComparer.Ordinal);
+        foreach (PairFinding<UnsafeMemberFinding> pair in pairs)
+        {
+            IPairFinding sides = pair;
+            var oldFinding = (Finding<UnsafeMemberFinding>?)sides.Old;
+            var newFinding = (Finding<UnsafeMemberFinding>?)sides.New;
+            string type = (newFinding ?? oldFinding)!.Payload.Member.DeclaringType
+                .ToMetadataFullName();
+            (bool old, bool @new, bool differs) = types.GetValueOrDefault(type);
+            types[type] = (
+                old || oldFinding is not null,
+                @new || newFinding is not null,
+                differs || pair.Kind != PairKind.Present);
+        }
+
+        return
+        [
+            .. types
+                .Where(static type => type.Value.Differs)
+                .Select(static type => new UnsafeCodeTypeChange(
+                    type.Key,
+                    !type.Value.Old ? PairKind.Added
+                        : !type.Value.New ? PairKind.Removed
+                        : PairKind.Changed))
+                .OrderBy(static change => change.Type, StringComparer.Ordinal),
+        ];
     }
 
     /// <summary>
