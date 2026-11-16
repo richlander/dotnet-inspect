@@ -23,20 +23,48 @@ internal static partial class BrowserEcosystemFindIndexAssets
     const string ModuleName = "ecosystem-find-index-assets";
     const string ModulePath = "/ecosystem-find-index-assets.js";
 
-    internal static async Task<BrowserEcosystemFindIndexAssetLoad> LoadAsync()
+    internal static ImmutableArray<EcosystemPackId> SupportedEcosystems =>
+        [EcosystemPackIds.Aspire, EcosystemPackIds.MicrosoftExtensions];
+
+    internal static Task<BrowserEcosystemFindIndexAssetLoad> LoadAsync() =>
+        LoadAsync(SupportedEcosystems);
+
+    internal static async Task<BrowserEcosystemFindIndexAssetLoad> LoadAsync(
+        IReadOnlyCollection<EcosystemPackId> ecosystems)
     {
+        ArgumentNullException.ThrowIfNull(ecosystems);
+        if (ecosystems.Count == 0)
+        {
+            return new BrowserEcosystemFindIndexAssetLoad.Available([]);
+        }
+        if (ecosystems.Any(ecosystem =>
+                !SupportedEcosystems.Contains(ecosystem)))
+        {
+            throw new ArgumentException(
+                "Indexed Find asset selection contains an unsupported Ecosystem.",
+                nameof(ecosystems));
+        }
+
         try
         {
             await JSHost.ImportAsync(ModuleName, ModulePath)
                 .ConfigureAwait(false);
-            EcosystemFindIndexArtifact aspire = Load(
-                await LoadAspireAsync().ConfigureAwait(false),
-                EcosystemPackIds.Aspire);
-            EcosystemFindIndexArtifact extensions = Load(
-                await LoadMicrosoftExtensionsAsync().ConfigureAwait(false),
-                EcosystemPackIds.MicrosoftExtensions);
+            var artifacts =
+                ImmutableArray.CreateBuilder<EcosystemFindIndexArtifact>();
+            if (ecosystems.Contains(EcosystemPackIds.Aspire))
+            {
+                artifacts.Add(Load(
+                    await LoadAspireAsync().ConfigureAwait(false),
+                    EcosystemPackIds.Aspire));
+            }
+            if (ecosystems.Contains(EcosystemPackIds.MicrosoftExtensions))
+            {
+                artifacts.Add(Load(
+                    await LoadMicrosoftExtensionsAsync().ConfigureAwait(false),
+                    EcosystemPackIds.MicrosoftExtensions));
+            }
             return new BrowserEcosystemFindIndexAssetLoad.Available(
-                [aspire, extensions]);
+                artifacts.DrainToImmutable());
         }
         catch (Exception exception) when (
             exception is FormatException
