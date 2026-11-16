@@ -891,7 +891,7 @@ invocations' complete envelopes instead of timing.
 | Operation | Workspace | Query that owns the session |
 | --- | --- | --- |
 | `QueryPackage` | one package/version/framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
-| `QueryTypeProjection` | complete active package Workspace; one selected compile participant | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)` and the L2 `TypeDependencySectionPlan` over `AssemblyContextTypeDependencyQuery.ExecuteParticipant(...)` |
+| `QueryTypeProjection` | complete active package Workspace; one selected compile participant | `AssemblyContextTypeProjectionQuery.ExecuteParticipant(...)`, the L2 `TypeDependencySectionPlan` over `AssemblyContextTypeDependencyQuery.ExecuteParticipant(...)`, and exact-identity extension candidates over the ordered surface group |
 | `QueryMemberAnnotatedSource` | one package/version/framework | `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` |
 | `QueryMemberFindingCensus` | one package/version/framework | one `AssemblyContextMemberProjectionQuery.ExecuteParticipant(...)` carrying Facts and Annotated Source identity |
 | `QueryMemberSource`, `QueryTypeSource`, `QueryTypeMemberSource` | one package/version/framework | `AssemblyContextSourceQuery.ExecuteMemberAsync(...)` / `ExecuteTypeAsync(...)` |
@@ -1030,6 +1030,14 @@ another retained Workspace cannot reuse those facts. A graph node or
 related-type chip navigates only when exactly one loaded Workspace surface owns
 that type identity; ambiguous and external nodes remain static. Platform-only
 type projection keeps its existing isolated runtime-pack scope.
+
+The same Type request also asks each ordered surface participant for bounded
+extension candidates using the exact Metadata identity of the selected
+definition. Count, Rows, coverage, diagnostics, and failures remain
+participant-local in the separate **Extension method candidates** section;
+these receiver matches do not establish C# applicability. The whole Browser
+Type result remains subject to the existing workspace-generation check, so a
+late response cannot replace a newer Type selection.
 
 `QueryMemberAnnotatedSource` runs over one group participant. The Research query
 owns the `MetadataSource` and focused whole-assembly Analysis results, takes no

@@ -104,6 +104,8 @@ public sealed record BrowserTypeMetadata(
     public InspectionEnvelope<BrowserTypeMetadataProjection>?
         TypeProjectionInspection
     { get; init; }
+    public BrowserTypeExtensionCandidatesMetadata? ExtensionCandidates
+    { get; init; }
 }
 
 public sealed record BrowserTypeMetadataProjection(
@@ -173,6 +175,45 @@ public sealed record BrowserTypeHierarchyCoverage(
     int Excluded,
     int Unavailable,
     int Limited);
+
+public sealed record BrowserTypeExtensionCandidatesMetadata(
+    string ReceiverAssembly,
+    string ReceiverType,
+    BrowserTypeExtensionCandidateParticipant[] Participants);
+
+public sealed record BrowserTypeExtensionCandidateParticipant(
+    string Assembly,
+    string PackageId,
+    string Version,
+    string Framework,
+    string Asset,
+    string Outcome,
+    int? Count,
+    string CountOutcome,
+    string RowsOutcome,
+    int? RowsReturned,
+    int? NextOrdinal,
+    BrowserTypeExtensionCandidateCoverage Coverage,
+    BrowserTypeExtensionCandidateRow[] Rows,
+    BrowserTypeExtensionCandidateDiagnostic[] Diagnostics);
+
+public sealed record BrowserTypeExtensionCandidateCoverage(
+    int Considered,
+    int Examined,
+    int Excluded,
+    int Unavailable,
+    int Limited);
+
+public sealed record BrowserTypeExtensionCandidateRow(
+    string DeclaringType,
+    string Fingerprint,
+    string Signature,
+    int Occurrences);
+
+public sealed record BrowserTypeExtensionCandidateDiagnostic(
+    string Code,
+    int? MetadataToken,
+    string Detail);
 
 public sealed record BrowserTypeGraphNode(string Id, string DisplayName, string Role);
 
@@ -584,6 +625,11 @@ public sealed record BrowserParameterSurface(
 [JsonSerializable(typeof(BrowserTypeHierarchyRow[]))]
 [JsonSerializable(typeof(BrowserTypeHierarchyProducer[]))]
 [JsonSerializable(typeof(BrowserTypeHierarchyCoverage[]))]
+[JsonSerializable(typeof(BrowserTypeExtensionCandidatesMetadata))]
+[JsonSerializable(typeof(BrowserTypeExtensionCandidateParticipant[]))]
+[JsonSerializable(typeof(BrowserTypeExtensionCandidateCoverage))]
+[JsonSerializable(typeof(BrowserTypeExtensionCandidateRow[]))]
+[JsonSerializable(typeof(BrowserTypeExtensionCandidateDiagnostic[]))]
 [JsonSerializable(
     typeof(InspectionEnvelope<ExactTypeInspectionResult>),
     TypeInfoPropertyName = "ExactTypeInspectionEnvelope")]

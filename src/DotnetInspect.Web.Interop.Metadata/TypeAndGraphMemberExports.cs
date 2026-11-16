@@ -181,6 +181,20 @@ public static partial class MetadataExports
             hierarchyInspection is null
                 ? ProjectUnavailableHierarchy(exactTypeInspection)
                 : ProjectTypeHierarchy(scope, hierarchyInspection);
+        BrowserTypeExtensionCandidatePopulation? extensionCandidates =
+            hierarchyInspection?.ExactTypeInspection.Content is
+            {
+                DefiningSources: [{ } source],
+            }
+                ? BrowserTypeExtensionCandidateInspectionOperation.Execute(
+                    scope,
+                    source.Observation.AssemblyIdentity,
+                    WorkspaceTypeHierarchySubjectRelationsFocus
+                        .FromExactTypeDefinition(
+                            source.Occurrence,
+                            source.Type)
+                        .Type)
+                : null;
 
         (ResearchViews.TypeProjectionResult Projection,
             TypeDependencySectionResult Dependencies) result =
@@ -239,8 +253,208 @@ public static partial class MetadataExports
                 signature?.Content is TypeSignatureInspectionOutcome.Available available
                     ? ExactTypeInfoTsvPresentation.Project(available.Signature)
                     : null,
+            ExtensionCandidates = extensionCandidates is null
+                ? null
+                : ProjectExtensionCandidates(scope, extensionCandidates),
         };
     }
+
+    static BrowserTypeExtensionCandidatesMetadata ProjectExtensionCandidates(
+        BrowserInspectionScope scope,
+        BrowserTypeExtensionCandidatePopulation population) =>
+        new(
+            population.Receiver.Assembly.Name,
+            population.Receiver.Type.ToMetadataFullName(),
+            [
+                .. population.Result.Assemblies.Select(entry =>
+                    ProjectExtensionCandidateParticipant(scope, entry)),
+            ]);
+
+    static BrowserTypeExtensionCandidateParticipant
+        ProjectExtensionCandidateParticipant(
+            BrowserInspectionScope scope,
+            AssemblyContextEntry<
+                MetadataExtensionRelationPopulationOutcome> entry)
+    {
+        BrowserWorkspaceParticipant participant =
+            scope.FindParticipant(entry.Subject.Registration)
+            ?? throw new InvalidOperationException(
+                "The extension-candidate participant is not part of the "
+                    + "retained Browser surface population.");
+        return entry switch
+        {
+            AssemblyContextEntry<
+                MetadataExtensionRelationPopulationOutcome>.Available
+            {
+                Value:
+                    MetadataExtensionRelationPopulationOutcome.Available
+                    available,
+            } => ProjectExtensionCandidateParticipant(
+                participant,
+                available.Result),
+            AssemblyContextEntry<
+                MetadataExtensionRelationPopulationOutcome>.Available
+            {
+                Value:
+                    MetadataExtensionRelationPopulationOutcome.Rejected
+                    rejected,
+            } => ExtensionCandidateFailure(
+                participant,
+                outcome: "rejected",
+                countOutcome: "unavailable",
+                rowsOutcome: "unavailable",
+                [
+                    new(
+                        "metadata-rejected",
+                        MetadataToken: null,
+                        rejected.Detail),
+                ]),
+            AssemblyContextEntry<
+                MetadataExtensionRelationPopulationOutcome>.Rejected
+            rejected => ExtensionCandidateFailure(
+                participant,
+                outcome: "rejected",
+                countOutcome: "not-produced",
+                rowsOutcome: "not-produced",
+                [
+                    new(
+                        rejected.Failure.Kind.ToString(),
+                        MetadataToken: null,
+                        rejected.Failure.Detail),
+                ]),
+            AssemblyContextEntry<
+                MetadataExtensionRelationPopulationOutcome>.Failed
+            failed => ExtensionCandidateFailure(
+                participant,
+                outcome: "failed",
+                countOutcome: "not-produced",
+                rowsOutcome: "not-produced",
+                [
+                    new(
+                        "participant-failed",
+                        MetadataToken: null,
+                        failed.Error.Message),
+                ]),
+            _ => throw new InvalidOperationException(
+                "The extension-candidate query returned an unknown "
+                    + "participant outcome."),
+        };
+    }
+
+    static BrowserTypeExtensionCandidateParticipant
+        ProjectExtensionCandidateParticipant(
+            BrowserWorkspaceParticipant participant,
+            MetadataExtensionRelationPopulationResult result)
+    {
+        MetadataExtensionRelationPopulationRowsOutcome.Read? read =
+            result.Rows
+                as MetadataExtensionRelationPopulationRowsOutcome.Read;
+        return new(
+            participant.Asset.AssemblyName,
+            participant.Coordinate.PackageId,
+            participant.Coordinate.Version,
+            participant.Coordinate.Framework,
+            participant.Asset.Path,
+            result.Disposition.ToString().ToLowerInvariant(),
+            result.Count is
+                MetadataExtensionRelationPopulationCountOutcome.Counted counted
+                    ? counted.Value
+                    : null,
+            ExtensionCandidateCountOutcome(result.Count),
+            ExtensionCandidateRowsOutcome(result.Rows),
+            read?.Items.Length,
+            read?.NextOrdinal,
+            new(
+                result.Coverage.Considered,
+                result.Coverage.Examined,
+                result.Coverage.Excluded,
+                result.Coverage.Unavailable,
+                result.Coverage.Limited),
+            read is null
+                ? []
+                : [
+                    .. read.Items.Select(row =>
+                    {
+                        MetadataExtensionRelationEvidence evidence =
+                            row.Occurrences[0];
+                        return new BrowserTypeExtensionCandidateRow(
+                            evidence.DeclaringTypeName.ToMetadataFullName(),
+                            evidence.Member.Fingerprint,
+                            evidence.Member.CanonicalSignature,
+                            row.Occurrences.Length);
+                    }),
+                ],
+            [
+                .. result.Diagnostics.Select(diagnostic =>
+                    new BrowserTypeExtensionCandidateDiagnostic(
+                        diagnostic.Kind.ToString(),
+                        diagnostic.MetadataToken,
+                        diagnostic.Detail)),
+            ]);
+    }
+
+    static BrowserTypeExtensionCandidateParticipant ExtensionCandidateFailure(
+        BrowserWorkspaceParticipant participant,
+        string outcome,
+        string countOutcome,
+        string rowsOutcome,
+        BrowserTypeExtensionCandidateDiagnostic[] diagnostics) =>
+        new(
+            participant.Asset.AssemblyName,
+            participant.Coordinate.PackageId,
+            participant.Coordinate.Version,
+            participant.Coordinate.Framework,
+            participant.Asset.Path,
+            outcome,
+            Count: null,
+            countOutcome,
+            rowsOutcome,
+            RowsReturned: null,
+            NextOrdinal: null,
+            new(0, 0, 0, 0, 0),
+            Rows: [],
+            diagnostics);
+
+    static string ExtensionCandidateCountOutcome(
+        MetadataExtensionRelationPopulationCountOutcome? outcome) =>
+        outcome switch
+        {
+            MetadataExtensionRelationPopulationCountOutcome.Counted =>
+                "counted",
+            MetadataExtensionRelationPopulationCountOutcome.Unavailable =>
+                "unavailable",
+            MetadataExtensionRelationPopulationCountOutcome.Incomplete =>
+                "incomplete",
+            MetadataExtensionRelationPopulationCountOutcome.Failed =>
+                "failed",
+            null => "not-requested",
+            _ => throw new InvalidOperationException(
+                "The extension-candidate query returned an unknown Count "
+                    + "outcome."),
+        };
+
+    static string ExtensionCandidateRowsOutcome(
+        MetadataExtensionRelationPopulationRowsOutcome? outcome) =>
+        outcome switch
+        {
+            MetadataExtensionRelationPopulationRowsOutcome.Read
+            {
+                NextOrdinal: null,
+            } => "read",
+            MetadataExtensionRelationPopulationRowsOutcome.Read =>
+                "read-with-continuation",
+            MetadataExtensionRelationPopulationRowsOutcome.Rejected rejected =>
+                $"rejected-{rejected.Reason.ToString().ToLowerInvariant()}",
+            MetadataExtensionRelationPopulationRowsOutcome.Unavailable =>
+                "unavailable",
+            MetadataExtensionRelationPopulationRowsOutcome.Incomplete =>
+                "incomplete",
+            MetadataExtensionRelationPopulationRowsOutcome.Failed => "failed",
+            null => "not-requested",
+            _ => throw new InvalidOperationException(
+                "The extension-candidate query returned an unknown Rows "
+                    + "outcome."),
+        };
 
     static BrowserTypeHierarchyMetadata? ProjectTypeHierarchy(
         BrowserInspectionScope scope,

@@ -295,6 +295,7 @@ export interface TypeMetadata {
   typeSignaturePresentation?: BrowserTypeMetadata["typeSignaturePresentation"];
   typeProjectionInspection?: BrowserTypeMetadata["typeProjectionInspection"];
   hierarchy?: BrowserTypeMetadata["hierarchy"];
+  extensionCandidates?: BrowserTypeMetadata["extensionCandidates"];
   graphNodes?: readonly unknown[];
   inspectionFailures?: readonly string[];
 }
@@ -1238,6 +1239,44 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
         </section>`
       : "";
 
+  const extensionCandidates = meta.extensionCandidates;
+  const extensionCandidatesSection = extensionCandidates
+    ? `<section class="document-section extension-candidate-section">
+        <div class="section-title"><h2>Extension method candidates</h2><span>${extensionCandidates.participants.length} participants</span></div>
+        <p>Exact Metadata receiver matches; C# applicability is not evaluated.</p>
+        <p>Receiver: <code>${escapeHtml(extensionCandidates.receiverAssembly)}:${escapeHtml(extensionCandidates.receiverType)}</code></p>
+        ${extensionCandidates.participants.length
+          ? extensionCandidates.participants.map(participant => {
+              const count = participant.count === null
+                ? `${participant.countOutcome} count`
+                : `${participant.count} candidate${participant.count === 1 ? "" : "s"}`;
+              const label = `${participant.packageId}@${participant.version} · ${participant.framework} · ${participant.assembly} · ${count} · ${participant.outcome}`;
+              const candidates = participant.rows.length
+                ? `<ul>${participant.rows.map(row =>
+                    `<li><code class="language-csharp">${highlightCSharp(row.signature)}</code><small>Declared by ${escapeHtml(row.declaringType)}${row.occurrences > 1 ? ` · ${row.occurrences} occurrences` : ""}</small></li>`)
+                    .join("")}</ul>`
+                : `<p>${participant.rowsOutcome === "read"
+                    ? "No extension method candidates for this participant."
+                    : `Candidate rows are ${escapeHtml(participant.rowsOutcome)}.`}</p>`;
+              const coverage = participant.coverage;
+              const diagnostics = participant.diagnostics.length
+                ? `<ul>${participant.diagnostics.map(diagnostic =>
+                    `<li><code>${escapeHtml(diagnostic.code)}</code> ${escapeHtml(diagnostic.detail)}</li>`)
+                    .join("")}</ul>`
+                : "";
+              return `<details class="extension-candidate-participant">
+                <summary>${escapeHtml(label)}</summary>
+                <p>Rows: ${escapeHtml(participant.rowsOutcome)}${participant.nextOrdinal === null
+                  ? ""
+                  : `; more after ${participant.nextOrdinal}`}. Coverage: ${coverage.examined} examined, ${coverage.excluded} excluded, ${coverage.unavailable} unavailable, ${coverage.limited} limited.</p>
+                ${candidates}
+                ${diagnostics}
+              </details>`;
+            }).join("")
+          : "<p>Extension candidates are unavailable because the retained workspace returned no participants.</p>"}
+      </section>`
+    : "";
+
   const customAttributes = exact?.attributes ?? projection?.attributes ?? [];
   const attributes = customAttributes.length
     ? `<section class="document-section">
@@ -1288,6 +1327,7 @@ export function renderTypeMetadata(options: RenderTypeMetadataOptions): string {
     ${composition}
     ${interfaces}
     ${hierarchySection}
+    ${extensionCandidatesSection}
     ${attributes}
     ${graph}`);
 }
