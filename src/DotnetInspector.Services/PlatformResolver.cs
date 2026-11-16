@@ -217,6 +217,30 @@ public static class PlatformResolver
         return null;
     }
 
+    private static readonly AsyncLocal<bool> s_installedHiveConfinedToDotnetRoot = new();
+
+    /// <summary>
+    /// Test seam. For the current async flow, installed-hive discovery (shared
+    /// runtimes, SDK packs and the active Platform root) uses only the configured
+    /// DOTNET_ROOT, without the process runtime, install_location, well-known or
+    /// home fallbacks. App-cache packs still apply. Product code never sets it.
+    /// </summary>
+    internal static IDisposable ConfineInstalledHiveToDotnetRootForTests()
+    {
+        bool previous = s_installedHiveConfinedToDotnetRoot.Value;
+        s_installedHiveConfinedToDotnetRoot.Value = true;
+        return new InstalledHiveConfinement(previous);
+    }
+
+    /// <summary>Whether the test seam confines installed-hive discovery to DOTNET_ROOT.</summary>
+    public static bool IsInstalledHiveConfinedToDotnetRoot =>
+        s_installedHiveConfinedToDotnetRoot.Value;
+
+    private sealed class InstalledHiveConfinement(bool previous) : IDisposable
+    {
+        public void Dispose() => s_installedHiveConfinedToDotnetRoot.Value = previous;
+    }
+
     private static IEnumerable<string> GetSharedDirectoryCandidates()
     {
         // DOTNET_ROOT environment variable takes highest priority (works on all platforms)
@@ -225,6 +249,8 @@ public static class PlatformResolver
         {
             yield return Path.Combine(dotnetRoot, "shared");
         }
+        if (IsInstalledHiveConfinedToDotnetRoot)
+            yield break;
 
         var currentRuntimeDirectory = RuntimeEnvironment.GetRuntimeDirectory();
         var currentFrameworkDirectory = string.IsNullOrEmpty(currentRuntimeDirectory)
@@ -310,6 +336,8 @@ public static class PlatformResolver
         {
             yield return Path.Combine(dotnetRoot, "packs");
         }
+        if (IsInstalledHiveConfinedToDotnetRoot)
+            yield break;
 
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {

@@ -436,6 +436,123 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task BareName_PlatformLibraryFromLocalFeed_ReadsExactReferenceVersionThroughRouter()
+    {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - a Package-backed
+        // Platform source remains Platform realization; the Router's completed
+        // Library selection crosses into the child as an exact typed fact.
+        var (exit, output, error, decisions) =
+            await RunBareRouterWithLocalReferenceFeedAsync(
+                typeof(JsonSerializer).Assembly.Location,
+                "System.Text.Json", "--json");
+
+        Assert.True(exit == 0, error);
+        Assert.Contains(
+            "Note: Routing to platform library 'System.Text.Json' · .NET Runtime.",
+            error,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "System.Text.Json, Version=10.0.0.0",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "System.Text.Json, Version=11.",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            decisions,
+            static decision => decision.Stage == "router-rewrite"
+                && decision.Detail.Contains(
+                    "-> library System.Text.Json --framework runtime@10.0.10 --json --source ",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task BareName_PlatformNamespaceFromLocalFeed_ListsExactReferenceVersionThroughRouter()
+    {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - the namespace
+        // route's namesake Library crosses as the same exact typed selection.
+        // The installed preview's System.Text.Json is an 11.x assembly without
+        // System.Text.Json.Nodes, so only System.Text.Json 10.0.0.0 from the
+        // local feed can produce this listing.
+        string planted = Path.Combine(
+            Path.GetDirectoryName(typeof(object).Assembly.Location)!,
+            "System.Runtime.dll");
+        var (exit, output, error, decisions) =
+            await RunBareRouterWithLocalReferenceFeedAsync(
+                planted,
+                "System.Text.Json.Nodes");
+
+        Assert.True(exit == 0, error);
+        Assert.StartsWith("# System.Text.Json", output, StringComparison.Ordinal);
+        Assert.Contains(
+            "| `System.Text.Json.Nodes.JsonNode` |",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            "| `System.Text.Json.Nodes.JsonObject` |",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            decisions,
+            static decision => decision.Stage == "router-rewrite"
+                && decision.Detail.Contains(
+                    "-> library System.Text.Json --namespace System.Text.Json.Nodes --framework runtime@10.0.10 --source ",
+                    StringComparison.Ordinal));
+    }
+
+    // Runs a bare target through the real Router entrance on a simulated host
+    // whose only installed runtime is a 10.0.10 preview (System.Text.Json
+    // planted from another assembly, so a prefix match is visible), with no
+    // installed packs and the exact Microsoft.NETCore.App.Ref 10.0.10 package
+    // only in a local folder feed. The cache is isolated and installed-hive
+    // discovery is confined to that DOTNET_ROOT for this flow.
+    private static async Task<(
+        int Exit,
+        string Output,
+        string Error,
+        IReadOnlyList<RouterDecision> Decisions)>
+        RunBareRouterWithLocalReferenceFeedAsync(
+            string plantedSystemTextJson,
+            params string[] args)
+    {
+        const string version = "10.0.10";
+        string nupkg = PlatformTypeLocatorRoutingTests.RestoredReferencePack(version);
+        using var root = new TemporaryTestDirectory("inspect-cli-preview-only-root");
+        string preview = Path.Combine(
+            root.FullName, "shared", "Microsoft.NETCore.App", $"{version}-preview.1");
+        Directory.CreateDirectory(preview);
+        File.Copy(plantedSystemTextJson, Path.Combine(preview, "System.Text.Json.dll"));
+        Assert.Equal(
+            11,
+            System.Reflection.AssemblyName.GetAssemblyName(
+                Path.Combine(preview, "System.Text.Json.dll")).Version!.Major);
+        using var feed = new TemporaryTestDirectory("inspect-cli-platform-ref-feed");
+        File.Copy(nupkg, Path.Combine(feed.FullName, Path.GetFileName(nupkg)));
+        using var cache = new TemporaryTestDirectory("inspect-cli-isolated-cache");
+
+        string? originalRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_ROOT", root.FullName);
+            NuGetCache.Initialize("dotnet-inspect", cache.FullName, skipNuGetCache: true);
+            using IDisposable confinement =
+                PlatformResolver.ConfineInstalledHiveToDotnetRootForTests();
+            Assert.Null(PlatformTypeCatalogRouting.FindActiveDotnetRoot());
+            Assert.Null(PlatformResolver.ResolveAssembly("System.Text.Json", "runtime").AssemblyPath);
+            using RouterDecisionLog.Capture capture = RouterDecisionLog.Begin();
+            var (exit, output, error) = await RunAppAsync(
+                [.. args, "--source", feed.FullName]);
+            return (exit, output, error, capture.Decisions);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_ROOT", originalRoot);
+            NuGetCache.Initialize("dotnet-inspect");
+        }
+    }
+
+    [Fact]
     public async Task BareName_PlatformNamespacePrefix_FailsInSelectedPlatformWithoutPrefixBrowse()
     {
         // Owner: docs/cli-architecture.md#bare-target-domain-selection - no prefix/fuzzy discovery for an alternative subject.

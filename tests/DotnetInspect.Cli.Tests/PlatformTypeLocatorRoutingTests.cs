@@ -227,7 +227,7 @@ public sealed class PlatformTypeLocatorRoutingTests
         }
     }
 
-    private static string RestoredReferencePack(string version)
+    internal static string RestoredReferencePack(string version)
     {
         string globalPackages =
             Environment.GetEnvironmentVariable("NUGET_PACKAGES")
