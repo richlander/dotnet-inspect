@@ -238,7 +238,9 @@ public static partial class FindingDiffAny
     }
 
     // The declared methods, properties, and fields named by the selected keys.
-    // An accessor is not a declaration, so its attributes are not selected.
+    // An accessor is not a declaration, so its attributes are not selected. A
+    // Member whose name the API comparison treats as compiler-generated is not
+    // selected either: the comparison does not compare its attributes.
     static Dictionary<SymbolKey<FindingDiffAnyPart>, EntityHandle> AttributeDeclarations(
         Side side, TypeDefinitionHandle type, HashSet<SymbolKey<FindingDiffAnyPart>> selected)
     {
@@ -246,13 +248,21 @@ public static partial class FindingDiffAny
         foreach ((EntityHandle declaration, SymbolKey<FindingDiffAnyPart> key) in FindingDiffAnyApiShapes.DeclaredMembers(side, type))
         {
             if (declaration.Kind is HandleKind.MethodDefinition or HandleKind.PropertyDefinition or HandleKind.FieldDefinition
-                && selected.Contains(key))
+                && selected.Contains(key)
+                && !MemberFilters.IsCompilerGenerated(side.Md.GetString(MemberName(side.Md, declaration))))
             {
                 declarations[key] = declaration;
             }
         }
         return declarations;
     }
+
+    static StringHandle MemberName(MetadataReader md, EntityHandle declaration) => declaration.Kind switch
+    {
+        HandleKind.MethodDefinition => md.GetMethodDefinition((MethodDefinitionHandle)declaration).Name,
+        HandleKind.PropertyDefinition => md.GetPropertyDefinition((PropertyDefinitionHandle)declaration).Name,
+        _ => md.GetFieldDefinition((FieldDefinitionHandle)declaration).Name,
+    };
 
     static List<string> MemberAttributes(MetadataReader md, EntityHandle declaration)
         => ApiSurfaceExtractor.RenderMemberAttributes(md, declaration.Kind switch

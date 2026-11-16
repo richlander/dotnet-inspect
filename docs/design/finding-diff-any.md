@@ -367,7 +367,9 @@ the surface's own renderers, so the rows the surface leaves out stay
 uncertain: a compiler-emitted attribute, an argument the renderer cannot
 show, a re-encoding of one value, and a Member's `Obsolete`, which the API
 status analysis owns. An accessor's, parameter's, generic parameter's, or
-event's attributes are not in such a list and stay uncertain too. This is the
+event's attributes are not in such a list and stay uncertain too, as do a
+Member's whose name the comparison treats as compiler-generated
+(`MemberFilters.IsCompilerGenerated`), since it does not compare them. This is the
 census order's first step, renderable attributes, under the [uncertain fact
 kinds](diff-capabilities.md#uncertain-fact-kinds) rule.
 

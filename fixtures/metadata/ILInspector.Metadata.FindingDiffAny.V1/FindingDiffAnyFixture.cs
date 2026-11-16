@@ -551,6 +551,14 @@ public class FieldAttributeChanged
     public int Value;
 }
 
+// A rendered attribute changes on a public Member whose name the API comparison
+// treats as compiler-generated, so the comparison reports nothing.
+public class GeneratedNameAttributeChanged
+{
+    [Description("before")]
+    public static int s_value;
+}
+
 // A Type-owned uncertain difference on a Type with no Members on either side:
 // an attribute whose array argument the API surface does not render.
 [Values(1)]
