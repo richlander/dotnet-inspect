@@ -884,25 +884,47 @@ public static class LibraryApiDiffPresentationAdapter
 
     public static LibraryApiDiffOutcome Create(
         AssemblyContextApiComparisonResult result)
+        => Create(result, typeDisplays: null);
+
+    /// <summary>
+    /// Projects only the Types whose display is one of
+    /// <paramref name="typeDisplays"/>, for a comparison an exact Type
+    /// selection narrowed: the selection also projects the Types it pairs
+    /// with, which the request did not load
+    /// (library-api-diff-presentation.md#exact-type-load).
+    /// </summary>
+    public static LibraryApiDiffOutcome Create(
+        AssemblyContextApiComparisonResult result,
+        IReadOnlySet<string>? typeDisplays)
         => Create<LibraryApiDiffOutcome>(
             result,
-            static (before, after, types) =>
-                new LibraryApiDiffOutcome.Available(
-                    new LibraryApiDiffDocument(
-                        before, after,
-                        LibraryApiChangesInspection.Summarize(
-                            types.Select(subject =>
-                                new LibraryApiTypeChangeRow(
-                                    subject.Identifier, subject.Display,
-                                    subject.Comparison.Before, subject.Comparison.After,
-                                    subject.Comparison.PairKind,
-                                    subject.Comparison.CompatibilityChanges,
-                                    [])),
-                            types,
-                            ordinaryOnly: false),
-                        CreateComparison(before, types))),
+            (before, after, types) => Document(
+                before,
+                after,
+                typeDisplays is null
+                    ? types
+                    : [.. types.Where(type => typeDisplays.Contains(type.Display))]),
             static unavailable => unavailable,
             static rejected => rejected);
+
+    static LibraryApiDiffOutcome.Available Document(
+        LibraryApiDiffEndpointSummary before,
+        LibraryApiDiffEndpointSummary after,
+        ImmutableArray<LibraryApiDiffTypeEvidence> types)
+        => new(
+            new LibraryApiDiffDocument(
+                before, after,
+                LibraryApiChangesInspection.Summarize(
+                    types.Select(subject =>
+                        new LibraryApiTypeChangeRow(
+                            subject.Identifier, subject.Display,
+                            subject.Comparison.Before, subject.Comparison.After,
+                            subject.Comparison.PairKind,
+                            subject.Comparison.CompatibilityChanges,
+                            [])),
+                    types,
+                    ordinaryOnly: false),
+                CreateComparison(before, types)));
 
     internal static T Create<T>(
         AssemblyContextApiComparisonResult result,
