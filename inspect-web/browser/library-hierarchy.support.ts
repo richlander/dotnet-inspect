@@ -4577,6 +4577,15 @@ async function installFacades(
         }
         return { succeeded: true, sources: workspaceSources, failure: null };
       }
+      // The engine upgrades only a format-1 packet that pins one Runtime
+      // Library with the Overview lens (CompleteRestorationPreparation.
+      // UpgradeLegacyPlatformPacket). These fixtures' legacy Platform packets
+      // select no Library, so the real probe refuses them and restoration
+      // keeps its legacy path; package-adoption.spec.ts gates the upgrade
+      // against the real engine.
+      export function canUpgradeLegacyPlatformWorkspace() {
+        return false;
+      }
       export async function prepareRetainedWorkspaceDefinition(
         retainedDefinitionId,
         label,
