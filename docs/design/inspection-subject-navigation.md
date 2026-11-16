@@ -1469,6 +1469,94 @@ broader snapshot and result-authority migration. The #7428 successor retires
 its primary-Library preference after consuming this First Library
 recommendation.
 
+### Demand-shaped Package navigation evidence
+
+**Design status:** #11259 specifies this Navigation contract. Package-backed
+implementation and host adoption are pending; the existing rich Package
+preparation path remains current behavior. The source-native Library path
+already demonstrates that exact Library and Type navigation need not require
+rich API extraction. This section does not claim Package route parity yet.
+
+The motivating asset is `OpenAI@2.15.0`, requested for `net10.0`, in the
+format-3 Package dependency-hierarchy share from #11125. Its current
+preparation builds 2,728 Type and 23,441 Member rows, including signatures,
+before showing Package navigation. The Package navigation pane consumes
+framework, runtime-identifier, and version choices; those facts do not require
+Type signatures or Member anchors. #11226 reduces allocation in the existing
+rich extraction path but does not establish demand-shaped opening.
+
+Navigation consumes the facts needed to establish the requested exact subject,
+route, inventory surfaces, and lens outcome. A ready Package or Library is
+not contingent on having prepared its Types or Members. Merely retaining a
+Type selection or lens from another view does not request that Type's detail.
+Navigation must not strengthen structural or Name demand to a complete Library
+API surface for recommendation, descriptor construction, or consumer lowering.
+
+The request distinguishes the subject to resolve from the inventories to
+present. These are composable demands, not a universal capability ladder:
+
+| Requested Navigation result | Sufficient evidence boundary |
+| --- | --- |
+| Package or Library structure | Exact Workspace/Package occurrence, selected Library associations, route facts, and Registry evidence; no Type or Member production prerequisite |
+| Type names for a Library | Exact Library-bound declaration Name evidence and its explicit coverage/failure outcome; no Member declarations, signatures, or anchors |
+| Exact Type selection | Owner-issued lookup or Name evidence identifying that exact definition in its Library; no package-wide rich API prerequisite |
+| Member navigation within a Type | Exact containing Type and the requested owner-issued Member inventory or identity evidence; no other Type's rich surface prerequisite |
+| Explicit rich API inventory | Existing bounded rich evidence and its current completeness, identity, truncation, and failure semantics |
+
+A names request preserves the producer's population, order, structured
+namespace/nesting identity, and completeness evidence. A name row is not a
+partially initialized rich `ApiType`. Navigation does not manufacture Member
+anchors, parse display signatures to recover identity, or promote a raw token
+or list ordinal into an independently selectable subject. Exact selection and
+saved Type/Member routes continue to require their owner-issued identity and
+ordinary ambiguity/failure checks.
+
+Unrequested inventory has an explicit detached outcome distinct from complete
+empty, incomplete, pending execution, rejected, and failed production. It
+establishes neither absence nor failure and cannot disable an otherwise valid
+Package or Library subject. No descendant action may claim a concrete Type or
+Member that the supplied evidence has not established. An unprepared request
+may identify the exact missing demand for its caller; Navigation itself does
+not acquire data or retain execution authority. Existing detachment and exact
+Workspace/occurrence correspondence remain required.
+
+Recommendations use only supplied sufficient evidence. A structural Package
+request does not select a fallback Type merely to make its snapshot complete.
+An explicit Type request whose exact evidence is missing remains non-effective
+with an unprepared-demand outcome rather than silently switching to Package,
+claiming that the Library has no Types, or performing rich extraction.
+Returning to Package can reuse compatible detached facts without making those
+facts prerequisites for a fresh structural request.
+
+This adopts the existing
+[demand-shaped execution](../evidence-and-validation.md#demand-shaped-execution)
+convention. The
+[Library declaration-inventory contract](library-metadata-correspondence.md#declaration-inventory-boundary)
+and [exact-Type inspection](assembly-inspection-query.md#exact-single-type-operation)
+are supporting producer contracts. Navigation consumes their issued facts;
+it does not change their acquisition, decoding, bounds, or lifetime semantics.
+It does not introduce a new cache, metadata parser, universal planner, or
+shared mutable partially loaded API model.
+
+Implementation must gate the structural request with an extractor that would
+fail if any rich API query were invoked, then establish its exact Package and
+Library descriptors. A neighboring Name-only case must preserve distinct
+nested/dotted definitions and producer order while invoking no Member or
+signature producer. Exact-Type and Member cases must preserve their route and
+identity after demand is supplied. Empty, incomplete, rejected, and unrequested
+inventories must remain distinguishable, and explicit rich callers must retain
+their existing results. These Package gates are **unverified** until the
+Navigation implementation successor lands; no loading-time improvement is
+claimed by this design-only slice.
+
+Definitions restoration and Browser rendering remain adjacent consumers. Their
+adoption is tracked by #11260 and #11261 under #11215 and must consume this contract
+without reopening Navigation ownership. This section does not redefine packet
+formats, atomic Workspace publication, cancellation, panel rendering, or host
+request scheduling. Existing rich Package preparation remains available for
+consumers that explicitly request it; default host retirement belongs to those
+consumers' focused adoption slices.
+
 ### Bounded subject inventory classification
 
 Navigation classifies one bounded API-surface result over one exact Library
