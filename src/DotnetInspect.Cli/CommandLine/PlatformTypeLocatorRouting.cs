@@ -10,6 +10,7 @@ using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.CommandLine;
@@ -104,21 +105,41 @@ internal static class PlatformTypeLocatorRouting
         CommandContext context,
         NuGetSourceOptions sourceOptions,
         string target,
+        PlatformLibraryPopulationDeclaration population,
         CancellationToken cancellationToken) =>
         LocateAsync(
             PlatformTypeCatalogRouting.FindActiveDotnetRoot(),
+            population,
             context,
             sourceOptions,
             target,
             cancellationToken);
 
+    internal static ValueTask<CliPlatformTypeLocatorOutcome> LocateAsync(
+        string? dotnetRoot,
+        CommandContext context,
+        NuGetSourceOptions sourceOptions,
+        string target,
+        CancellationToken cancellationToken) =>
+        LocateAsync(
+            dotnetRoot,
+            new PlatformLibraryPopulationDeclaration(PlatformFamily.DotNetRuntime),
+            context,
+            sourceOptions,
+            target,
+            cancellationToken);
+
+    // Realizes only the selected Platform family's population; a miss there
+    // is final and never retries another family.
     internal static async ValueTask<CliPlatformTypeLocatorOutcome> LocateAsync(
         string? dotnetRoot,
+        PlatformLibraryPopulationDeclaration population,
         CommandContext context,
         NuGetSourceOptions sourceOptions,
         string target,
         CancellationToken cancellationToken)
     {
+        ArgumentNullException.ThrowIfNull(population);
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(sourceOptions);
         ArgumentNullException.ThrowIfNull(target);
@@ -127,6 +148,7 @@ internal static class PlatformTypeLocatorRouting
         PlatformPopulationArtifactMaterializationOutcome realization =
             await PlatformTypeCatalogRouting.RealizePopulationAsync(
                     dotnetRoot,
+                    population,
                     context,
                     sourceOptions,
                     cancellationToken)

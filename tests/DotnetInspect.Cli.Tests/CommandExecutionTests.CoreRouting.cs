@@ -390,24 +390,33 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task BareName_PlatformNamespacePrefix_RoutesToTypePrefixBrowse()
+    public async Task BareName_PlatformNamespacePrefix_FailsInSelectedPlatformWithoutPrefixBrowse()
     {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - no prefix/fuzzy discovery for an alternative subject.
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
         var (exit, output, error) = await RunAppAsync("System.Text");
 
-        Assert.Equal(0, exit);
-        Assert.Contains("Showing best-effort platform prefix matches for 'System.Text'", error);
-        Assert.Contains("# System.Text", output);
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            "Error: Type or member 'System.Text' was not found in the selected Platform domain.",
+            error.Trim());
+        AssertNoOtherDomainDecision(decisions);
+    }
 
-        // Platform provenance moved off the default view: the compact fields list is now the -v:q
-        // view only, and this browse path floors verbosity at Minimal, so it never renders that
-        // line at all. The same fact is carried by the bounded API Info section, which is where the
-        // claim is asserted. The claim here is about ROUTING, so it is moved to where the evidence
-        // lives rather than dropped.
-        var (factExit, factOutput, _) = await RunAppAsync(
-            "System.Text", "-S", SectionNames.ApiInfo, "--markdown");
-
-        Assert.Equal(0, factExit);
-        Assert.Contains("| Source | Platform |", factOutput, StringComparison.Ordinal);
+    static void AssertNoOtherDomainDecision(RouterDecisionLog.Capture decisions)
+    {
+        // The Router ran (non-vacuous), then stopped without any rewrite,
+        // Package reference, or reverse/other-domain fallback decision.
+        Assert.Contains(
+            decisions.Decisions,
+            static decision => decision.Stage == "router-hit");
+        Assert.DoesNotContain(
+            decisions.Decisions,
+            static decision => decision.Stage
+                is "router-rewrite"
+                or "exact-package-reference"
+                or "platform-runtime-reverse-fallback");
     }
 
     [Fact]
@@ -3498,32 +3507,35 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
-    public async Task BareQualifiedPlatformType_TrueAmbiguityStillFails()
+    public async Task BareQualifiedPlatformType_SuffixOnlyMatch_IsNotFoundInSelectedPlatform()
     {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - structured identity matching is ordinal, without suffix inference.
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
         var (exit, output, error) = await RunAppAsync(
             "System.Numerics.Enumerator", "--markdown");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Platform type lookup is ambiguous", error);
+        Assert.Equal(
+            "Error: Type or member 'System.Numerics.Enumerator' was not found in the selected Platform domain.",
+            error.Trim());
+        AssertNoOtherDomainDecision(decisions);
     }
 
     [Fact]
-    public async Task BareQualifiedPlatformMember_TrueAmbiguityStillFails()
+    public async Task BareQualifiedPlatformMember_SuffixOnlyMatch_IsNotFoundInSelectedPlatform()
     {
-        using RouterDecisionLog.Capture decisions =
-            RouterDecisionLog.Begin();
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - structured identity matching is ordinal, without suffix inference.
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
         var (exit, output, error) = await RunAppAsync(
             "System.Numerics.Enumerator.X");
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
-        Assert.Contains("Platform type lookup is ambiguous", error);
-        Assert.DoesNotContain(
-            decisions.Decisions,
-            static decision =>
-                decision.Stage
-                    == "platform-runtime-reverse-fallback");
+        Assert.Equal(
+            "Error: Type or member 'System.Numerics.Enumerator.X' was not found in the selected Platform domain.",
+            error.Trim());
+        AssertNoOtherDomainDecision(decisions);
     }
 
     [Theory]

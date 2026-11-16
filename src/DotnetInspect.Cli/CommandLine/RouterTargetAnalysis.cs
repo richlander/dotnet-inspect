@@ -8,6 +8,7 @@ using DotnetInspector.Platforms;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.Services;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 
 namespace DotnetInspect.Cli.CommandLine;
@@ -70,6 +71,15 @@ internal static class RouterTargetAnalysis
         EcosystemPackCatalog.ShouldSearchPlatform(target)
             ? RouterTargetDomain.Platform
             : RouterTargetDomain.Package;
+
+    // The selected Platform family is the Ecosystem claimant's own declared
+    // Platform population. Without one (an explicit --platform override of an
+    // unclaimed name, or an eligible claimant that declares no population),
+    // the Runtime default applies. Only that one family is realized.
+    internal static PlatformLibraryPopulationDeclaration SelectPlatformPopulation(
+        string target) =>
+        EcosystemPackCatalog.FindPlatformSearchPopulation(target)
+            ?? new PlatformLibraryPopulationDeclaration(PlatformFamily.DotNetRuntime);
 
     internal static void Bind(ParseResult parseResult, RouterResolvedTarget target) =>
         ResolvedTargets.Add(parseResult, target);
@@ -140,6 +150,7 @@ internal static class RouterTargetAnalysis
             new CommandContext(verbose: false),
             sourceOptions,
             target,
+            SelectPlatformPopulation(target),
             cancellationToken);
         return (
             locator,

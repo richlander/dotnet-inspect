@@ -26,6 +26,22 @@ public sealed class RouterDomainSelectionTests
     }
 
     [Theory]
+    [InlineData("System.Text.Json.JsonSerializer", "DotNetRuntime")]
+    [InlineData("Microsoft.AspNetCore.Builder.WebApplication", "AspNetCore")]
+    [InlineData("Microsoft.AspNetCore.Components.Endpoints.FormMapping.ArrayPoolBufferAdapter<T1,T2,T3>.PooledBuffer", "AspNetCore")]
+    [InlineData("Microsoft.JSInterop.IJSRuntime", "AspNetCore")]
+    [InlineData("List<T>", "DotNetRuntime")]
+    public void PlatformFamilyIsTheClaimantsDeclaredPopulation(
+        string target, string family)
+    {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - resolve in the
+        // claimed Platform family only; never add or retry another family.
+        Assert.Equal(
+            family,
+            RouterTargetAnalysis.SelectPlatformPopulation(target).Family.ToString());
+    }
+
+    [Theory]
     [InlineData("System.CommandLine", "package")]
     [InlineData("System.Text.Json@10.0.0", "package")]
     [InlineData("Newtonsoft.Json@13.0.4", "package")]
