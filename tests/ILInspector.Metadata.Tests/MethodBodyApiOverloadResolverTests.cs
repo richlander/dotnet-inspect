@@ -5,6 +5,56 @@ namespace ILInspector.Metadata.Tests;
 
 public sealed class MethodBodyApiOverloadResolverTests
 {
+    [Fact]
+    public void ExtensionProbeDistinguishesSelectedTypeDeclarations()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(SelectedExtensionContainer).Assembly.Location);
+        int selectedTypeToken = Assert.IsType<int>(
+            session.MethodBodies.FindUniqueLookupTypeToken(
+                typeof(SelectedExtensionContainer).FullName!));
+
+        Assert.False(
+            session.MethodBodies.DeclaresExtensionMethodOutsideType(
+                nameof(SelectedExtensionContainer.SelectedOnly),
+                selectedTypeToken));
+        Assert.True(
+            session.MethodBodies.DeclaresExtensionMethodOutsideType(
+                nameof(SelectedExtensionContainer.Shared),
+                selectedTypeToken));
+    }
+
+    [Fact]
+    public void TypeLookupProbeDistinguishesAbsenceFromInconclusiveMatch()
+    {
+        using AssemblyInspectionSession session =
+            AssemblyInspectionSession.Open(
+                typeof(SelectedExtensionContainer).Assembly.Location);
+
+        TypeDefinitionLookupProbe unique =
+            session.MethodBodies.ProbeUniqueLookupTypeToken(
+                typeof(SelectedExtensionContainer).FullName!);
+        Assert.Equal(
+            TypeDefinitionLookupProbeOutcome.Unique,
+            unique.Outcome);
+        Assert.NotEqual(0, unique.TypeToken);
+
+        TypeDefinitionLookupProbe inconclusive =
+            session.MethodBodies.ProbeUniqueLookupTypeToken(
+                nameof(SelectedExtensionContainer));
+        Assert.Equal(
+            TypeDefinitionLookupProbeOutcome.Inconclusive,
+            inconclusive.Outcome);
+
+        TypeDefinitionLookupProbe absent =
+            session.MethodBodies.ProbeUniqueLookupTypeToken(
+                "Missing.SelectedExtensionContainer");
+        Assert.Equal(
+            TypeDefinitionLookupProbeOutcome.Absent,
+            absent.Outcome);
+    }
+
     public static IEnumerable<object[]> BclAssemblies()
     {
         yield return [typeof(string).Assembly.Location];
@@ -113,5 +163,25 @@ public sealed class MethodBodyApiOverloadResolverTests
                 $"No overloaded ordinary methods were compared in "
                     + $"{Path.GetFileName(assemblyPath)}.");
         }
+    }
+}
+
+public sealed class ExtensionReceiver;
+
+public static class SelectedExtensionContainer
+{
+    public static void SelectedOnly(this ExtensionReceiver receiver)
+    {
+    }
+
+    public static void Shared(this ExtensionReceiver receiver)
+    {
+    }
+}
+
+public static class OtherExtensionContainer
+{
+    public static void Shared(this ExtensionReceiver receiver)
+    {
     }
 }

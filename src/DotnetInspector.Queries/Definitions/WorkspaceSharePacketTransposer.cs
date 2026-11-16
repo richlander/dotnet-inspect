@@ -683,6 +683,68 @@ public static class WorkspaceSharePacketTransposer
             WorkspaceSharePacketCodec.MaxFormat1Tabs,
             "Packet v1");
 
+    /// <summary>
+    /// Projects the canonical format-1 shape for one exact package Type
+    /// without round-tripping an already canonical packet through the codec.
+    /// </summary>
+    public static WorkspaceSharePacketProjectionResult
+        ToExactPackageTypePacket(
+        string packageId,
+        string version,
+        string framework,
+        string type,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(version);
+        ArgumentException.ThrowIfNullOrWhiteSpace(framework);
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        cancellationToken.ThrowIfCancellationRequested();
+
+        if (!PackageCoordinateResolver.IsCanonicalPackageId(packageId))
+        {
+            return InvalidDefinition(
+                "package.id",
+                "A packet package member must use a valid NuGet package id.");
+        }
+        if (!TryNormalizeVersion(version, out string? normalizedVersion))
+        {
+            return InvalidDefinition(
+                "package.version",
+                "A packet package member must use one exact NuGet version "
+                    + "without build metadata.");
+        }
+        if (!TryNormalizeFramework(
+                framework,
+                out string? normalizedFramework))
+        {
+            return InvalidDefinition(
+                "package.framework",
+                "A package member framework must be valid "
+                    + "acquisition-target text.");
+        }
+
+        var packet = new WorkspaceSharePacket(
+            [
+                new WorkspaceShareTab(
+                    WorkspaceShareSourceKind.Package,
+                    packageId,
+                    normalizedVersion,
+                    normalizedFramework,
+                    runtimeIdentifier: null),
+            ],
+            [new WorkspaceShareContext([0])],
+            activeTabIndex: 0,
+            selectedContextIndex: 0,
+            lens: "api",
+            type,
+            memberAnchor: null,
+            memberSignature: null,
+            section: null,
+            libraries: []);
+        return WorkspaceSharePacketProjectionResult.Success(packet);
+    }
+
     private static WorkspaceSharePacketProjectionResult ToPacket(
         WorkspaceSharePacketDefinitionSet definitions,
         CancellationToken cancellationToken,

@@ -474,7 +474,9 @@ public static partial class MemberCommand
                     // The ranking/graph surfaces walk the full IL index and surface non-public
                     // members; member selection hides them without --all. If a missed filter
                     // would match a non-public member, hint at --all instead of dead-ending.
-                    if (!options.IncludeAll && apiDllPath is { } dllForHint)
+                    if (!options.IncludeAll
+                        && apiDllPath is { } dllForHint
+                        && File.Exists(dllForHint))
                     {
                         ApiType? allType =
                             AssemblyReader.ExtractApiSurface(

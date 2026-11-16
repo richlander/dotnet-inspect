@@ -89,6 +89,33 @@ public sealed class PackageHouseContractTests
     }
 
     [Fact]
+    public void CompileSelectionDemandSkipsSemanticContentProjection()
+    {
+        PackageHouseTargetContext target =
+            PackageHouseTargetContext.Exact("net10.0");
+        PackageHouseRequest request =
+            PackageHouseRequest.CompileSelection(
+                new PackageHouseDemand.Exact(Coordinate),
+                PackageHouseOperation.Create(
+                    PackageHouseOperationProfile.Realize),
+                target,
+                PackageAssetDemand.Surface);
+
+        Assert.Equal(
+            PackageHouseAssetSelectionKind.Compile,
+            request.AssetSelection);
+        Assert.Equal(
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            request.LibraryHandoff);
+        Assert.Equal(PackageAssetDemand.Surface, request.AssetDemand);
+        Assert.Same(target, request.TargetContext);
+        Assert.Null(request.ContentQuery);
+        Assert.False(request.IsCompileInventory);
+        Assert.False(request.IsCompileLibrary);
+        Assert.False(request.IsCompileLibraries);
+    }
+
+    [Fact]
     public void CompileLibrariesDemandDeclaresAggregateTargetContent()
     {
         PackageHouseTargetContext target =

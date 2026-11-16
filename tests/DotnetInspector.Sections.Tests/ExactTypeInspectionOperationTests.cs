@@ -125,6 +125,176 @@ public sealed partial class ExactTypeInspectionOperationTests
 
     [Fact]
     public async Task
+        SurfaceTargetUsesTheNonNamesakeCompileAsset()
+    {
+        const string selectedAssembly = "DotnetInspector.Sections.dll";
+        byte[] selected = await File.ReadAllBytesAsync(
+            typeof(ExactTypeInspectionOperation).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] sibling = BuildMetadataAssembly(
+            PackageId,
+            Guid.NewGuid(),
+            definesType: true,
+            "Other",
+            "Sibling");
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll", sibling),
+            ($"ref/{Framework}/{selectedAssembly}", selected));
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new NotFoundHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            new PackagePayloadAcquisitionPlan((_, _) => store));
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            typeof(ExactTypeInspectionOperation).FullName!);
+
+        string? assetPath =
+            await ExactTypeInspectionOperation
+                .ExecuteFirstAvailableSurfaceWithLiveTargetAsync(
+                    [request],
+                    house,
+                    () => throw new InvalidOperationException(
+                        "The exact surface route created its fallback House."),
+                    cancellationToken =>
+                        root.IssueOperationLease(cancellationToken),
+                    ApiSurfaceScope.Public,
+                    _ =>
+                        nameof(
+                            ExactTypeInspectionOperation
+                                .ExecuteFirstAvailableSurfaceWithLiveTargetAsync),
+                    (envelope, target, _) =>
+                    {
+                        Assert.True(envelope.Content.IsAvailable);
+                        Assert.NotNull(target);
+                        Assert.Equal(
+                            typeof(ExactTypeInspectionOperation).FullName,
+                            Assert.Single(target.Surface.Types).FullName);
+                        using Stream stream = target.Assembly.OpenRead();
+                        Assert.True(stream.Length > 0);
+                        Assert.Null(
+                            target.ImplementationPortablePdb);
+                        return ValueTask.FromResult(
+                            target.PackageAssetPath);
+                    },
+                    TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            $"ref/{Framework}/{selectedAssembly}",
+            assetPath);
+    }
+
+    [Fact]
+    public async Task
+        SurfaceTargetFallsBackForForwarderOnlySibling()
+    {
+        byte[] healthy = BuildMetadataAssembly(
+            "Healthy",
+            Guid.NewGuid(),
+            definesType: true,
+            "Exact",
+            "Type");
+        byte[] facade = BuildMalformedForwarderAssembly();
+        using (AssemblyInspectionSession session =
+            AssemblyInspectionSession.OpenPrefetched(
+                new MemoryStream(facade, writable: false)))
+        {
+            Assert.Equal(
+                TypeDefinitionLookupProbeOutcome.Inconclusive,
+                session.MethodBodies
+                    .ProbeUniqueLookupTypeToken("Exact.Type")
+                    .Outcome);
+        }
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/Healthy.dll", healthy),
+            ($"ref/{Framework}/Facade.dll", facade));
+        var authorization =
+            new UniformPackageSourceAuthorization([Source]);
+        ConfiguredPackageAuthority authority = Assert.Single(
+            authorization.AuthorizeSourcesFor(PackageId).Authorities);
+        using IPackageSourceClient client =
+            PackageSourceClientFactory.Create(
+                authority.Source,
+                authority.Association,
+                new NotFoundHandler());
+        await using PackageSourceSettlementLease root =
+            PackageSourceSettlementService.IssueLease(_ => client);
+        var house = new PackageHouse(
+            authorization,
+            new PackagePayloadAcquisitionPlan((_, _) => store));
+        var fallbackHouse = new PackageHouse(
+            authorization,
+            PackagePayloadAcquisitionPlan.ForContentQueries(
+                (_, _) => store));
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            "Exact.Type");
+        bool fallbackFactoryInvoked = false;
+
+        ExactTypeInspectionOutcome outcome =
+            await ExactTypeInspectionOperation
+                .ExecuteFirstAvailableSurfaceWithLiveTargetAsync(
+                    [request],
+                    house,
+                    () =>
+                    {
+                        fallbackFactoryInvoked = true;
+                        return fallbackHouse;
+                    },
+                    cancellationToken =>
+                        root.IssueOperationLease(cancellationToken),
+                    ApiSurfaceScope.Public,
+                    selectedMember: null,
+                    (envelope, _, _) =>
+                        ValueTask.FromResult(envelope.Content.Outcome),
+                    TestContext.Current.CancellationToken);
+
+        Assert.True(fallbackFactoryInvoked);
+        Assert.Equal(
+            ExactTypeInspectionOutcome.Unavailable,
+            outcome);
+    }
+
+    [Fact]
+    public async Task OversizedExactTypeShareIsNonProjectable()
+    {
+        var store = await CachedStoreAsync();
+        using var client = new HttpClient(new FailingHandler());
+        string type = new('A', 13_000);
+        var request = new ExactTypeInspectionRequest(
+            PackageId,
+            Version,
+            Framework,
+            type);
+
+        InspectionEnvelope<ExactTypeInspectionResult> envelope =
+            await ExecuteHouseAsync(
+                request,
+                LoadOptions(client, store),
+                TestContext.Current.CancellationToken);
+
+        Assert.Equal(
+            ExactTypeInspectionOutcome.NotFound,
+            envelope.Content.Outcome);
+        Assert.IsType<InspectionShare.NonProjectable>(
+            envelope.Share);
+    }
+
+    [Fact]
+    public async Task
         DefiningImplementationTargetUsesTheNonNamesakeImplementationAsset()
     {
         const string selectedAssembly = "DotnetInspector.Sections.dll";

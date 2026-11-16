@@ -42,6 +42,65 @@ public sealed class WorkspaceSharePacketTransposerTests
     }
 
     [Fact]
+    public void ToExactPackageTypePacket_MatchesDefinitionProjection()
+    {
+        var coordinate =
+            new DefinitionMemberCoordinate.PackageCoordinate(
+                "System.Text.Json",
+                "9.0.4",
+                "net9.0");
+        const int schemaVersion = InspectionDefinitionSchema.Version1;
+        var workspace = new WorkspaceDefinition(
+            schemaVersion,
+            WorkspaceSharePacketTransposer.WorkspaceId,
+            [
+                new WorkspaceContextDefinition(
+                    "g0",
+                    framework: "net9.0",
+                    members: [coordinate]),
+            ]);
+        var navigation = new NavigationDefinition(
+            schemaVersion,
+            WorkspaceSharePacketTransposer.NavigationId,
+            [new NavigationTabDefinition("t0", coordinate: coordinate)],
+            "t0");
+        var view = new ViewDefinition(
+            schemaVersion,
+            WorkspaceSharePacketTransposer.ViewId,
+            lens: "api",
+            type: "System.Text.Json.JsonSerializer");
+        var scenario = new ScenarioDefinition(
+            schemaVersion,
+            WorkspaceSharePacketTransposer.ScenarioId,
+            workspace: workspace.Id,
+            context: "g0",
+            view: view.Id,
+            navigation: navigation.Id);
+
+        WorkspaceSharePacketProjectionResult expected =
+            WorkspaceSharePacketTransposer.ToPacket(
+                new WorkspaceSharePacketDefinitionSet(
+                    workspace,
+                    navigation,
+                    view,
+                    scenario),
+                TestContext.Current.CancellationToken);
+        WorkspaceSharePacketProjectionResult actual =
+            WorkspaceSharePacketTransposer.ToExactPackageTypePacket(
+                "System.Text.Json",
+                "9.0.4",
+                "net9.0",
+                "System.Text.Json.JsonSerializer",
+                TestContext.Current.CancellationToken);
+
+        Assert.True(expected.Succeeded);
+        Assert.True(actual.Succeeded);
+        Assert.Equal(
+            WorkspaceSharePacketCodec.Encode(expected.Packet!),
+            WorkspaceSharePacketCodec.Encode(actual.Packet!));
+    }
+
+    [Fact]
     public void ToPacket_ShareProjectionPlan_RetainsPackageForLocalImplementation()
     {
         ShareProjectionPlan plan = CreateSharePlan(

@@ -44,6 +44,12 @@ public static partial class MemberCommand
             SectionNames.Facts,
         };
 
+    static readonly HashSet<string> SurfaceSections =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            SectionNames.Signature,
+        };
+
     internal static bool TryCreateSharedMemberRequest(
         MemberOptions options,
         ResolvedMemberInspectionPlan plan,
@@ -118,6 +124,16 @@ public static partial class MemberCommand
             options.IncludeSections is null
             && options.Select is null
             && !options.SelectDefault;
+        bool selectedSurface =
+            !options.SelectDefault
+            && (options.IncludeSections is { Count: > 0 }
+                || options.Select is { Length: > 0 })
+            && plan.Selection.UnresolvedSelectors.IsEmpty
+            && !plan.Selection.ResolvedSections.IsEmpty
+            && plan.Selection.ResolvedSections.All(
+                SurfaceSections.Contains)
+            && (options.MemberFilter.Count == 1
+                || HasPotentialImpliedMember(options.TypeName));
         bool definingImplementation =
             !options.SelectDefault
             && (options.IncludeSections is { Count: > 0 }
@@ -128,7 +144,9 @@ public static partial class MemberCommand
                 DefiningImplementationSections.Contains)
             && (options.MemberFilter.Count == 1
                 || HasPotentialImpliedMember(options.TypeName));
-        if (!surfaceOnly && !definingImplementation)
+        if (!surfaceOnly
+            && !selectedSurface
+            && !definingImplementation)
             return false;
 
         (string packageId, string? version) =
@@ -172,17 +190,33 @@ public static partial class MemberCommand
                 HttpClientFactory.Shared.Timeout);
         using var stores =
             new SearchPackageStores("inspect-member");
+        bool selectedSignature =
+            plan.Selection.ResolvedSections.Contains(
+                SectionNames.Signature);
         PackageHouse house =
-            composition.CreateDependencyContentQueryHouse(
-                stores.GetLegacyCompatibleStore,
-                options.SourceOptions,
-                options.Verbose ? logger.Log : null);
+            selectedSignature
+                ? composition.CreateDependencyContentQueryHouse(
+                    stores.GetLegacyCompatibleStore,
+                    options.SourceOptions,
+                    options.Verbose ? logger.Log : null)
+                : composition.CreateDependencyContentQueryHouse(
+                    stores.GetLegacyCompatibleStore,
+                    options.SourceOptions,
+                    options.Verbose ? logger.Log : null);
+        PackageHouse CreateFallbackHouse() =>
+            selectedSignature
+                ? composition.CreateDependencyContentQueryHouse(
+                    stores.GetLegacyCompatibleStore,
+                    options.SourceOptions,
+                    options.Verbose ? logger.Log : null)
+                : house;
         return await ExecuteSharedMemberAsync(
                 options,
                 plan,
                 request,
                 demand,
                 house,
+                CreateFallbackHouse,
                 composition.IssueSettlementOperation,
                 cancellationToken,
                 resolvedMember)
@@ -200,6 +234,30 @@ public static partial class MemberCommand
         CancellationToken cancellationToken,
         Action<ApiSourceResult, ApiServices.LoadedApiSurface, ApiType,
             ShareProjectionPlan>? resolvedMember = null)
+        => await ExecuteSharedMemberAsync(
+                options,
+                plan,
+                request,
+                demand,
+                house,
+                () => house,
+                issueSourceOperation,
+                cancellationToken,
+                resolvedMember)
+            .ConfigureAwait(false);
+
+    internal static async Task<int?> ExecuteSharedMemberAsync(
+        MemberOptions options,
+        ResolvedMemberInspectionPlan plan,
+        ExactTypeInspectionRequest request,
+        SharedMemberPackageDemand demand,
+        PackageHouse house,
+        Func<PackageHouse> createFallbackHouse,
+        Func<CancellationToken, PackageSourceOperationLease>
+            issueSourceOperation,
+        CancellationToken cancellationToken,
+        Action<ApiSourceResult, ApiServices.LoadedApiSurface, ApiType,
+            ShareProjectionPlan>? resolvedMember = null)
     {
         try
         {
@@ -207,6 +265,9 @@ public static partial class MemberCommand
                 new List<ExactTypeInspectionRequest> { request };
             var impliedMembers =
                 new Dictionary<string, string>(StringComparer.Ordinal);
+            bool selectedSignature =
+                plan.Selection.ResolvedSections.Contains(
+                    SectionNames.Signature);
             foreach (TypeMemberSelectionCandidate candidate
                 in ExactTypeInspectionOperation.GetTypeMemberCandidates(
                     options.TypeName!))
@@ -310,8 +371,9 @@ public static partial class MemberCommand
                                         token),
                             requiresLocalAssemblyPath:
                                 demand
-                                != SharedMemberPackageDemand
-                                    .DefiningImplementation)
+                                    != SharedMemberPackageDemand
+                                        .DefiningImplementation
+                                && !selectedSignature)
                         .ConfigureAwait(false);
                 return exitCode == 0
                     && envelope.Content.IsComplete
@@ -319,9 +381,10 @@ public static partial class MemberCommand
                         : 1;
             }
 
-            return await (demand
-                == SharedMemberPackageDemand.DefiningImplementation
-                ? ExactTypeInspectionOperation
+            if (demand
+                == SharedMemberPackageDemand.DefiningImplementation)
+            {
+                return await ExactTypeInspectionOperation
                     .ExecuteFirstAvailableWithDefiningImplementationTargetAsync<
                         int?>(
                         requests,
@@ -335,15 +398,37 @@ public static partial class MemberCommand
                             : PackageHouseLibraryCompanionDemand.None,
                         UseTargetAsync,
                         cancellationToken)
-                : ExactTypeInspectionOperation
-                    .ExecuteFirstAvailableWithLiveTargetAsync<int?>(
+                    .ConfigureAwait(false);
+            }
+
+            if (selectedSignature)
+            {
+                return await ExactTypeInspectionOperation
+                    .ExecuteFirstAvailableSurfaceWithLiveTargetAsync<int?>(
                         requests,
                         house,
-                        issueSourceOperation(cancellationToken),
+                        createFallbackHouse,
+                        issueSourceOperation,
                         ApiSurfaceScope.Public,
+                        candidate =>
+                            options.MemberFilter.Count == 1
+                                ? options.MemberFilter.First()
+                                : impliedMembers.GetValueOrDefault(
+                                    candidate.Type),
                         UseTargetAsync,
                         cancellationToken)
-            ).ConfigureAwait(false);
+                    .ConfigureAwait(false);
+            }
+
+            return await ExactTypeInspectionOperation
+                .ExecuteFirstAvailableWithLiveTargetAsync<int?>(
+                    requests,
+                    house,
+                    issueSourceOperation(cancellationToken),
+                    ApiSurfaceScope.Public,
+                    UseTargetAsync,
+                    cancellationToken)
+                .ConfigureAwait(false);
         }
         catch (Exception failure)
         {

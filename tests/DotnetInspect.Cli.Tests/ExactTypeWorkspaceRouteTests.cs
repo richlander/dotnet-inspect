@@ -1960,6 +1960,233 @@ public sealed class ExactTypeWorkspaceRouteTests
             StringComparison.Ordinal);
     }
 
+    [Fact]
+    public async Task
+        SurfaceMemberSignatureRouteRemainsMetadataOnly()
+    {
+        string assemblyPath =
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
+        string library = Path.GetFileName(assemblyPath);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"lib/{Framework}/{PackageId}.dll",
+                BuildLiteralDelimiterTypeAssembly()),
+            ($"ref/{Framework}/{library}", assembly),
+            ($"lib/{Framework}/{library}", assembly),
+            ($"ref/{Framework}/{Path.ChangeExtension(library, ".xml")}",
+                Encoding.UTF8.GetBytes("<doc><members>")));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName =
+                "InspectWeb.DocumentationFixtures.WidgetExtensions",
+            MemberFilter = ["Measure"],
+            OverloadIndex = 1,
+            Select = [SectionNames.Signature],
+            ShowDocs = true,
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.Empty(error);
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "Measure",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain(
+            "Measures a widget through its declaring extension member.",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        SurfaceMemberSignatureRouteFallsBackForShortTypeName()
+    {
+        string assemblyPath =
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
+        string library = Path.GetFileName(assemblyPath);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{library}", assembly),
+            ($"lib/{Framework}/{library}", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = "WidgetExtensions",
+            MemberFilter = ["Measure"],
+            OverloadIndex = 1,
+            Select = [SectionNames.Signature],
+            CompanionOutput = CompanionOutput.None,
+        };
+        ResolvedMemberInspectionPlan plan =
+            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options);
+        Assert.True(
+            MemberCommand.TryCreateSharedMemberRequest(
+                options,
+                plan,
+                out ExactTypeInspectionRequest? request,
+                out MemberCommand.SharedMemberPackageDemand demand));
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                async () => Assert.IsType<int>(
+                    await TryExecuteEligibleSharedMemberRouteAsync(
+                        options,
+                        plan,
+                        request,
+                        demand,
+                        store)));
+
+        Assert.Empty(error);
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "Measure",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        SurfaceMemberSignatureRoutePreservesWildcardReceiverExtensions()
+    {
+        string assemblyPath =
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
+        string library = Path.GetFileName(assemblyPath);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{library}", assembly),
+            ($"lib/{Framework}/{library}", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName =
+                "InspectWeb.DocumentationFixtures.Widget",
+            MemberFilter = ["Meas*"],
+            Select = [SectionNames.Signature],
+            CompanionOutput = CompanionOutput.None,
+        };
+        ResolvedMemberInspectionPlan plan =
+            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options);
+        Assert.True(
+            MemberCommand.TryCreateSharedMemberRequest(
+                options,
+                plan,
+                out _,
+                out _));
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.Empty(error);
+        Assert.Equal(0, exitCode);
+        Assert.Contains(
+            "Measure",
+            output,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task
+        SurfaceMemberSignatureRouteFallsBackForCaseAmbiguity()
+    {
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/Exact.dll",
+                BuildPublicFieldTypeAssembly("Exact", "Widget")),
+            ($"ref/{Framework}/Case.dll",
+                BuildPublicFieldTypeAssembly("Case", "WIDGET")),
+            ($"lib/{Framework}/Exact.dll",
+                BuildPublicFieldTypeAssembly("Exact", "Widget")),
+            ($"lib/{Framework}/Case.dll",
+                BuildPublicFieldTypeAssembly("Case", "WIDGET")));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName = "N.Widget",
+            MemberFilter = ["Value"],
+            Select = [SectionNames.Signature],
+            CompanionOutput = CompanionOutput.None,
+        };
+        ResolvedMemberInspectionPlan plan =
+            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options);
+        Assert.True(
+            MemberCommand.TryCreateSharedMemberRequest(
+                options,
+                plan,
+                out ExactTypeInspectionRequest? request,
+                out MemberCommand.SharedMemberPackageDemand demand));
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                async () => Assert.IsType<int>(
+                    await TryExecuteEligibleSharedMemberRouteAsync(
+                        options,
+                        plan,
+                        request,
+                        demand,
+                        store)));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "more than one",
+            error,
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task
+        SurfaceMemberSignatureRouteReportsMissingMemberWithoutLocalAssembly()
+    {
+        string assemblyPath =
+            FixtureCatalog.InspectWebDocumentation.AssemblyPath();
+        byte[] assembly = await File.ReadAllBytesAsync(
+            assemblyPath,
+            TestContext.Current.CancellationToken);
+        string library = Path.GetFileName(assemblyPath);
+        var store = await CachedStoreAsync(
+            ($"ref/{Framework}/{library}", assembly),
+            ($"lib/{Framework}/{library}", assembly));
+        var options = new MemberOptions
+        {
+            PackagePath = $"{PackageId}@{Version}",
+            Tfm = Framework,
+            TypeName =
+                "InspectWeb.DocumentationFixtures.WidgetExtensions",
+            MemberFilter = ["MissingMember"],
+            Select = [SectionNames.Signature],
+            CompanionOutput = CompanionOutput.None,
+        };
+
+        (int exitCode, string output, string error) =
+            await ConsoleCapture.RunAsync(
+                () => ExecuteEligibleMemberRouteAsync(options, store));
+
+        Assert.Equal(1, exitCode);
+        Assert.Empty(output);
+        Assert.Contains(
+            "MissingMember",
+            error,
+            StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -3460,6 +3687,20 @@ public sealed class ExactTypeWorkspaceRouteTests
                     .FromCompatibilityOptions(exact),
                 out _,
                 out _));
+        MemberOptions surface = exact with
+        {
+            Select = [SectionNames.Signature],
+        };
+        Assert.True(
+            MemberCommand.TryCreateSharedMemberRequest(
+                surface,
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(surface),
+                out _,
+                out MemberCommand.SharedMemberPackageDemand surfaceDemand));
+        Assert.Equal(
+            MemberCommand.SharedMemberPackageDemand.Surface,
+            surfaceDemand);
         foreach (string section in (string[])
             [
                 SectionNames.IL,
@@ -3497,6 +3738,17 @@ public sealed class ExactTypeWorkspaceRouteTests
                     .DefiningImplementation,
                 demand);
         }
+        MemberOptions mixedDemand = exact with
+        {
+            Select = [SectionNames.Signature, SectionNames.IL],
+        };
+        Assert.False(
+            MemberCommand.TryCreateSharedMemberRequest(
+                mixedDemand,
+                ResolvedMemberInspectionPlan
+                    .FromCompatibilityOptions(mixedDemand),
+                out _,
+                out _));
         MemberOptions focusedOverlay = exact with
         {
             Select = [SectionNames.CostOverlay],
@@ -3544,6 +3796,7 @@ public sealed class ExactTypeWorkspaceRouteTests
                 out _));
         foreach (string section in (string[])
             [
+                SectionNames.Signature,
                 SectionNames.AnnotatedSourceDocument,
                 SectionNames.FindingCensus,
                 SectionNames.Facts,
@@ -3699,13 +3952,28 @@ public sealed class ExactTypeWorkspaceRouteTests
                 new FailingHandler());
         await using PackageSourceSettlementLease root =
             PackageSourceSettlementService.IssueLease(_ => client);
+        ResolvedMemberInspectionPlan plan =
+            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options);
+        bool selectedSignature =
+            plan.Selection.ResolvedSections.Contains(
+                SectionNames.Signature);
+        bool sharedSignature =
+            selectedSignature
+            && MemberCommand.TryCreateSharedMemberRequest(
+                options,
+                plan,
+                out _,
+                out MemberCommand.SharedMemberPackageDemand demand)
+            && demand == MemberCommand.SharedMemberPackageDemand.Surface;
         var house = new PackageHouse(
             authorization,
-            PackagePayloadAcquisitionPlan.ForContentQueries(
-                (_, _) => store));
+            sharedSignature
+                ? new PackagePayloadAcquisitionPlan((_, _) => store)
+                : PackagePayloadAcquisitionPlan.ForContentQueries(
+                    (_, _) => store));
         return await MemberCommand.ExecuteAsync(
             options,
-            ResolvedMemberInspectionPlan.FromCompatibilityOptions(options),
+            plan,
             house,
             cancellationToken =>
                 root.IssueOperationLease(cancellationToken));
@@ -3729,16 +3997,29 @@ public sealed class ExactTypeWorkspaceRouteTests
                 new FailingHandler());
         await using PackageSourceSettlementLease root =
             PackageSourceSettlementService.IssueLease(_ => client);
+        bool selectedSignature =
+            plan.Selection.ResolvedSections.Contains(
+                SectionNames.Signature);
         var house = new PackageHouse(
             authorization,
-            PackagePayloadAcquisitionPlan.ForContentQueries(
-                (_, _) => store));
+            selectedSignature
+                ? new PackagePayloadAcquisitionPlan((_, _) => store)
+                : PackagePayloadAcquisitionPlan.ForContentQueries(
+                    (_, _) => store));
+        PackageHouse fallbackHouse =
+            selectedSignature
+                ? new PackageHouse(
+                    authorization,
+                    PackagePayloadAcquisitionPlan.ForContentQueries(
+                        (_, _) => store))
+                : house;
         return await MemberCommand.ExecuteSharedMemberAsync(
             options,
             plan,
             request,
             demand,
             house,
+            () => fallbackHouse,
             cancellationToken =>
                 root.IssueOperationLease(cancellationToken),
             TestContext.Current.CancellationToken);
@@ -4310,6 +4591,53 @@ public sealed class ExactTypeWorkspaceRouteTests
             metadata.GetOrAddString("LiteralValue"),
             metadata.GetOrAddBlob(
                 new byte[] { 0x06, 0x08 }));
+
+        var builder = new ManagedPEBuilder(
+            PEHeaderBuilder.CreateLibraryHeader(),
+            new MetadataRootBuilder(metadata),
+            new BlobBuilder(),
+            flags: CorFlags.ILOnly);
+        var image = new BlobBuilder();
+        builder.Serialize(image);
+        return image.ToArray();
+    }
+
+    static byte[] BuildPublicFieldTypeAssembly(
+        string assemblyName,
+        string typeName)
+    {
+        var metadata = new MetadataBuilder();
+        metadata.AddModule(
+            generation: 0,
+            moduleName: metadata.GetOrAddString($"{assemblyName}.dll"),
+            mvid: metadata.GetOrAddGuid(Guid.NewGuid()),
+            encId: default,
+            encBaseId: default);
+        metadata.AddAssembly(
+            metadata.GetOrAddString(assemblyName),
+            new Version(1, 0, 0, 0),
+            culture: default,
+            publicKey: default,
+            flags: default,
+            hashAlgorithm: default);
+        metadata.AddTypeDefinition(
+            default,
+            default,
+            metadata.GetOrAddString("<Module>"),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddTypeDefinition(
+            TypeAttributes.Public,
+            metadata.GetOrAddString("N"),
+            metadata.GetOrAddString(typeName),
+            baseType: default,
+            fieldList: MetadataTokens.FieldDefinitionHandle(1),
+            methodList: MetadataTokens.MethodDefinitionHandle(1));
+        metadata.AddFieldDefinition(
+            FieldAttributes.Public,
+            metadata.GetOrAddString("Value"),
+            metadata.GetOrAddBlob(new byte[] { 0x06, 0x08 }));
 
         var builder = new ManagedPEBuilder(
             PEHeaderBuilder.CreateLibraryHeader(),

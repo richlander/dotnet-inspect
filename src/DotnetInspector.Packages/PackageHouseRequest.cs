@@ -496,6 +496,19 @@ public sealed class PackageHouseRequest
                 "Only an Acquire operation carries a file demand.",
                 nameof(fileDemand));
         }
+        bool compileSelection = realizes
+            && assetSelection == PackageHouseAssetSelectionKind.Compile
+            && targetContext is not null
+            && assetDemand == PackageAssetDemand.Surface
+            && libraryHandoff == PackageHouseLibraryHandoffMode.PackageOnly
+            && contentQuery is null
+            && implementationNames is null
+            && libraryCompanionDemand == PackageHouseLibraryCompanionDemand.None
+            && fileDemand is null
+            && evidenceDemand == PackageHouseEvidenceDemand.None
+            && association is null
+            && !materializeCompileAssets
+            && !allowReferenceOnlyImplementationNames;
         bool compileInventory = realizes
             && assetSelection == PackageHouseAssetSelectionKind.Compile
             && libraryHandoff == PackageHouseLibraryHandoffMode.PackageOnly
@@ -649,6 +662,7 @@ public sealed class PackageHouseRequest
                 nameof(libraryCompanionDemand));
         }
 
+        IsCompileSelection = compileSelection;
         IsCompileInventory = compileInventory;
         IsCompileLibrary = compileLibrary;
         IsCompileLibraries = compileLibraries;
@@ -684,6 +698,12 @@ public sealed class PackageHouseRequest
     public PackageHouseLibraryHandoffMode LibraryHandoff { get; }
 
     public PackageHouseRequestAssociation? Association { get; }
+
+    /// <summary>
+    /// Whether this request selects compile Surface without requesting
+    /// semantic Library content or handoffs.
+    /// </summary>
+    public bool IsCompileSelection { get; }
 
     /// <summary>
     /// Whether this request settles package directory and compile-selection
@@ -770,6 +790,23 @@ public sealed class PackageHouseRequest
             contentQuery: new PackageHouseContentQuery(
                 new PackageHouseContentNarrowing.PackageWide(),
                 [new PackageHouseContentTerminal.CompileLibrary(selector, assetDemand)]));
+
+    /// <summary>
+    /// Selects every compatible compile asset without projecting semantic
+    /// Library content.
+    /// </summary>
+    public static PackageHouseRequest CompileSelection(
+        PackageHouseDemand demand,
+        PackageHouseOperation operation,
+        PackageHouseTargetContext target,
+        PackageAssetDemand assetDemand) =>
+        new(
+            demand,
+            operation,
+            target,
+            PackageHouseAssetSelectionKind.Compile,
+            PackageHouseLibraryHandoffMode.PackageOnly,
+            assetDemand: assetDemand);
 
     /// <summary>
     /// Declares every compatible compile Library for one exact target before
