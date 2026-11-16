@@ -226,9 +226,15 @@ internal sealed class TypeDefinitionResolutionSession : IDisposable
                 PackageSourceOptions = sourceOptions,
                 UsePackageSourcePolicy = usePackageSourcePolicy,
                 IncludeDepsJsonAssets = false,
+                // The family, not the full name@version spelling, selects
+                // the shared-framework tier: an explicit
+                // `--framework aspnetcore@11.0.0` binds within ASP.NET Core
+                // exactly as the versionless spelling does.
                 IncludeAspNetCoreSharedFramework =
-                    string.Equals(
-                        platformFramework,
+                    platformFramework is not null
+                    && string.Equals(
+                        PlatformResolver.GetFrameworkFamily(
+                            platformFramework),
                         "aspnetcore",
                         StringComparison.OrdinalIgnoreCase),
                 PreferImplementationAssemblies = true,
