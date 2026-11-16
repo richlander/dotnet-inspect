@@ -7,7 +7,9 @@ CLI's adoption of step 4's scopes from
 [#10881](https://github.com/richlander/dotnet-inspect/issues/10881). It
 resolves [#9755](https://github.com/richlander/dotnet-inspect/issues/9755).
 [Diff](#diff) participation through `diff --analysis unsafe-code` is
-implemented by [#10770](https://github.com/richlander/dotnet-inspect/issues/10770).
+implemented by [#10770](https://github.com/richlander/dotnet-inspect/issues/10770),
+and its Library surface lists changed Types under
+[#10965](https://github.com/richlander/dotnet-inspect/issues/10965).
 Library scope runs [Finding Unsafe Any](#finding-unsafe-any), which lists
 Types instead of counting members.
 
@@ -322,6 +324,11 @@ descriptor is `analysis.unsafe-code`, and it reports at the Library and Type
 surfaces. Both surfaces declare the `Transitions` view. As the selection grammar
 owns, the identity has no aliases.
 
+The Library surface lists the Types whose unsafe code changed, as
+[Finding Diff Any](finding-diff-any.md#library) lists the Types that changed.
+The Type surface lists the selected Type's members, one transition each. So
+[no row holds rows](scope-symmetry.md#no-rows-within-rows) at either surface.
+
 - **Census per side.**
   - At Library, each endpoint runs the Library census over each of its Library
     assemblies. Assemblies pair by case-insensitive file name, as
@@ -335,14 +342,36 @@ owns, the identity has no aliases.
   out module version, metadata token, and caller-unsafe mode.
 - **Value.**
   - A matched member is `Changed` when its `UnsafeMemberFindingSummary`
-    differs. That summary is the row's value: exposure, explicit contract, and
-    each role in inventory order with its occurrence count, plus the distinct
-    callees of an explicit-contract call.
+    differs. That summary is the Type row's value: exposure, explicit
+    contract, the [safe-boundary state](unsafe-member-findings.md#safe-boundary),
+    and each role in inventory order with its occurrence count, plus the
+    distinct callees of an explicit-contract call.
+  - The safe-boundary state is a change. A module that switches to the
+    updated rules, or back, changes the state of each member with a finding,
+    so each such member is `Changed`, and its Type is listed once at Library
+    scope. The operator decided this on
+    [#10965](https://github.com/richlander/dotnet-inspect/issues/10965).
   - Physical bodies, generated names, IL offsets, and metadata tokens are
     provenance. A renumbered closure or state machine, or a shifted offset, is
     therefore `Present`, and the row and the comparison can't disagree about a
     change.
-  - Each transition row's `Old` and `New` show the summary, or `absent`.
+  - Each Type-surface row's `Old` and `New` show the summary, or `absent`.
+- **Library rows.** The member comparison folds by declaring Type, named by
+  its metadata full name as the [Library row](#library) names it. A Type is:
+  - `Added` when only the new endpoint has a finding in it;
+  - `Removed` when only the old endpoint has one;
+  - `Changed` when both have one and some member's transition isn't
+    `Present`.
+
+  A Type whose members are all `Present` isn't listed. So a Library row
+  appears exactly when the Type surface would show that Type a member whose
+  transition isn't `Present`, and a Library row never points to a Type
+  comparison with no change. `Old` and
+  `New` are `present` or `absent`: whether the Type has unsafe code at that
+  endpoint. A row carries no per-Type counts; they're the Type surface's
+  answer. Rows are ordered by target. Each endpoint still runs the full
+  Library census, so the cost is unchanged. Stopping each Type at its first
+  difference, as Finding Diff Any does, isn't claimed.
 - **Incomplete or failed side.**
   - An incomplete census on either side is never compared as complete. The
     comparison fails with both sides' limitation counts and keeps both sides'
@@ -356,11 +385,6 @@ owns, the identity has no aliases.
 - **Browser.** Browser Compare doesn't construct method-body inputs. Its
   `unsafe-code` outcome is host-resolved `Unavailable`, as for the other
   body analyses.
-
-Library Diff still reports one transition per member. Reporting only the
-Types that changed, as [Finding Diff Any](finding-diff-any.md) does at Library
-scope, and whether a change in the safe-boundary state is a change, belong to
-[#10965](https://github.com/richlander/dotnet-inspect/issues/10965).
 
 ## Non-claims
 
@@ -403,6 +427,12 @@ Focused Release gates in `UnsafeCodeSectionTests` and
   selection with no method definition fails visibly.
 - **Generic arity.** Types that differ only in generic arity are separate
   Library rows.
+- **Diff.** Library Diff lists the fixture pair's added, removed, and changed
+  Types once each. Type Diff classifies each member as Added, Removed,
+  Changed, or Present, and a renumbered closure is no change. A focused fold
+  gate lists a Type once, omits an all-`Present` Type, and counts a
+  safe-boundary change as `Changed`. These gates live in
+  `CommandExecutionTests.AnalysisDiff` and `UnsafeMemberFindingsTests`.
 - **Name.** `-S "Unsafe Members"` and `--analysis unsafe-member` reject with
   the new names among their suggestions.
 - **#9755 shapes at Type scope.** On the #9755 fixture, the capturing lambda,
