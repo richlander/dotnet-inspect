@@ -1,6 +1,9 @@
 name: Deep Inspect
 run-name: >-
-  Deep Inspect · ${{ inputs.lane != '' && format('lane: {0}', inputs.lane) ||
+  Deep Inspect · ${{ contains(
+  fromJSON('["test","census","package-sweep","authored-corpus","platform-test","inspect-web","release-candidate","nightly","all"]'),
+  inputs.lane
+  ) && format('lane: {0}', inputs.lane) ||
   github.event_name == 'push' && 'main verification' ||
   github.event.schedule == '0 9 * * 1' && 'package discovery' ||
   github.event.schedule == '0 9 * * *' && 'authored corpus' ||

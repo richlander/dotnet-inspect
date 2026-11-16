@@ -78,6 +78,16 @@ internal static class ReleaseCandidateWorkflowContract
             "Release candidate contract accepted a caller without Deep Inspect package access.");
         AssertMutationRejected(
             deepInspect,
+            "contains(\n" +
+            "  fromJSON('[\"test\",\"census\",\"package-sweep\",\"authored-corpus\"," +
+            "\"platform-test\",\"inspect-web\",\"release-candidate\",\"nightly\",\"all\"]'),\n" +
+            "  inputs.lane\n" +
+            "  )",
+            "inputs.lane != ''",
+            ValidateDeepInspectAdoption,
+            "Deep Inspect contract accepted an unknown input as a named lane.");
+        AssertMutationRejected(
+            deepInspect,
             "  github.event.schedule == '0 9 * * 1' && " +
             "'package discovery' ||\n",
             "  github.event.schedule == '0 9 * * 1' && " +
@@ -414,8 +424,10 @@ internal static class ReleaseCandidateWorkflowContract
         RequireScalarValue(
             root,
             "run-name",
-            "Deep Inspect · ${{ "
-                + "inputs.lane != '' && format('lane: {0}', inputs.lane) || "
+            "Deep Inspect · ${{ contains( "
+                + "fromJSON('[\"test\",\"census\",\"package-sweep\",\"authored-corpus\"," +
+                "\"platform-test\",\"inspect-web\",\"release-candidate\",\"nightly\",\"all\"]'), "
+                + "inputs.lane ) && format('lane: {0}', inputs.lane) || "
                 + "github.event_name == 'push' && 'main verification' || "
                 + "github.event.schedule == '0 9 * * 1' && 'package discovery' || "
                 + "github.event.schedule == '0 9 * * *' && 'authored corpus' || "
