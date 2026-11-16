@@ -623,6 +623,70 @@ public static class NuGetCache
             useAppCache: true);
     }
 
+    internal static ValueTask<PackageCommitResult> CommitOwnedArchiveAsync(
+        PackageArchivePayload archive,
+        string packageName,
+        string version,
+        string sourceKey,
+        CancellationToken cancellationToken) =>
+        CommitOwnedArchiveToSlotAsync(
+            archive,
+            packageName,
+            version,
+            sourceKey,
+            GetPackageCachePath(packageName, version, sourceKey),
+            GetCommitMarkerContent(
+                packageName.ToLowerInvariant(),
+                version.ToLowerInvariant(),
+                sourceKey),
+            useAppCache: true,
+            cancellationToken);
+
+    internal static async ValueTask<PackageCommitResult> CommitOwnedArchiveToSlotAsync(
+        PackageArchivePayload archive,
+        string packageName,
+        string version,
+        string producerKey,
+        string targetPath,
+        string markerContent,
+        bool useAppCache,
+        CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(archive);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (TryOpenCommittedSlot(
+                packageName, version, producerKey,
+                targetPath, markerContent, useAppCache) is { } existing)
+        {
+            return existing;
+        }
+
+        string stagingPath = CreateStagingPath(targetPath, useAppCache);
+        try
+        {
+            archive.ExtractToDirectory(stagingPath, cancellationToken);
+            ValidateStagedPackage(stagingPath, packageName, version);
+            string nupkgPath = Path.Combine(
+                stagingPath,
+                $"{packageName.ToLowerInvariant()}.{version.ToLowerInvariant()}.nupkg");
+            await using (var file = new FileStream(
+                nupkgPath, FileMode.CreateNew, FileAccess.Write, FileShare.None))
+            {
+                await using Stream input = archive.OpenArchive();
+                await input.CopyToAsync(file, cancellationToken).ConfigureAwait(false);
+            }
+
+            cancellationToken.ThrowIfCancellationRequested();
+            return PublishStagedPackage(
+                stagingPath, packageName, version, producerKey,
+                targetPath, markerContent);
+        }
+        finally
+        {
+            DeleteStagingBestEffort(stagingPath);
+        }
+    }
+
     /// <summary>
     /// Publishes to a product-owned slot using the caller's marker contract.
     /// Temporary slots use the same transaction without claiming an app-cache path.
@@ -649,6 +713,65 @@ public static class NuGetCache
     internal static PackageCommitResult CommitPackageToSlotWithDisposition(
         string extractedPath,
         string? nupkgPath,
+        string packageName,
+        string version,
+        string producerKey,
+        string targetPath,
+        string markerContent,
+        bool useAppCache)
+    {
+        if (TryOpenCommittedSlot(
+                packageName, version, producerKey,
+                targetPath, markerContent, useAppCache) is { } existing)
+        {
+            return existing;
+        }
+
+        string stagingPath = CreateStagingPath(targetPath, useAppCache);
+        try
+        {
+            CopyDirectory(extractedPath, stagingPath);
+            ValidateStagedPackage(stagingPath, packageName, version);
+
+            string committedNupkgPath = Path.Combine(
+                stagingPath,
+                $"{packageName.ToLowerInvariant()}.{version.ToLowerInvariant()}.nupkg");
+            if (nupkgPath is not null)
+            {
+                File.Copy(nupkgPath, committedNupkgPath, overwrite: false);
+            }
+            else
+            {
+                string tempNupkg = Path.Combine(
+                    Path.GetDirectoryName(targetPath)!,
+                    $".{Path.GetFileName(targetPath)}.nupkg-{Guid.NewGuid():N}");
+                try
+                {
+                    ZipFile.CreateFromDirectory(
+                        stagingPath,
+                        tempNupkg,
+                        CompressionLevel.NoCompression,
+                        includeBaseDirectory: false);
+                    File.Move(tempNupkg, committedNupkgPath);
+                }
+                finally
+                {
+                    if (File.Exists(tempNupkg))
+                        File.Delete(tempNupkg);
+                }
+            }
+
+            return PublishStagedPackage(
+                stagingPath, packageName, version, producerKey,
+                targetPath, markerContent);
+        }
+        finally
+        {
+            DeleteStagingBestEffort(stagingPath);
+        }
+    }
+
+    private static PackageCommitResult? TryOpenCommittedSlot(
         string packageName,
         string version,
         string producerKey,
@@ -698,110 +821,95 @@ public static class NuGetCache
                 $"Package cache entry '{targetPath}' is incomplete or corrupt. Clear the cache before retrying.");
         }
 
+        return null;
+    }
+
+    private static string CreateStagingPath(string targetPath, bool useAppCache)
+    {
         string stagingPath = Path.Combine(
-            parentDir,
+            Path.GetDirectoryName(targetPath)!,
             $".{Path.GetFileName(targetPath)}.tmp-{Guid.NewGuid():N}");
         if (useAppCache)
             PersistentCache.EnsurePathInCacheContext(stagingPath);
 
+        return stagingPath;
+    }
+
+    private static void ValidateStagedPackage(
+        string stagingPath, string packageName, string version)
+    {
+        if (!IsCachedPackageValid(stagingPath))
+        {
+            throw new InvalidDataException(
+                $"Package '{packageName}@{version}' has no valid extracted package structure.");
+        }
+    }
+
+    private static PackageCommitResult PublishStagedPackage(
+        string stagingPath,
+        string packageName,
+        string version,
+        string producerKey,
+        string targetPath,
+        string markerContent)
+    {
+        string normalizedName = packageName.ToLowerInvariant();
+        string normalizedVersion = version.ToLowerInvariant();
+        using (var marker = new FileStream(
+            Path.Combine(stagingPath, CommitMarkerFileName),
+            FileMode.CreateNew,
+            FileAccess.Write,
+            FileShare.None))
+        using (var writer = new StreamWriter(marker))
+        {
+            writer.Write(markerContent);
+        }
+
         try
         {
-            CopyDirectory(extractedPath, stagingPath);
+            Directory.Move(stagingPath, targetPath);
+        }
+        catch (IOException) when (IsCommittedPackageValid(targetPath, markerContent))
+        {
+            return new PackageCommitResult(
+                OpenCommittedPackage(
+                    targetPath,
+                    normalizedName,
+                    normalizedVersion,
+                    producerKey),
+                PublishedStagedContent: false);
+        }
 
-            if (!IsCachedPackageValid(stagingPath))
-            {
-                throw new InvalidDataException(
-                    $"Package '{packageName}@{version}' has no valid extracted package structure.");
-            }
+        CacheTelemetry.Record(
+            "packages",
+            $"{normalizedName}@{normalizedVersion}",
+            CacheAccessResult.Store);
 
-            // Product-owned admission requires a retained archive that matches
-            // the extract (RequiresArchiveTreeMatch). Always publish one: copy
-            // the caller's nupkg when provided, otherwise zip the staged extract
-            // before the commit marker is written so the archive does not
-            // contain the marker (marker + nupkg remain the only allowed extras).
-            string committedNupkgPath = Path.Combine(
-                stagingPath,
-                $"{normalizedName}.{normalizedVersion}.nupkg");
-            if (nupkgPath is not null)
-            {
-                File.Copy(nupkgPath, committedNupkgPath, overwrite: false);
-            }
-            else
-            {
-                string tempNupkg = Path.Combine(
-                    parentDir,
-                    $".{Path.GetFileName(targetPath)}.nupkg-{Guid.NewGuid():N}");
-                try
-                {
-                    ZipFile.CreateFromDirectory(
-                        stagingPath,
-                        tempNupkg,
-                        CompressionLevel.NoCompression,
-                        includeBaseDirectory: false);
-                    File.Move(tempNupkg, committedNupkgPath);
-                }
-                finally
-                {
-                    if (File.Exists(tempNupkg))
-                        File.Delete(tempNupkg);
-                }
-            }
+        return new PackageCommitResult(
+            new CommittedPackage(
+                targetPath,
+                Path.Combine(targetPath, $"{normalizedName}.{normalizedVersion}.nupkg"),
+                producerKey),
+            PublishedStagedContent: true);
+    }
 
-            using (var marker = new FileStream(
-                Path.Combine(stagingPath, CommitMarkerFileName),
-                FileMode.CreateNew,
-                FileAccess.Write,
-                FileShare.None))
-            using (var writer = new StreamWriter(marker))
-            {
-                writer.Write(markerContent);
-            }
-
+    private static void DeleteStagingBestEffort(string stagingPath)
+    {
+        if (Directory.Exists(stagingPath))
+        {
             try
             {
-                Directory.Move(stagingPath, targetPath);
+                Directory.Delete(stagingPath, recursive: true);
             }
-            catch (IOException) when (IsCommittedPackageValid(targetPath, markerContent))
+            catch (IOException)
             {
-                return new PackageCommitResult(
-                    OpenCommittedPackage(
-                        targetPath,
-                        normalizedName,
-                        normalizedVersion,
-                        producerKey),
-                    PublishedStagedContent: false);
+                // The committed destination is authoritative; abandoned
+                // staging cleanup remains best-effort.
             }
-
-            CacheTelemetry.Record(
-                "packages",
-                $"{normalizedName}@{normalizedVersion}",
-                CacheAccessResult.Store);
-
-            return new PackageCommitResult(
-                new CommittedPackage(
-                    targetPath,
-                    Path.Combine(targetPath, Path.GetFileName(committedNupkgPath)),
-                    producerKey),
-                PublishedStagedContent: true);
-        }
-        finally
-        {
-            if (Directory.Exists(stagingPath))
+            catch (UnauthorizedAccessException)
             {
-                try
-                {
-                    Directory.Delete(stagingPath, recursive: true);
-                }
-                catch (IOException)
-                {
-                    // The committed destination is authoritative; abandoned
-                    // staging cleanup remains best-effort.
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    // The committed destination is authoritative; abandoned
-                    // staging cleanup remains best-effort.
-                }
+                // The committed destination is authoritative; abandoned
+                // staging cleanup remains best-effort.
             }
         }
     }

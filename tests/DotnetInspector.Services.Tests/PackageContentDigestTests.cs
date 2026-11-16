@@ -401,18 +401,16 @@ public sealed class PackageContentDigestTests
             PackageId,
             Version,
             archiveStream,
-            () => Directory.CreateDirectory(
-                Path.Combine(root, "commit-staging")).FullName,
-            (stagedExtract, stagedNupkg) =>
-                NuGetCache.CommitPackageToSlotWithDisposition(
-                    stagedExtract,
-                    stagedNupkg,
+            (archive, token) =>
+                NuGetCache.CommitOwnedArchiveToSlotAsync(
+                    archive,
                     PackageId,
                     Version,
                     Producer,
                     Path.Combine(root, "committed"),
                     "digest-test-commit",
-                    useAppCache: false),
+                    useAppCache: false,
+                    token),
             TestContext.Current.CancellationToken);
         return prepared.Content;
     }
