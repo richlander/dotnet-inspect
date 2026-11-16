@@ -308,7 +308,13 @@ test("graph-only members open through the typed member surface", () => {
     /return callGraphInspection\.load\(\{[\s\S]*runtimeIdentifier: pkg\.runtimeIdentifier \?\? null,[\s\S]*traversalFramework/);
   assert.match(
     appSource,
-    /inspectMemberCallGraph\([\s\S]*platformRuntimePruningInventory\([\s\S]*request\.runtimeIdentifier\)/);
+    /const pruningInventory = platformRuntimePruningInventory\(/);
+  assert.match(
+    appSource,
+    /request\.retainedPackage !== null[\s\S]*inspectRetainedMemberCallGraph\([\s\S]*pruningInventory/);
+  assert.match(
+    appSource,
+    /return inspectMemberCallGraph\([\s\S]*pruningInventory,[\s\S]*request\.runtimeIdentifier\)/);
   assert.match(graphLegendsSource, /solid border: no platform lookup/);
   assert.match(
     graphLegendsSource,
