@@ -28,10 +28,12 @@ public sealed class CSharpDeclarationPartsTests
         using var peReader = new PEReader(stream);
         ApiSurface surface = ApiSurfaceExtractor.Extract(peReader);
         var options = comparable
+            // The options CSharpMemberDeclaration.RenderComparablePair uses.
             ? new CSharpDeclarationOptions
             {
                 IncludeCustomAttributes = true,
                 TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+                TerminateMemberDeclaration = true,
             }
             : new CSharpDeclarationOptions();
 

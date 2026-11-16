@@ -313,6 +313,19 @@ public static class CSharpStructuredTypePlanProducer
         });
     }
 
+    /// <summary>
+    /// One Type's declaration line as a listing frames it: a nested Type by
+    /// its own name, inside the lines of the Types that contain it.
+    /// </summary>
+    internal static string RenderEnclosingTypeDeclaration(ApiType type)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        bool nested = type.DefinitionName is { Segments.Length: > 1 };
+        ApiType declared = PrepareTypeForDeclaration(type, nested, []);
+        return CreateFormatter(declared, omitPropertyAccessors: false, namespaces: [])
+            .FormatTypeDeclaration(declared);
+    }
+
     static ApiType PrepareTypeForDeclaration(
         ApiType type,
         bool nested,

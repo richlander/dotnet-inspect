@@ -15,8 +15,8 @@ public static class CSharpMemberDeclaration
     /// <summary>
     /// Renders a member's baseline and current declarations for comparison:
     /// custom attributes included, Type names shortened against both sides
-    /// together, and each side's identified parts. A missing side (an added
-    /// or removed member) is null.
+    /// together, terminated as a listing prints them, and each side's
+    /// identified parts. A missing side (an added or removed member) is null.
     /// </summary>
     public static (CSharpDeclarationParts? Baseline, CSharpDeclarationParts? Current) RenderComparablePair(
         ApiType? baselineType,
@@ -30,9 +30,17 @@ public static class CSharpMemberDeclaration
             currentMember,
             ComparableOptions);
 
+    /// <summary>
+    /// A Type's declaration line as it encloses a member in a listing: a
+    /// nested Type by its own name, as it appears inside its containing Types.
+    /// </summary>
+    public static string RenderEnclosingTypeDeclaration(ApiType type)
+        => CSharpStructuredTypePlanProducer.RenderEnclosingTypeDeclaration(type);
+
     static readonly CSharpDeclarationOptions ComparableOptions = new()
     {
         IncludeCustomAttributes = true,
         TypeNameMode = CSharpTypeNameMode.ShortWithUsings,
+        TerminateMemberDeclaration = true,
     };
 }
