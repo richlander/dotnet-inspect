@@ -66,21 +66,32 @@ public sealed class LibraryApiDiffTypeSelectionTests
                 .Where(subject => TypeMatcher.MatchesTypeFilter(subject.Display, filter)));
     }
 
-    [Fact]
-    public async Task SelectedComparison_ExtractsSelectedAndExtensionDeclaringTypesOnly()
+    // A selection by full-name predicate, as the CLI's -t filter makes, pairs
+    // like an exact selection: with only the Types that declare an extension
+    // for a selected Type.
+    [Theory]
+    [InlineData(
+        "LibraryApiDiffFixture.ProjectionReceiver",
+        new[] { "LibraryApiDiffFixture.ProjectionExtensions", "LibraryApiDiffFixture.ProjectionReceiver" })]
+    [InlineData(
+        "LibraryApiDiffFixture.HardChangedType",
+        new[] { "LibraryApiDiffFixture.HardChangedType" })]
+    public async Task SelectedComparison_ExtractsSelectedTypeAndItsExtensionDeclaringTypesOnly(
+        string name,
+        string[] expected)
     {
         AssemblyContextApiComparisonResult result = await Compare(
             FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
             FixtureCatalog.LibraryApiDiffV2.AssemblyPath(),
             ApiSurfaceScope.Public,
-            new ApiTypeSelection(name => name == "LibraryApiDiffFixture.HardChangedType"));
+            new ApiTypeSelection(candidate => candidate == name));
 
         foreach (AssemblyContextApiComparisonEndpoint endpoint in (AssemblyContextApiComparisonEndpoint[])
             [result.Before, result.After])
         {
             ApiSurface surface = Assert.IsType<ApiSurface>(endpoint.Surface);
             Assert.Equal(
-                ["LibraryApiDiffFixture.HardChangedType", "LibraryApiDiffFixture.ProjectionExtensions"],
+                expected,
                 surface.Types.Select(type => type.FullName).Order(StringComparer.Ordinal));
         }
     }

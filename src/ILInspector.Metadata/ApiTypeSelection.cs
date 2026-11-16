@@ -111,9 +111,23 @@ public sealed class ApiTypeSelection
     }
 
     /// <summary>
+    /// Returns the full names of this image's top-level Types to pair with
+    /// this selection (<see cref="PairWith"/>), or null when they cannot be
+    /// read: for a selection by full name, only the Types that declare an
+    /// extension for a selected Type
+    /// (<see cref="ExtensionDeclaringTypeNamesFor"/>); for a selection of one
+    /// Type definition (<see cref="ForDefinition"/>), every
+    /// extension-declaring Type.
+    /// </summary>
+    internal IReadOnlySet<string>? PairingTypeNames(PEReader image, MetadataReader reader)
+        => _definition is null
+            ? ExtensionDeclaringTypeNamesFor(image, reader, _matchesFullName)
+            : ExtensionDeclaringTypeNames(reader);
+
+    /// <summary>
     /// Returns the full names of the top-level Types that declare an
-    /// extension, in this image, whose receiver is a Type named by
-    /// <paramref name="receivers"/>, hidden, obsolete, and non-public
+    /// extension, in this image, whose receiver is a Type whose full name
+    /// <paramref name="receivers"/> admits, hidden, obsolete, and non-public
     /// extensions included, or null when a name, a receiver's extension
     /// relations, or a declaring Type cannot be read completely; with null,
     /// <see cref="PairWith"/> keeps both projections complete.
@@ -123,24 +137,25 @@ public sealed class ApiTypeSelection
     /// extensions pair with members of the Types they extend.
     /// </summary>
     /// <remarks>
-    /// Otherwise reads the canonical same-image extension relation population
-    /// of each receiver Type, which holds extension methods and properties,
-    /// so no Type is projected for pairing unless it declares an extension
-    /// for a selected Type.
+    /// Otherwise reads, in one walk of the image's extension candidates, the
+    /// union of the canonical same-image extension relation populations of
+    /// the receiver Types, which hold extension methods and properties, so no
+    /// Type is projected for pairing unless it declares an extension for a
+    /// selected Type.
     /// </remarks>
     internal static IReadOnlySet<string>? ExtensionDeclaringTypeNamesFor(
         PEReader image,
         MetadataReader reader,
-        IReadOnlySet<string> receivers)
+        Func<string, bool> receivers)
     {
         IReadOnlySet<string>? everyDeclaring = ExtensionDeclaringTypeNames(reader);
-        if (everyDeclaring is null || everyDeclaring.Overlaps(receivers))
+        if (everyDeclaring is null || everyDeclaring.Any(receivers))
             return everyDeclaring;
 
+        var receiverNames = new HashSet<MetadataTypeDefinitionName>();
         var names = new HashSet<string>(StringComparer.Ordinal);
         try
         {
-            AssemblyReferenceIdentity? identity = null;
             foreach (TypeDefinitionHandle handle in reader.TypeDefinitions)
             {
                 if (reader.ResolveFullTypeName(handle)
@@ -148,59 +163,37 @@ public sealed class ApiTypeSelection
                 {
                     return null;
                 }
-                if (!receivers.Contains(name))
+                if (!receivers(name))
                     continue;
                 if (MetadataTypeDefinitionName.Read(reader, handle)
                     is not MetadataTypeDefinitionNameReadResult.Read { Name: var typeName })
                 {
                     return null;
                 }
+                receiverNames.Add(typeName);
+            }
+            if (receiverNames.Count == 0)
+                return names;
 
-                identity ??= AssemblyReferenceIdentity.FromAssemblyDefinition(reader);
-                MetadataExtensionRelationPopulationOutcome outcome =
-                    MetadataRelationInspection.ExecuteExtensionPopulation(
-                        image,
-                        reader,
-                        new MetadataExtensionRelationPopulationRequest(
-                            new MetadataExtensionReceiverSelection(
-                                identity,
-                                typeName,
-                                MetadataTypeDefinitionAddress.FromHandle(reader, handle)),
-                            new MetadataOperationPolicy(int.MaxValue),
-                            rows: new MetadataExtensionRelationPopulationRowsRequest(0, int.MaxValue),
-                            // The complete comparison pairs with every
-                            // extension it projects, hidden, obsolete, and
-                            // non-public ones included.
-                            includeNonPublic: true),
-                        CancellationToken.None);
-                if (outcome is not MetadataExtensionRelationPopulationOutcome.Available
-                    {
-                        Result:
-                        {
-                            Disposition: MetadataRelationFamilyDisposition.Complete,
-                            Rows: MetadataExtensionRelationPopulationRowsOutcome.Read
-                            {
-                                NextOrdinal: null,
-                            } rows,
-                        },
-                    })
+            // The complete comparison pairs with every extension it
+            // projects, hidden, obsolete, and non-public ones included.
+            if (MetadataRelationInspection.ExtensionOccurrencesForReceivers(
+                    reader,
+                    receiverNames,
+                    CancellationToken.None)
+                is not { } occurrences)
+            {
+                return null;
+            }
+            foreach (MetadataExtensionRelationEvidence occurrence in occurrences)
+            {
+                if (!occurrence.DeclaringType.TryResolve(reader, out TypeDefinitionHandle declaring)
+                    || reader.ResolveFullTypeName(Outermost(reader, declaring))
+                        is not RelationshipTraversalResult<string>.Completed { Value: var declaringName })
                 {
                     return null;
                 }
-
-                foreach (MetadataExtensionRelationPopulationRow row in rows.Items)
-                {
-                    foreach (MetadataExtensionRelationEvidence occurrence in row.Occurrences)
-                    {
-                        if (!occurrence.DeclaringType.TryResolve(reader, out TypeDefinitionHandle declaring)
-                            || reader.ResolveFullTypeName(Outermost(reader, declaring))
-                                is not RelationshipTraversalResult<string>.Completed { Value: var declaringName })
-                        {
-                            return null;
-                        }
-                        names.Add(declaringName);
-                    }
-                }
+                names.Add(declaringName);
             }
         }
         catch (Exception ex) when (ex is BadImageFormatException

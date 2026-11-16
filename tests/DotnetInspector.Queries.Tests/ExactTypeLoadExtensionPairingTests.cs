@@ -101,6 +101,48 @@ public sealed class ExactTypeLoadExtensionPairingTests
         }
     }
 
+    // A predicate selection of several receivers, as a CLI -t pattern makes,
+    // pairs with the union of their extensions in one walk of each image.
+    [Theory]
+    [InlineData(ApiSurfaceScope.Public)]
+    [InlineData(ApiSurfaceScope.IncludeAll)]
+    [InlineData(ApiSurfaceScope.ApiAxis)]
+    public async Task PredicateLoadOfSeveralReceivers_MatchesCompleteComparison(ApiSurfaceScope scope)
+    {
+        string directory = Directory.CreateTempSubdirectory("exact-type-load-").FullName;
+        try
+        {
+            string before = Emit(directory, "Before", Before);
+            string after = Emit(directory, "After", After);
+            LibraryApiDiffOutcome.Available complete =
+                Assert.IsType<LibraryApiDiffOutcome.Available>(
+                    LibraryApiDiffPresentationAdapter.Create(
+                        await Compare(before, after, scope, typeSelection: null)));
+            static bool Receiver(string name)
+                => !name.EndsWith("Ext", StringComparison.Ordinal) && name != "P.Holder";
+
+            AssemblyContextApiComparisonResult selected = await Compare(
+                before, after, scope, new ApiTypeSelection(Receiver));
+            LibraryApiDiffOutcome.Available document =
+                Assert.IsType<LibraryApiDiffOutcome.Available>(
+                    LibraryApiDiffPresentationAdapter.Create(selected));
+
+            Assert.Equal(
+                complete.Document.Comparison.Subjects.Where(subject => Receiver(subject.Display)),
+                document.Document.Comparison.Subjects.Where(subject => Receiver(subject.Display)));
+            Assert.DoesNotContain(
+                "P.Holder",
+                selected.After.Surface!.Types.Select(type => type.FullName));
+            Assert.Contains(
+                "P.GExt",
+                selected.After.Surface!.Types.Select(type => type.FullName));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     static string Emit(string directory, string name, string source)
     {
         string[] platform =

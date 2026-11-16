@@ -11,8 +11,8 @@
 // exact       ApiTypeSelection.ForFullNames([type]) for every Type on either
 //             side, checked against the complete comparison's subject for
 //             that Type (agreement must be total);
-// predicate   the shipped predicate selection (pairs with every
-//             extension-declaring Type), on every Nth Type.
+// predicate   a full-name predicate selection, as the CLI's -t filter makes,
+//             on every Nth Type.
 // A Type whose exact selection keeps the projection complete (it declares an
 // extension) is counted as "complete-pairing".
 

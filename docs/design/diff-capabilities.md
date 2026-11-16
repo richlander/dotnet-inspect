@@ -171,10 +171,11 @@ M1 and M2 read one Member in each version. So:
 - **No whole-Library reads.** A Type- or Member-addressed query performs none
   of the reads the [single-Library API Diff
   terminal](diff-system.md#single-library-api-diff-terminal) makes across the
-  whole Library: reading every extension-declaring Type, reading every Type
-  for an outcome that counts unchanged subjects, reading every Type at a view
-  the Unchanged prefilter does not define, and deriving a Member's API facts
-  from the surface-wide API comparison. That terminal answers the Library
+  whole Library: reading every extension-declaring Type when a targeted Type
+  declares an extension, reading every Type for an outcome that counts
+  unchanged subjects, reading every Type at a view the Unchanged prefilter
+  does not define, and deriving a Member's API facts from the surface-wide API
+  comparison. That terminal answers the Library
   scope and today's analysis set; it is not the path for T1, T2, M1, or M2.
 
 ### Shared across scopes
@@ -467,7 +468,7 @@ adoption step named:
 | [Finding Diff Any](finding-diff-any.md#type) | The Type level is not run for a one-sided Type | It runs, with each row `Changed` and one-sided | 1 |
 | [Finding Diff Any](finding-diff-any.md#axes) | A body that cannot be decoded is `Indeterminate`, never a difference, and the Body exactness gate expects `Indeterminate` for a decode failure | Narrowed to content read before Exists decides, as rule 3 states | 1 |
 | [Annotated Type Map](annotated-type-map.md) | A Member's findings are the detail of its row, not a narrower scope; the map admits only Local instruction descriptors | M1, the map's Member scope, is a rung addressed directly; the map also admits API change kinds and declaration facts, each with per-side status facets | 6 |
-| [Diff system](diff-system.md#single-library-api-diff-terminal) | A single-Library request reads only its targeted Types in full, except every extension-declaring Type, every Type for an outcome counting unchanged subjects, every Type at a view the prefilter does not define, and a Member's API facts from the surface-wide comparison | Type- and Member-addressed section queries make none of those whole-Library reads; the terminal answers the Library scope and today's analysis set | 6 |
+| [Diff system](diff-system.md#single-library-api-diff-terminal) | A single-Library request reads only its targeted Types in full, except every extension-declaring Type when a targeted Type declares an extension, every Type for an outcome counting unchanged subjects, every Type at a view the prefilter does not define, and a Member's API facts from the surface-wide comparison | Type- and Member-addressed section queries make none of those whole-Library reads; the terminal answers the Library scope and today's analysis set | 6 |
 | [Finding Diff Any](finding-diff-any.md#type) | The Type level pairs the Types of two images once | T1 pairs the addressed Type by its identity; pairing every Type remains L1's | 6 |
 | [Annotated Source diff document](annotated-source-diff-document.md) | The CLI text host shows no facts, and no Markout lowering is claimed | M2 has Table and Document outputs, and both hosts can overlay M1's facts | 6 |
 | [Annotated Type Map](annotated-type-map.md) | Non-public declarations are Body rows ([#10350](https://github.com/richlander/dotnet-inspect/pull/10350)); admitted Members' implementation facts are not map facts; a declaration-fact row has no rung-4 view | Admitted Members' implementation facts join the map's Body facts when Finding Diff Any's census moves them; the declaration view presents both ([#10347](https://github.com/richlander/dotnet-inspect/issues/10347)) | 1 |
