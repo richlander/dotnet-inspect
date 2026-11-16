@@ -1,4 +1,7 @@
 using System.Collections.Immutable;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using ILInspector.MetadataPrimitives;
@@ -53,6 +56,7 @@ public abstract record FindSemanticFindingIdentity
 }
 
 /// <summary>One typed semantic finding published by an ordered Find operation.</summary>
+[JsonConverter(typeof(FindSemanticFindingJsonConverter))]
 public abstract record FindSemanticFinding
 {
     private FindSemanticFinding() { }
@@ -92,6 +96,96 @@ public abstract record FindSemanticFinding
         public override FindSemanticFindingIdentity Identity { get; }
     }
 }
+
+public sealed class FindSemanticFindingJsonConverter
+    : JsonConverter<FindSemanticFinding>
+{
+    public override FindSemanticFinding Read(
+        ref Utf8JsonReader reader,
+        Type typeToConvert,
+        JsonSerializerOptions options)
+    {
+        using JsonDocument document = JsonDocument.ParseValue(ref reader);
+        JsonElement root = document.RootElement;
+        if (!root.TryGetProperty("finding_kind", out JsonElement kind)
+            || kind.ValueKind is not JsonValueKind.String
+            || !root.TryGetProperty("match", out JsonElement match))
+        {
+            throw new JsonException(
+                "A semantic Find finding requires a kind and match.");
+        }
+
+        return kind.GetString() switch
+        {
+            "type" => new FindSemanticFinding.Type(
+                Deserialize(
+                    match,
+                    FindSemanticFindingJsonContext.Default
+                        .TypeFindSemanticMatch)),
+            "member" => new FindSemanticFinding.Member(
+                Deserialize(
+                    match,
+                    FindSemanticFindingJsonContext.Default
+                        .MemberFindSemanticMatch)),
+            _ => throw new JsonException(
+                "The semantic Find finding kind is unknown."),
+        };
+    }
+
+    public override void Write(
+        Utf8JsonWriter writer,
+        FindSemanticFinding value,
+        JsonSerializerOptions options)
+    {
+        writer.WriteStartObject();
+        switch (value)
+        {
+            case FindSemanticFinding.Type type:
+                writer.WriteString("finding_kind", "type");
+                writer.WritePropertyName("match");
+                JsonSerializer.Serialize(
+                    writer,
+                    type.Match,
+                    FindSemanticFindingJsonContext.Default
+                        .TypeFindSemanticMatch);
+                break;
+            case FindSemanticFinding.Member member:
+                writer.WriteString("finding_kind", "member");
+                writer.WritePropertyName("match");
+                JsonSerializer.Serialize(
+                    writer,
+                    member.Match,
+                    FindSemanticFindingJsonContext.Default
+                        .MemberFindSemanticMatch);
+                break;
+            default:
+                throw new JsonException(
+                    "The semantic Find finding type is unknown.");
+        }
+        writer.WriteEndObject();
+    }
+
+    private static T Deserialize<T>(
+        JsonElement element,
+        JsonTypeInfo<T> typeInfo) =>
+        element.Deserialize(typeInfo)
+        ?? throw new JsonException(
+            "The semantic Find finding match cannot be null.");
+}
+
+[JsonSourceGenerationOptions(
+    PropertyNamingPolicy = JsonKnownNamingPolicy.SnakeCaseLower,
+    UseStringEnumConverter = true)]
+[JsonSerializable(typeof(TypeFindSemanticMatch))]
+[JsonSerializable(typeof(MemberFindSemanticMatch))]
+[JsonSerializable(
+    typeof(TypeFindPattern.Glob),
+    TypeInfoPropertyName = "TypeFindPatternGlob")]
+[JsonSerializable(
+    typeof(MemberFindPattern.Glob),
+    TypeInfoPropertyName = "MemberFindPatternGlob")]
+internal partial class FindSemanticFindingJsonContext
+    : JsonSerializerContext;
 
 /// <summary>
 /// Receives durable findings synchronously in producer order. Implementations
