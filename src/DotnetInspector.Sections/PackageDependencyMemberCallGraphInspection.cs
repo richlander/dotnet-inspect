@@ -389,6 +389,7 @@ public enum PackageDependencyMemberCallGraphInspectionUnavailableReason
     AssemblyReferenceContinuationRejected,
     AssemblyReferenceContinuationIncomplete,
     AssemblyReferenceContinuationFailed,
+    FocusMethodBodyUnavailable,
 }
 
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
@@ -780,6 +781,13 @@ public static class PackageDependencyMemberCallGraphInspection
                 Unavailable(
                     failed.Reason switch
                     {
+                        PackageDependencyMemberCallGraphFailureReason
+                                .FocusUnavailable
+                            when failed.GraphFailure?.Reason
+                                == PackageRoleMemberCallGraphUnavailableReason
+                                    .FocusMethodBodyUnavailable =>
+                            PackageDependencyMemberCallGraphInspectionUnavailableReason
+                                .FocusMethodBodyUnavailable,
                         PackageDependencyMemberCallGraphFailureReason
                                 .FocusUnavailable =>
                             PackageDependencyMemberCallGraphInspectionUnavailableReason

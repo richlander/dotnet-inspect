@@ -1,0 +1,94 @@
+{
+  "library": "Example",
+  "baseline": "1.0.0",
+  "current": "2.0.0",
+  "facts": "In 1.0.0 Widget was `public class Widget`; in 2.0.0 it is `public sealed class Widget`. Widget's own change is reported at Type scope, not on its Members. Gauge is new in 2.0.0.",
+  "scenarios": [
+    {
+      "id": "S1",
+      "member": "Example.Widget.Run",
+      "lead": ["namespace Example;", "public sealed class Widget", "{"],
+      "lines": [
+        {"kind": "-", "text": "    public void Run(int count);"},
+        {"kind": "+", "text": "    public void Run(long count);", "note": "Breaking: parameter type changed",
+         "carets": [{"span": "long", "text": "changed from int"}]}
+      ],
+      "trail": ["    … 5 other members", "}"],
+      "hunk": "@@ -1 +1 @@",
+      "git": ["@@ -1 +1 @@ public class Widget", "-public void Run(int count);", "+public void Run(long count);"]
+    },
+    {
+      "id": "S2",
+      "member": "Example.Gauge.Read",
+      "lead": [["namespace Example;", null], ["public sealed class Gauge", "Type added in 2.0.0"], ["{", null]],
+      "lines": [
+        {"kind": "+", "text": "    public double Read(TimeSpan window);"}
+      ],
+      "trail": ["    … 2 other members", "}"],
+      "hunk": "@@ -0,0 +1 @@",
+      "git": ["@@ -0,0 +1 @@", "+public double Read(TimeSpan window);"]
+    },
+    {
+      "id": "S3",
+      "member": "Example.Widget.Name",
+      "lead": ["namespace Example;", "public sealed class Widget", "{"],
+      "lines": [
+        {"kind": " ", "text": "    public string Name { get; }", "note": "Unchanged since 1.0.0"}
+      ],
+      "trail": ["    … 5 other members", "}"],
+      "hunk": null,
+      "git": []
+    },
+    {
+      "id": "S4",
+      "member": "Example.Widget.Count",
+      "lead": ["namespace Example;", "public sealed class Widget", "{"],
+      "lines": [
+        {"kind": "-", "text": "    [Tag(\"a\")]"},
+        {"kind": "+", "text": "    [Tag(\"b\")]", "carets": [{"span": "\"b\"", "text": "changed from \"a\""}]},
+        {"kind": " ", "text": "    public int Count { get; }"}
+      ],
+      "trail": ["    … 5 other members", "}"],
+      "hunk": "@@ -1,2 +1,2 @@",
+      "git": ["@@ -1,2 +1,2 @@ public class Widget", "-[Tag(\"a\")]", "+[Tag(\"b\")]", " public int Count { get; }"]
+    },
+    {
+      "id": "S5",
+      "member": "Example.Widget.Flush (Member Body)",
+      "lead": ["namespace Example;", "public sealed class Widget", "{"],
+      "lines": [
+        {"kind": " ", "text": "    public void Flush(long count)"},
+        {"kind": " ", "text": "    {"},
+        {"kind": "-", "text": "        var buffer = new byte[count];"},
+        {"kind": "+", "text": "        var buffer = ArrayPool<byte>.Shared.Rent((int)count);",
+         "carets": [{"span": "ArrayPool<byte>.Shared.Rent((int)count)", "text": "allocation removed"}]},
+        {"kind": " ", "text": "        Write(buffer);"},
+        {"kind": " ", "text": "    }"}
+      ],
+      "trail": ["    … 5 other members", "}"],
+      "hunk": "@@ -1,5 +1,5 @@",
+      "git": ["@@ -1,5 +1,5 @@ public class Widget", " public void Flush(long count)", " {", "-    var buffer = new byte[count];", "+    var buffer = ArrayPool<byte>.Shared.Rent((int)count);", "     Write(buffer);", " }"]
+    },
+    {
+      "id": "S6",
+      "member": "Example.Widget.Reset",
+      "lead": ["namespace Example;", "public sealed class Widget", "{"],
+      "lines": [
+        {"kind": "-", "text": "    public void Reset();", "note": "Breaking: member removed"}
+      ],
+      "trail": ["    … 6 other members", "}"],
+      "hunk": "@@ -1 +0,0 @@",
+      "git": ["@@ -1 +0,0 @@ public class Widget", "-public void Reset();"]
+    }
+  ],
+  "separator": {
+    "hunks": [
+      {"id": "H1", "range": "@@ -3,4 +3,4 @@", "heading": "public void Run(long count)", "label": "moved (1) to +40"},
+      {"id": "H2", "range": "@@ -7,3 +7,3 @@", "heading": "public int this[int index]", "label": null},
+      {"id": "H3", "range": "@@ -2,5 +2,5 @@", "heading": "public void Open(FileAccess access = FileAccess.Read | FileAccess.Write)", "label": "whitespace-only: indentation"},
+      {"id": "H4", "range": "@@ -4,2 +4,2 @@", "heading": "public string Format(string pattern = \"a // b\")", "label": null},
+      {"id": "H5", "range": "@@ -12,4 +12,0 @@", "heading": null, "label": "moved (1) from -12; whitespace-only: indentation"},
+      {"id": "H6", "range": "@@ -1,3 +1,3 @@", "heading": "public class Widget", "label": null}
+    ]
+  }
+}

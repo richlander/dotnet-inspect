@@ -1,0 +1,8 @@
+{
+  "arm": "sep-pipe",
+  "replicate": 2,
+  "exit": 0,
+  "seconds": 8.6,
+  "prompt_sha256": "79a65df33c1f3e89eacd45d5f0b3641881f2734f987d6cfc5194a67db169c5b2",
+  "parsed": true
+}

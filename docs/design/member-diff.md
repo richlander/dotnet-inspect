@@ -57,12 +57,14 @@ exactly. The inspect printer shows the rest.
 
 The examples use a small library, `Example`, in versions 1.0.0 and 2.0.0, and
 show the inspect printer. A marker column precedes each line: `+` and `-` for
-difference, a space for context, and `·` for enclosure. The `·` marker is
-illustrative; [the inspect printer](#inspect-printer) settles the printed form.
+difference, a space for context, and `·` for enclosure. Every output begins
+with the legend line that [the inspect printer](#inspect-printer) defines; the
+first example shows it, and the others omit it.
 
 **A changed signature, Public API.** `Widget.Run(int)` became `Run(long)`:
 
 ```text
+# -  baseline only   +  current only   (space)  compared, equal   ·  enclosure: shows location, not compared
 ·  namespace Example;
 ·  public class Widget
 ·  {
@@ -281,12 +283,14 @@ dotnet-inspect change:
   Markout computes nothing from text.
 - Lowering gives each hunk its heading by the rule above, and the formatters
   write it first after `@@`.
-- When a hunk also has a change label, the label follows the heading. Both are
-  recoverable exactly from the header, even when either text contains the
-  separator: an MD1 test parses each labeled,
-  headed hunk back to its heading and its label. The separator between them
-  differs from existing models and is not obvious, so the MD1 trials choose it
-  with the inspect printer's open choices.
+- In a diff with heading candidates, a change label follows the heading after
+  ` | `, and a label without a heading follows `@@` as `| label`. The heading
+  escapes `\` as `\\` and `|` as `\|`, so the label begins at the first
+  unescaped `|`. An MD1 test parses each
+  headed, labeled hunk back to its heading and its label exactly. The
+  [printer trials](../../tools/ExplainReadingScenarios/usability/member-diff-printer/README.md)
+  chose the pipe; a bracketed label read as well, but brackets occur in many
+  declarations and would need escaping often.
 
 A diff without heading candidates lowers exactly as it does in 0.40.1.
 
@@ -304,20 +308,26 @@ the diff. It prints the enclosure segments the document states.
 
 The printer follows unified diff wherever the meaning is the same and
 unambiguous: the `+`, `-`, and space markers and the order of lines. Where it
-differs and the choice is not obvious, fresh-agent trials under the
-[usability trials](../../tools/ExplainReadingScenarios/usability/README.md)
-settle it before MD1 lands, with the git lowering of the same diffs as the
-baseline. The open choices are:
+differs, the
+[printer trials](../../tools/ExplainReadingScenarios/usability/member-diff-printer/README.md)
+chose the form, with the git lowering of the same diffs as the baseline:
 
-- how a plain-text enclosure line is told apart from a context line;
-- where carets and notes sit relative to the difference lines; and
-- whether `@@` hunk headers appear when enclosure already locates the change;
-  and
-- in unified diff output, the separator between a hunk heading and its change
-  label.
+- **Enclosure is marked `·`, and every output begins with one legend line:**
 
-A trial asks each agent what changed, where, and whether it is classified,
-and records any agent that reads enclosure as a change or as compared.
+  ```text
+  # -  baseline only   +  current only   (space)  compared, equal   ·  enclosure: shows location, not compared
+  ```
+
+  Without the legend, readers took marked and unmarked enclosure alike for
+  compared context, and concluded that a Type's current declaration was also
+  its baseline declaration. With it, none did.
+- **Carets sit on their own rows beneath the line they mark, and notes at the
+  end of their line.** Readers attributed every caret and note correctly.
+- **No `@@` hunk headers.** Enclosure already locates the change, and the
+  headers did not change what readers understood.
+
+A later change to these forms is decided the same way: a trial in that
+directory, with fixed criteria, before the printer changes.
 
 ## Hosts
 
@@ -355,7 +365,7 @@ Each step is independently mergeable and lands with its production host.
 
 | Step | Delivers | Production host |
 | --- | --- | --- |
-| MD1 | The Public API Member diff document: declaration input with identified parts, compared lines, enclosure, and annotations; the released Markout heading extension and the document's unified diff lowering with headings; the inspect printer, with its open choices settled by agent trials | CLI `diff -m`: JSON, inspect printer, and GNU-compatible output |
+| MD1 | The Public API Member diff document: declaration input with identified parts, compared lines, enclosure, and annotations; the released Markout heading extension and the document's unified diff lowering with headings; the inspect printer in the form the printer trials chose | CLI `diff -m`: JSON, inspect printer, and GNU-compatible output |
 | MD2 | Inspect Web Member Compare's Public API content on that document, through a typed Browser transport for it, with the diff viewer's enclosure rows, annotation rendering, and Member diff Identical rows; retirement of the inline classified list and authored-Source section | Inspect Web Member Compare |
 | MD3 | Member Body on the same document, with the containing Type as enclosure and fact transitions recorded; CLI text becomes the inspect printer, and GNU-compatible output gains hunk headings | CLI `diff -m` Member Body and Inspect Web Member Body |
 
@@ -384,8 +394,9 @@ Each step is independently mergeable and lands with its production host.
    heading first, and each parses back exactly.
 6. JSON output of each of the above records every line's kind and each side's
    enclosure.
-7. The MD1 trials record, for each open printer choice, the chosen form and
-   the agent answers it was judged on.
+7. The inspect printer's output for each of the above begins with the legend
+   line, marks enclosure `·`, and prints no `@@` hunk header, as the printer
+   trials chose.
 8. A Member whose attributes were reordered and one argument changed pairs
    each attribute with its counterpart by Type, and carets only the changed
    argument. A removed `virtual` and an added setter each carry a caret on

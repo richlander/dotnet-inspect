@@ -366,7 +366,10 @@ public static class ApiOutputFormatter
         };
     }
 
-    internal static MarkoutWriterOptions BuildTypeWriterOptions(ApiType type, ApiOptions options)
+    internal static MarkoutWriterOptions BuildTypeWriterOptions(
+        ApiType type,
+        ApiOptions options,
+        bool includeWorkspaceExtensionCandidates = false)
     {
         var effectiveVerbosity = options.Verbosity;
 
@@ -382,6 +385,16 @@ public static class ApiOutputFormatter
             options.IncludeSections,
             selectAll,
             explicitInclude: sectionsPreResolved);
+        if (includeWorkspaceExtensionCandidates
+            && includeSections is not null)
+        {
+            includeSections = new HashSet<string>(
+                includeSections,
+                StringComparer.OrdinalIgnoreCase)
+            {
+                ApiViewSectionNames.WorkspaceExtensionCandidates,
+            };
+        }
         if (ShouldRenderMemberDetailContext(options) && includeSections is { Count: > 0 }
             && !includeSections.Contains(SectionNames.Summary))
             includeSections = [SectionNames.Summary, .. includeSections];
@@ -390,6 +403,13 @@ public static class ApiOutputFormatter
             && includeSections is not null
             ? [.. pipeline.AllSectionNames.Where(includeSections.Contains)]
             : null;
+        if (includeWorkspaceExtensionCandidates
+            && explicitSectionOrder is not null)
+        {
+            explicitSectionOrder =
+                [.. explicitSectionOrder,
+                    ApiViewSectionNames.WorkspaceExtensionCandidates];
+        }
 
         return new MarkoutWriterOptions
         {
@@ -847,6 +867,218 @@ public static class ApiOutputFormatter
         else
             view.EnumValues = rows;
     }
+
+    internal static void PopulateWorkspaceExtensionCandidates(
+        ExtensionMethodsView view,
+        AssemblyContextResult<
+            MetadataExtensionRelationPopulationOutcome> result,
+        MetadataExtensionReceiverSelection receiver)
+    {
+        var rows = new List<WorkspaceExtensionCandidateRow>();
+        string receiverDisplay = MarkoutInline.Code(
+            $"{AssemblyIdentityFormatter.Format(receiver.Assembly)}: "
+                + receiver.Type.ToMetadataFullName());
+
+        foreach (AssemblyContextEntry<
+            MetadataExtensionRelationPopulationOutcome> entry
+            in result.Assemblies)
+        {
+            string participant =
+                AssemblyIdentityFormatter.Format(entry.Subject.Identity);
+            switch (entry)
+            {
+                case AssemblyContextEntry<
+                    MetadataExtensionRelationPopulationOutcome>.Available
+                    {
+                        Value:
+                            MetadataExtensionRelationPopulationOutcome.Available
+                            available,
+                    }:
+                    AddAvailablePopulation(
+                        rows,
+                        participant,
+                        receiverDisplay,
+                        available.Result);
+                    break;
+                case AssemblyContextEntry<
+                    MetadataExtensionRelationPopulationOutcome>.Available
+                    {
+                        Value:
+                            MetadataExtensionRelationPopulationOutcome.Rejected
+                            rejected,
+                    }:
+                    rows.Add(SummaryRow(
+                        participant,
+                        "Rejected",
+                        rowsOutcome: "Not available",
+                        receiver: receiverDisplay,
+                        diagnostics: rejected.Detail));
+                    break;
+                case AssemblyContextEntry<
+                    MetadataExtensionRelationPopulationOutcome>.Rejected
+                    rejected:
+                    rows.Add(SummaryRow(
+                        participant,
+                        "Rejected",
+                        rowsOutcome: "Not produced",
+                        receiver: receiverDisplay,
+                        diagnostics:
+                            $"{rejected.Failure.Kind}: "
+                                + rejected.Failure.Detail));
+                    break;
+                case AssemblyContextEntry<
+                    MetadataExtensionRelationPopulationOutcome>.Failed failed:
+                    rows.Add(SummaryRow(
+                        participant,
+                        "Failed",
+                        rowsOutcome: "Not produced",
+                        receiver: receiverDisplay,
+                        diagnostics: failed.Error.Message));
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"Unknown extension-candidate participant outcome "
+                            + $"'{entry.GetType().Name}'.");
+            }
+        }
+
+        if (result.Assemblies.IsEmpty)
+        {
+            rows.Add(SummaryRow(
+                "Workspace context",
+                "Failed",
+                rowsOutcome: "Not produced",
+                receiver: receiverDisplay,
+                diagnostics: "The selected context has no participants."));
+        }
+
+        view.ContextualRows = rows;
+    }
+
+    static void AddAvailablePopulation(
+        List<WorkspaceExtensionCandidateRow> rows,
+        string participant,
+        string receiver,
+        MetadataExtensionRelationPopulationResult result)
+    {
+        int? count = result.Count switch
+        {
+            MetadataExtensionRelationPopulationCountOutcome.Counted counted =>
+                counted.Value,
+            _ => null,
+        };
+        string countOutcome = result.Count switch
+        {
+            MetadataExtensionRelationPopulationCountOutcome.Counted => "Counted",
+            MetadataExtensionRelationPopulationCountOutcome.Unavailable =>
+                "Unavailable",
+            MetadataExtensionRelationPopulationCountOutcome.Incomplete =>
+                "Incomplete",
+            MetadataExtensionRelationPopulationCountOutcome.Failed => "Failed",
+            null => "Not requested",
+            _ => throw new InvalidOperationException(
+                "Unknown extension-candidate Count outcome."),
+        };
+        string rowsOutcome = result.Rows switch
+        {
+            MetadataExtensionRelationPopulationRowsOutcome.Read availableRows =>
+                availableRows.NextOrdinal is null
+                    ? "Read"
+                    : $"Read; more after {availableRows.NextOrdinal}",
+            MetadataExtensionRelationPopulationRowsOutcome.Rejected rejected =>
+                $"Rejected: {rejected.Reason}",
+            MetadataExtensionRelationPopulationRowsOutcome.Unavailable =>
+                "Unavailable",
+            MetadataExtensionRelationPopulationRowsOutcome.Incomplete =>
+                "Incomplete",
+            MetadataExtensionRelationPopulationRowsOutcome.Failed => "Failed",
+            null => "Not requested",
+            _ => throw new InvalidOperationException(
+                "Unknown extension-candidate Rows outcome."),
+        };
+
+        rows.Add(new WorkspaceExtensionCandidateRow
+        {
+            Participant = participant,
+            Outcome = result.Disposition.ToString(),
+            Count = count,
+            CountOutcome = countOutcome,
+            RowsOutcome = rowsOutcome,
+            RowsReturned =
+                result.Rows is
+                    MetadataExtensionRelationPopulationRowsOutcome.Read read
+                    ? read.Items.Length
+                    : null,
+            NextOrdinal =
+                result.Rows is
+                    MetadataExtensionRelationPopulationRowsOutcome.Read
+                    {
+                        NextOrdinal: { } nextOrdinal,
+                    }
+                    ? nextOrdinal
+                    : null,
+            Considered = result.Coverage.Considered,
+            Examined = result.Coverage.Examined,
+            Excluded = result.Coverage.Excluded,
+            Unavailable = result.Coverage.Unavailable,
+            Limited = result.Coverage.Limited,
+            Receiver = receiver,
+            Diagnostics = FormatRelationDiagnostics(result.Diagnostics),
+        });
+
+        if (result.Rows is
+            MetadataExtensionRelationPopulationRowsOutcome.Read readRows)
+        {
+            foreach (MetadataExtensionRelationPopulationRow row
+                in readRows.Items)
+            {
+                MetadataExtensionRelationEvidence evidence =
+                    row.Occurrences[0];
+                rows.Add(new WorkspaceExtensionCandidateRow
+                {
+                    Participant = participant,
+                    Outcome = "Candidate",
+                    Candidate = MarkoutInline.Code(
+                        evidence.DeclaringTypeName.ToMetadataFullName()),
+                    Fingerprint =
+                        MarkoutInline.Code(evidence.Member.Fingerprint),
+                    Signature =
+                        MarkoutInline.Code(evidence.Member.CanonicalSignature),
+                    Receiver = receiver,
+                    Occurrences = row.Occurrences.Length,
+                    IsCandidate = true,
+                });
+            }
+        }
+    }
+
+    static WorkspaceExtensionCandidateRow SummaryRow(
+        string participant,
+        string outcome,
+        string? rowsOutcome,
+        string receiver,
+        string? diagnostics = null) =>
+        new()
+        {
+            Participant = participant,
+            Outcome = outcome,
+            RowsOutcome = rowsOutcome is null
+                ? null
+                : rowsOutcome,
+            Receiver = receiver,
+            Diagnostics = diagnostics is null
+                ? null
+                : diagnostics,
+        };
+
+    static string? FormatRelationDiagnostics(
+        ImmutableArray<MetadataRelationDiagnostic> diagnostics) =>
+        diagnostics.IsEmpty
+            ? null
+            : string.Join(
+                "; ",
+                diagnostics.Select(static diagnostic =>
+                    $"{diagnostic.Kind}: {diagnostic.Detail}"));
 
     internal static (int truncated, string noun) PopulateMemberSections(
         TypeView view,

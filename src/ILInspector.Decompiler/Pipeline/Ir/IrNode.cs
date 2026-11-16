@@ -38,6 +38,17 @@ public abstract class IrNode
     /// <summary>Records the originating IL offset. Stamped at import; idempotent.</summary>
     public void SetSourceOffset(int offset) => SourceOffset = offset;
 
+    /// <summary>
+    /// Drops every offset this node carries, retained origins included. For a
+    /// node transplanted from another method, whose offsets are that method's
+    /// coordinates and mean nothing in its new owner.
+    /// </summary>
+    internal void ClearSourceProvenance()
+    {
+        SourceOffset = -1;
+        _retainedSourceOffsets = [];
+    }
+
     /// <summary>Moves a surviving branch label while retaining the instruction's imported origin.</summary>
     internal void MoveSourceLabel(int offset)
     {

@@ -4,6 +4,9 @@ using System.Linq;
 namespace ILInspector.Decompiler.Pipeline;
 
 /// <summary>
+/// <para>The general inverse (<see cref="StateMachineInverse.IteratorGeneralInverse"/>,
+/// docs/design/iterator-reconstruction.md) runs first. The shape matchers
+/// described below see only a machine the inverse declines.</para>
 /// Raises a compiler-generated iterator kickoff back to its <c>yield return</c>
 /// sequence — the inverse of the C# compiler's iterator lowering. The kickoff
 /// (a method returning <c>IEnumerable</c>/<c>IEnumerator</c> that hands off to a
@@ -64,24 +67,34 @@ public sealed class IteratorReconstructionPass : IIrPass
             return;
 
         var moveNextMethod = handoff.Constructor with { Name = "MoveNext" };
+        // The general inverse runs first; a shape matcher is consulted only for
+        // a machine the inverse declines, for example for finally frames or
+        // a raised lambda.
+        if (TryGeneralInverse(function, context, handoff, moveNextMethod, out string? declineReason))
+            return;
         RunShapeMatchers(function, context, handoff, moveNextMethod);
-        // A matcher that reconstructs replaces the kickoff body, so the handoff
-        // is gone. When every matcher declined, the general inverse runs.
-        if (IteratorShapes.TryGetKickoff(function, out var remaining) && ReferenceEquals(remaining, handoff))
-            RunGeneralInverse(function, context, handoff, moveNextMethod);
+        if (declineReason is not null
+            && IteratorShapes.TryGetKickoff(function, out var remaining) && ReferenceEquals(remaining, handoff))
+        {
+            string machine = IteratorShapes.MetadataName(handoff.Constructor.DeclaringType);
+            context.Stepper.StepOver($"general iterator inverse declined '{machine}': {declineReason}");
+            IteratorAcknowledgmentPass.Acknowledge(function, machine, handoff.SourceOffset, declineReason);
+        }
     }
 
-    static void RunGeneralInverse(IrFunction function, PassContext context, NewObject handoff, MethodRef moveNextMethod)
+    static bool TryGeneralInverse(
+        IrFunction function, PassContext context, NewObject handoff, MethodRef moveNextMethod, out string? declineReason)
     {
+        declineReason = null;
         if (!context.TryEnterCrossMethodPipeline(moveNextMethod, out var scope))
-            return;
+            return false;
 
         IteratorGeneralInverse.Outcome outcome;
         using (scope)
         {
             IrFunction? raw = scope.Import();
             if (raw is null)
-                return;
+                return false;
             outcome = IteratorGeneralInverse.TryReconstruct(raw, function, handoff.Constructor.DeclaringType, scope.Run);
         }
 
@@ -119,19 +132,26 @@ public sealed class IteratorReconstructionPass : IIrPass
                         moved.Detach();
                         function.Body.Add(moved);
                     }
+                    // Every node came from MoveNext, whose offsets are another
+                    // method's coordinates, so none survives, including the
+                    // origins the structurer retained when it moved a branch
+                    // label onto a loop body or a join. Each top-level
+                    // statement is anchored at the handoff instead, which is
+                    // what keeps the kickoff's IL and its state-machine
+                    // allocation fact in the mixed C#/IL view.
+                    int anchor = handoff.SourceOffset >= 0 ? handoff.SourceOffset : -1;
+                    foreach (var node in function.Body.Descendants)
+                        node.ClearSourceProvenance();
                     foreach (var block in function.Body.Blocks)
                         foreach (var statement in block.Children)
-                        {
-                            foreach (var descendant in statement.Descendants)
-                                descendant.SetSourceOffset(-1);
-                            statement.SetSourceOffset(handoff.SourceOffset >= 0 ? handoff.SourceOffset : -1);
-                        }
-                    return;
+                            statement.SetSourceOffset(anchor);
+                    return true;
                 }
             case IteratorGeneralInverse.Outcome.Declined declined:
-                context.Stepper.StepOver($"general iterator inverse declined '{machine}': {declined.Reason}");
-                IteratorAcknowledgmentPass.Acknowledge(function, machine, handoff.SourceOffset, declined.Reason);
-                return;
+                declineReason = declined.Reason;
+                return false;
+            default:
+                return false;
         }
     }
 
