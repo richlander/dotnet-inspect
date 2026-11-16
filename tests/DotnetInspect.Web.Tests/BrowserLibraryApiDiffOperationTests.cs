@@ -593,19 +593,11 @@ public sealed class BrowserLibraryApiDiffOperationTests
     }
 
     [Fact]
-    public async Task LibraryTypeAndMemberRequestsCompleteTheComparisonOnce()
+    public async Task TypeRequestsLoadTheirTypesUnlessTheLibraryComparisonIsRetained()
     {
         await using Fixture fixture = await Fixture.Open();
-        BrowserLibraryApiDiffSucceeded library =
-            Assert.IsType<BrowserLibraryApiDiffSucceeded>(
-                (await fixture.Query(fixture.Request())).Value);
-        BrowserLibraryApiDiffType changedType = Assert.Single(
-            library.Types,
-            type => type.Display == "LibraryApiDiffFixture.ProjectionReceiver");
-        BrowserLibraryApiDiffMemberIdentity member = Assert.Single(
-            changedType.Members,
-            member => member.Role == BrowserLibraryApiDiffMemberRelationRole.After)
-            .After!;
+        LibraryApiComparisonMemo.Clear();
+        const string typeName = "LibraryApiDiffFixture.ProjectionReceiver";
         BrowserLibraryApiDiffRequest typeRequest = fixture.Request() with
         {
             Surface = BrowserDiffAnalysisSurface.Type,
@@ -613,10 +605,40 @@ public sealed class BrowserLibraryApiDiffOperationTests
             Views = BrowserDiffAnalysisViews.Changes
                 | BrowserDiffAnalysisViews.Summary
                 | BrowserDiffAnalysisViews.Transitions,
-            TypeNames = [changedType.Display],
+            TypeNames = [typeName],
         };
 
-        string reused = JsonSerializer.Serialize(await fixture.Query(typeRequest));
+        // With no retained comparison, a Type request loads only its Type.
+        BrowserLibraryApiDiffResult loaded = await fixture.Query(typeRequest);
+        Assert.Equal(0, LibraryApiComparisonMemo.Computations(fixture.PackageId));
+        BrowserLibraryApiDiffSucceeded loadedValue =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(loaded.Value);
+        BrowserLibraryApiDiffType loadedType = Assert.Single(loadedValue.Types);
+        Assert.Equal(typeName, loadedType.Display);
+
+        // A Library request computes and retains the whole comparison.
+        BrowserLibraryApiDiffSucceeded library =
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(
+                (await fixture.Query(fixture.Request())).Value);
+        Assert.Equal(1, LibraryApiComparisonMemo.Computations(fixture.PackageId));
+        Assert.True(library.Types.Length > 1);
+
+        // Later Type and Member requests reuse it, and the Type's row and
+        // analysis outcomes equal the ones its load gave.
+        BrowserLibraryApiDiffResult reused = await fixture.Query(typeRequest);
+        BrowserLibraryApiDiffType reusedType = Assert.Single(
+            Assert.IsType<BrowserLibraryApiDiffSucceeded>(reused.Value).Types,
+            type => type.Display == typeName);
+        Assert.Equal(
+            JsonSerializer.Serialize(reusedType),
+            JsonSerializer.Serialize(loadedType));
+        Assert.Equal(
+            Outcomes(reused),
+            Outcomes(loaded));
+        BrowserLibraryApiDiffMemberIdentity member = Assert.Single(
+            reusedType.Members,
+            member => member.Role == BrowserLibraryApiDiffMemberRelationRole.After)
+            .After!;
         await fixture.Query(typeRequest with
         {
             Surface = BrowserDiffAnalysisSurface.Member,
@@ -624,14 +646,11 @@ public sealed class BrowserLibraryApiDiffOperationTests
             Views = BrowserDiffAnalysisViews.Changes,
             MemberTargetIdentities = [member.StableSelector],
         });
-
         Assert.Equal(1, LibraryApiComparisonMemo.Computations(fixture.PackageId));
 
-        // A fresh computation of the same request produces the same result.
-        LibraryApiComparisonMemo.Clear();
-        string fresh = JsonSerializer.Serialize(await fixture.Query(typeRequest));
-        Assert.Equal(2, LibraryApiComparisonMemo.Computations(fixture.PackageId));
-        Assert.Equal(fresh, reused);
+        static string Outcomes(BrowserLibraryApiDiffResult result)
+            => Assert.IsType<InspectionEnvelope<JsonElement>>(result.Inspection)
+                .Content.GetProperty("outcomes").GetRawText();
     }
 
     [Fact]

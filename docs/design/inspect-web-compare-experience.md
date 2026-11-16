@@ -190,6 +190,11 @@ identifier. A single Member or nested overload is marked from its current
 fingerprint, and an overload-family row is marked when any current overload in
 that represented family population is present.
 
+A Type or Member Compare result covers only its own Types unless Library
+Compare has already completed the endpoint pair's comparison
+([exact Type load](inspect-web-library-api-diff.md#managed-composition)), so
+its cues mark only those Types and their Members until then.
+
 The cue is absent while Diff is pending or unsuccessful, in Clone mode, and for
 removed Before-only subjects that have no current Navigation identity. It
 coexists with structural-salience, Top Leverage, and implementation-hub cues;

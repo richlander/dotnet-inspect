@@ -106,6 +106,105 @@ public sealed class LibraryApiDiffTypeSelectionTests
             selected.After.Surface!.Types.Select(type => type.FullName));
     }
 
+    public static TheoryData<string, ApiSurfaceScope> ExactSelectionCases()
+    {
+        var cases = new TheoryData<string, ApiSurfaceScope>();
+        foreach (string pair in (string[])["LibraryApiDiff", "Diff"])
+        {
+            cases.Add(pair, ApiSurfaceScope.Public);
+            cases.Add(pair, ApiSurfaceScope.IncludeAll);
+            cases.Add(pair, ApiSurfaceScope.ApiAxis);
+        }
+        return cases;
+    }
+
+    // An exact Type load gives every Type the subject the complete comparison
+    // gives it, though it pairs with only the Types that declare an
+    // extension for it.
+    [Theory]
+    [MemberData(nameof(ExactSelectionCases))]
+    public async Task ExactSelection_MatchesCompleteComparisonForEveryType(
+        string pair,
+        ApiSurfaceScope scope)
+    {
+        (string before, string after) = Paths(pair);
+        AssemblyContextApiComparisonResult completeResult =
+            await Compare(before, after, scope, typeSelection: null);
+        LibraryApiDiffOutcome.Available complete =
+            Assert.IsType<LibraryApiDiffOutcome.Available>(
+                LibraryApiDiffPresentationAdapter.Create(completeResult));
+        string[] names =
+        [
+            .. completeResult.Before.Surface!.Types
+                .Concat(completeResult.After.Surface!.Types)
+                .Select(type => type.FullName)
+                .Append("Nonexistent.Type")
+                .Distinct(StringComparer.Ordinal)
+                .Order(StringComparer.Ordinal),
+        ];
+        Assert.True(names.Length > 2);
+
+        foreach (string name in names)
+        {
+            LibraryApiDiffOutcome.Available selected =
+                Assert.IsType<LibraryApiDiffOutcome.Available>(
+                    LibraryApiDiffPresentationAdapter.Create(await Compare(
+                        before, after, scope, ApiTypeSelection.ForFullNames([name]))));
+            Assert.Equal(
+                complete.Document.Comparison.Subjects.Where(subject => subject.Display == name),
+                selected.Document.Comparison.Subjects.Where(subject => subject.Display == name));
+        }
+    }
+
+    [Theory]
+    [InlineData("LibraryApiDiffFixture.ProjectionReceiver",
+        new[] { "LibraryApiDiffFixture.ProjectionExtensions", "LibraryApiDiffFixture.ProjectionReceiver" })]
+    [InlineData("LibraryApiDiffFixture.HardChangedType",
+        new[] { "LibraryApiDiffFixture.HardChangedType" })]
+    public async Task ExactSelection_ExtractsSelectedTypeAndItsExtensionDeclaringTypesOnly(
+        string name,
+        string[] expected)
+    {
+        AssemblyContextApiComparisonResult result = await Compare(
+            FixtureCatalog.LibraryApiDiffV1.AssemblyPath(),
+            FixtureCatalog.LibraryApiDiffV2.AssemblyPath(),
+            ApiSurfaceScope.Public,
+            ApiTypeSelection.ForFullNames([name]));
+
+        foreach (AssemblyContextApiComparisonEndpoint endpoint in (AssemblyContextApiComparisonEndpoint[])
+            [result.Before, result.After])
+        {
+            ApiSurface surface = Assert.IsType<ApiSurface>(endpoint.Surface);
+            Assert.Equal(
+                expected,
+                surface.Types.Select(type => type.FullName).Order(StringComparer.Ordinal));
+        }
+    }
+
+    // An extension-declaring Type's extensions pair with members of the Types
+    // they extend, so selecting it exactly keeps both projections complete,
+    // as any selection of it does.
+    [Fact]
+    public async Task ExactSelectionOfExtensionDeclaringType_KeepsCompleteSurface()
+    {
+        string before = FixtureCatalog.LibraryApiDiffV1.AssemblyPath();
+        string after = FixtureCatalog.LibraryApiDiffV2.AssemblyPath();
+        AssemblyContextApiComparisonResult complete =
+            await Compare(before, after, ApiSurfaceScope.Public, typeSelection: null);
+        AssemblyContextApiComparisonResult selected = await Compare(
+            before,
+            after,
+            ApiSurfaceScope.Public,
+            ApiTypeSelection.ForFullNames(["LibraryApiDiffFixture.ProjectionExtensions"]));
+
+        Assert.Equal(
+            complete.Before.Surface!.Types.Select(type => type.FullName),
+            selected.Before.Surface!.Types.Select(type => type.FullName));
+        Assert.Equal(
+            complete.After.Surface!.Types.Select(type => type.FullName),
+            selected.After.Surface!.Types.Select(type => type.FullName));
+    }
+
     [Fact]
     public async Task UnselectedMalformedType_DoesNotMakeSelectedComparisonUnavailable()
     {

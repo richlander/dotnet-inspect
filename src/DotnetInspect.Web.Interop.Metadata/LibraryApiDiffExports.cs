@@ -242,6 +242,12 @@ public static partial class MetadataExports
             currentCoordinate.Version,
             currentAsset.Id,
             request.TargetFramework);
+        // A Type or Member request reuses the retained whole-Library
+        // comparison when there is one, and otherwise loads only its Types
+        // (library-api-diff-presentation.md#exact-type-load); only a Library
+        // request computes and retains the whole comparison.
+        bool loadTargetTypes = selection.Surface != AnalysisReportSurfaceKind.Library
+            && !LibraryApiComparisonMemo.Contains(comparisonKey);
         InspectionEnvelope<DiffAnalysisDocument> inspection =
             targetScope.UseSurfaceParticipant(
                 targetParticipant,
@@ -274,7 +280,8 @@ public static partial class MetadataExports
                                     },
                                     ApiSurfaceScope.ApiAxis,
                                     BrowserApiSurfacePolicy.Limits,
-                                    stringLiteralQuery),
+                                    stringLiteralQuery,
+                                    loadTargetTypes),
                                 new DiffLibraryPair(
                                     targetGroup,
                                     target,
@@ -282,9 +289,11 @@ public static partial class MetadataExports
                                     current),
                                 new DiffPairContent(
                                     BrowserHostUnavailability(selection)),
-                                compute => LibraryApiComparisonMemo.GetOrCompute(
-                                    comparisonKey,
-                                    compute))));
+                                loadTargetTypes
+                                    ? null
+                                    : compute => LibraryApiComparisonMemo.GetOrCompute(
+                                        comparisonKey,
+                                        compute))));
         cancellationToken.ThrowIfCancellationRequested();
 
         return BrowserLibraryApiDiffWireProjection.Project(
