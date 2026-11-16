@@ -34,8 +34,48 @@ export interface RenderPackageChangesOptions {
   readonly state: PackageChangesState;
   readonly ecosystems: readonly BrowserPackageChangesEcosystemDescriptor[];
   readonly catalogError?: string;
+  readonly catalogLoading?: boolean;
+  readonly formDraft?: PackageChangesFormDraft | null;
   readonly viewport?: PackageChangesViewportSnapshot | null;
   readonly escapeHtml: (value: unknown) => string;
+}
+
+export interface PackageChangesFormDraft {
+  readonly ecosystemId: string;
+  readonly customInterval: boolean;
+  readonly from: string;
+  readonly through: string;
+  readonly securityOnly: boolean;
+  readonly maximumRows: string;
+}
+
+export function capturePackageChangesFormDraft(
+  root: ParentNode,
+): PackageChangesFormDraft | null {
+  const form = root.querySelector<HTMLFormElement>("#package-changes-form");
+  if (!form) return null;
+  return {
+    ecosystemId:
+      form.querySelector<HTMLSelectElement>("#package-changes-ecosystem")
+        ?.value ?? "",
+    customInterval:
+      form.querySelector<HTMLInputElement>(
+        "#package-changes-custom-interval",
+      )?.checked ?? false,
+    from:
+      form.querySelector<HTMLInputElement>("#package-changes-from")?.value
+        ?? "",
+    through:
+      form.querySelector<HTMLInputElement>("#package-changes-through")?.value
+        ?? "",
+    securityOnly:
+      form.querySelector<HTMLInputElement>(
+        "#package-changes-security-only",
+      )?.checked ?? false,
+    maximumRows:
+      form.querySelector<HTMLInputElement>("#package-changes-limit")?.value
+        ?? "100",
+  };
 }
 
 export function bindPackageChangesView(
@@ -131,12 +171,18 @@ export function renderPackageChangesView(
     state,
     ecosystems,
     catalogError = "",
+    catalogLoading = false,
+    formDraft = null,
     viewport = null,
     escapeHtml,
   } = options;
-  const selectedId = state.request?.ecosystemId ?? ecosystems[0]?.id ?? "";
-  const explicitInterval = state.request?.fromExclusive !== null
-    && state.request?.fromExclusive !== undefined;
+  const selectedId = ecosystems.some(
+    ecosystem => ecosystem.id === formDraft?.ecosystemId)
+    ? formDraft?.ecosystemId ?? ""
+    : state.request?.ecosystemId ?? ecosystems[0]?.id ?? "";
+  const explicitInterval = formDraft?.customInterval
+    ?? (state.request?.fromExclusive !== null
+      && state.request?.fromExclusive !== undefined);
   const selected = ecosystems.find(ecosystem => ecosystem.id === selectedId);
   return `
     <div class="query-page package-changes-page">
@@ -161,7 +207,7 @@ export function renderPackageChangesView(
             ${ecosystems.map(ecosystem =>
               `<option value="${escapeHtml(ecosystem.id)}" data-ecosystem-summary="${escapeHtml(ecosystem.summary)}" data-ecosystem-prefixes="${escapeHtml(formatEcosystemPrefixes(ecosystem.prefixes))}"${ecosystem.id === selectedId ? " selected" : ""}>${escapeHtml(ecosystem.title)}</option>`).join("")}
           </select>
-          <p class="package-changes-ecosystem-summary">${escapeHtml(selected?.summary ?? "The product Ecosystem catalog is unavailable.")}</p>
+          <p class="package-changes-ecosystem-summary">${escapeHtml(selected?.summary ?? (catalogLoading ? "Loading product Ecosystems…" : "The product Ecosystem catalog is unavailable."))}</p>
           <p class="package-changes-ecosystem-prefixes">${escapeHtml(selected ? formatEcosystemPrefixes(selected.prefixes) : "")}</p>
           <label class="package-changes-check">
             <input id="package-changes-custom-interval" type="checkbox"${explicitInterval ? " checked" : ""} />
@@ -169,16 +215,16 @@ export function renderPackageChangesView(
           </label>
           <div class="package-changes-interval">
             <label for="package-changes-from">After (exclusive, UTC)</label>
-            <input id="package-changes-from" type="datetime-local" step="1" value="${escapeHtml(toDateTimeLocal(state.request?.fromExclusive))}" />
+            <input id="package-changes-from" type="datetime-local" step="1" value="${escapeHtml(formDraft?.from ?? toDateTimeLocal(state.request?.fromExclusive))}" />
             <label for="package-changes-through">Through (inclusive, UTC)</label>
-            <input id="package-changes-through" type="datetime-local" step="1" value="${escapeHtml(toDateTimeLocal(state.request?.throughInclusive))}" />
+            <input id="package-changes-through" type="datetime-local" step="1" value="${escapeHtml(formDraft?.through ?? toDateTimeLocal(state.request?.throughInclusive))}" />
           </div>
           <label class="package-changes-check">
-            <input id="package-changes-security-only" type="checkbox"${state.request?.securityOnly ? " checked" : ""} />
+            <input id="package-changes-security-only" type="checkbox"${(formDraft?.securityOnly ?? state.request?.securityOnly) ? " checked" : ""} />
             Security-relevant activity only
           </label>
           <label for="package-changes-limit">Maximum results</label>
-          <input id="package-changes-limit" type="number" min="1" max="1000" step="1" value="${state.request?.maximumRows ?? 100}" required />
+          <input id="package-changes-limit" type="number" min="1" max="1000" step="1" value="${escapeHtml(formDraft?.maximumRows ?? state.request?.maximumRows ?? 100)}" required />
           <div class="package-changes-actions">
             <button id="package-changes-run" class="primary-action" type="submit"${ecosystems.length ? "" : " disabled"}>Run report</button>
             <button id="package-changes-cancel" type="button"${state.settlement.kind === "running" ? "" : " disabled"}>Cancel</button>

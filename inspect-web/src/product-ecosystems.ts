@@ -106,6 +106,7 @@ function ecosystemCatalogIntro(): string {
 export function productEcosystemsViewHtml(
   escapeHtml: (value: unknown) => string,
   error: string,
+  loading = false,
 ): string {
   if (error) {
     return `<section class="ecosystem-catalog" aria-labelledby="ecosystems-heading">
@@ -117,6 +118,14 @@ export function productEcosystemsViewHtml(
     </section>`;
   }
   if (catalogEntries.length === 0) {
+    if (loading) {
+      return `<section class="ecosystem-catalog" aria-labelledby="ecosystems-heading">
+        ${ecosystemCatalogIntro()}
+        <div class="empty-state" role="status" aria-live="polite">
+          <h2>Loading Ecosystems…</h2>
+        </div>
+      </section>`;
+    }
     return `<section class="ecosystem-catalog" aria-labelledby="ecosystems-heading">
       ${ecosystemCatalogIntro()}
       <div class="empty-state">
