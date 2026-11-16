@@ -20,6 +20,31 @@ public static class GeneralInverseFixtures
     {
         public int Depth;
         public bool IsStart;
+        public int Used;
+        public int Position;
+        public bool AtEnd;
+
+        int Fill() => Used;
+
+        /// <summary>An await before an if/else whose then-arm returns early, the arms sharing the trailing return: the spliced body gets the structurer's if/else-if shared-join rule (#11264).</summary>
+        public async Task<bool> AdvanceAsync()
+        {
+            await Task.Yield();
+            if (Used == Position)
+            {
+                if (Fill() == 0)
+                {
+                    AtEnd = true;
+                    return true;
+                }
+            }
+            else
+            {
+                Position++;
+            }
+
+            return false;
+        }
 
         public Task<bool> ReadAsync(CancellationToken cancellationToken)
             => Task.FromResult(Depth-- > 0);

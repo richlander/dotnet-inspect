@@ -30,6 +30,7 @@ public sealed class ClassicGeneralInverseTests
     [InlineData(FixtureType, "AccumulateUntil", 1, "while (true)", "return limit;")]
     [InlineData(FixtureType, "ScopedHoistedLocal", 2, "object scoped = new object();", "scoped = null;")]
     [InlineData(ReaderType, "SkipAsync", 2, "if (IsStart)", "depth = Depth;")]
+    [InlineData(ReaderType, "AdvanceAsync", 1, "await Task.Yield();", "Position++;")]
     [InlineData(HolderType, "GetAsync", 2, "await Task.Yield();", "return Value;")]
     [InlineData(LoopFixtureType, "UsingVar", 1, "using (StringWriter writer = new StringWriter())", "writer.Write(value);")]
     [InlineData(LoopFixtureType, "HoistedStructAwaitable", 2, "await Task.Yield();", "return await pending;")]
