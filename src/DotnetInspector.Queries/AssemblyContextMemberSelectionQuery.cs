@@ -125,6 +125,48 @@ public static class ApiSurfaceMemberSelection
                     + $"'{selection.TypeIdentity}.{selection.MemberName}'.");
     }
 
+    /// <summary>
+    /// Selects one exact declaration, or returns null when the surface omits
+    /// it: no Type has the identity, or the Type has no member with the
+    /// selector key. Duplicate Type identities and ambiguous selections still
+    /// throw.
+    /// </summary>
+    public static AssemblyContextMemberDeclaration? TrySelectDeclaration(
+        ApiSurface surface,
+        AssemblyContextMemberSelection selection)
+    {
+        ArgumentNullException.ThrowIfNull(surface);
+        ArgumentNullException.ThrowIfNull(selection);
+        ApiType[] types =
+        [
+            .. surface.Types
+                .Where(candidate =>
+                    candidate.DefinitionName?.ToEscapedFullName()
+                        .Equals(
+                            selection.TypeIdentity,
+                            StringComparison.Ordinal) == true)
+                .Take(2),
+        ];
+        if (types.Length == 0)
+            return null;
+        if (types.Length == 1
+            && !types[0].Members.Any(candidate =>
+                candidate.Name.Equals(
+                    selection.MemberName,
+                    StringComparison.Ordinal)
+                && CallGraphMemberResolver.CreateSelector(
+                        types[0],
+                        candidate)
+                    .Key.Equals(
+                        selection.SelectorKey,
+                        StringComparison.Ordinal)))
+        {
+            return null;
+        }
+
+        return SelectDeclaration(surface, selection);
+    }
+
     public static AssemblyContextMemberBody SelectBody(
         ApiSurface surface,
         AssemblyContextMemberSelection selection)
@@ -183,6 +225,13 @@ public static class AssemblyContextMemberSelectionQuery
                 InspectionCost.NetworkFree);
 
     public static InspectionQuery<
+        AssemblyContextEntry<AssemblyContextMemberDeclaration?>>
+        OptionalDeclarationDefinition { get; } =
+            new(
+                "Optional assembly context member declaration selection",
+                InspectionCost.NetworkFree);
+
+    public static InspectionQuery<
         AssemblyContextEntry<AssemblyContextMemberBody?>>
         OptionalBodyDefinition { get; } =
             new(
@@ -219,6 +268,29 @@ public static class AssemblyContextMemberSelectionQuery
             participant,
             limits,
             surface => ApiSurfaceMemberSelection.SelectDeclaration(
+                surface,
+                selection));
+    }
+
+    /// <summary>
+    /// Selects one exact declaration, or an available null when the
+    /// participant omits it. A truncated projection or an ambiguous selection
+    /// is a failed entry.
+    /// </summary>
+    public static AssemblyContextEntry<AssemblyContextMemberDeclaration?>
+        ExecuteOptionalDeclaration(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        AssemblyContextMemberSelection selection,
+        ApiSurfaceProjectionLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        return AssemblyContextApiSurfaceSelection.Execute<
+            AssemblyContextMemberDeclaration?>(
+            group,
+            participant,
+            limits,
+            surface => ApiSurfaceMemberSelection.TrySelectDeclaration(
                 surface,
                 selection));
     }

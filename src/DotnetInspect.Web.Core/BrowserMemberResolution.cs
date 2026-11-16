@@ -530,9 +530,8 @@ internal static class BrowserMemberResolution
 
     /// <summary>
     /// Selects a member's declaration from a reference surface, or returns
-    /// null when the reference omits the member: it has no Type with the
-    /// identity, or that Type has no member with the selector key. A bounded
-    /// projection that is truncated, and an ambiguous selection, throw.
+    /// null when the reference omits the member. A truncated projection or an
+    /// ambiguous selection throws rather than falling back.
     /// </summary>
     static AssemblyContextMemberDeclaration? DeclaredBySurface(
         AssemblyContextGroup group,
@@ -540,44 +539,18 @@ internal static class BrowserMemberResolution
         string typeIdentity,
         string memberName,
         string selectorKey,
-        int metadataToken)
-    {
-        AssemblyContextApiSurfaceResult projection =
-            AssemblyContextApiSurfaceQuery.ExecuteBounded(
+        int metadataToken) =>
+        RequireSelection(
+            AssemblyContextMemberSelectionQuery.ExecuteOptionalDeclaration(
                 group,
-                ApiSurfaceScope.IncludeAll,
-                BrowserApiSurfacePolicy.Limits,
-                [participant]);
-        if (projection.Truncation is { } truncation)
-        {
-            throw new InvalidOperationException(
-                "The reference surface exceeds the browser projection "
-                + "bounds, so the declaring role cannot be decided. "
-                + BrowserApiSurfacePolicy.TruncationNotice(truncation));
-        }
-
-        ApiSurface surface = BrowserSurfaceProjection.Require(
-            projection.Assemblies.Assemblies.Single(),
-            "Reference surface").Surface;
-        bool declares = surface.Types.Any(type =>
-            type.DefinitionName?.ToEscapedFullName().Equals(
-                typeIdentity,
-                StringComparison.Ordinal) == true
-            && type.Members.Any(candidate =>
-                candidate.Name.Equals(memberName, StringComparison.Ordinal)
-                && ILInspector.Analysis.CallGraphMemberResolver
-                    .CreateSelector(type, candidate)
-                    .Key.Equals(selectorKey, StringComparison.Ordinal)));
-        return declares
-            ? ApiSurfaceMemberSelection.SelectDeclaration(
-                surface,
+                participant,
                 new(
                     typeIdentity,
                     memberName,
                     selectorKey,
-                    metadataToken == 0 ? null : metadataToken))
-            : null;
-    }
+                    metadataToken == 0 ? null : metadataToken),
+                BrowserApiSurfacePolicy.Limits),
+            "Reference surface declaration");
 
     internal static AssemblyContextMemberBody ResolveImplementationMember(
         AssemblyContextGroup group,
