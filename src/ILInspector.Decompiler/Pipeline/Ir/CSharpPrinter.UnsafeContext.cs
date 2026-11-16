@@ -229,7 +229,7 @@ public sealed partial class CSharpPrinter
     }
 
     /// <summary>
-    /// Roslyn 5.9 parses and emits unsafe expressions, but does not yet treat a
+    /// Roslyn 5.12 parses and emits unsafe expressions, but does not yet treat a
     /// direct requires-unsafe property access or method-address conversion as
     /// satisfied by the wrapper in every expression position (CS9362). A larger
     /// enclosing expression, and direct for/switch/foreach headers, do bind
