@@ -44,7 +44,8 @@ public static partial class ApiSurfaceExtractor
         Action<string>? beforeRetainText = null,
         Action<int>? beforeDecodeWork = null,
         TypeParameterConstraintResolution? constraintResolution = null,
-        Action<int>? beforeAttributeMaterialize = null)
+        Action<int>? beforeAttributeMaterialize = null,
+        TypeNodeProvider? sharedTypeNodeProvider = null)
     {
         Action<int>? attributeMaterialize =
             beforeAttributeMaterialize ?? beforeDecodeWork;
@@ -57,9 +58,10 @@ public static partial class ApiSurfaceExtractor
             typeContext,
             method,
             beforeDecodeWork);
-        var typeNodeProvider = beforeRetainText is null
-            ? TypeNodeProvider.Instance
-            : new TypeNodeProvider(beforeRetainText, beforeDecodeWork);
+        var typeNodeProvider = sharedTypeNodeProvider
+            ?? (beforeRetainText is null
+                ? TypeNodeProvider.Instance
+                : new TypeNodeProvider(beforeRetainText, beforeDecodeWork));
         var treeSignature = GuardedProviderDecode.Method(
             reader,
             method,

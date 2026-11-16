@@ -113,6 +113,53 @@ public sealed class TypeNodeProviderTrustedArityTests
             + $"{firstWork:N0} first-build units");
     }
 
+    [Fact]
+    public void ReusedProvider_ReplaysNameWorkAndCreatesFreshTypeNodes()
+    {
+        int work = 0;
+        var retained = new List<string>();
+        var provider = new TypeNodeProvider(
+            beforeRetain: retained.Add,
+            beforeMaterialize: amount => work += amount);
+        TypeNode first = provider.GetTypeFromDefinition(
+            Fixture.Reader, Fixture.Inner, rawTypeKind: 0x12);
+        int firstWork = work;
+        string[] firstRetained = retained.ToArray();
+        first.IsNullableAnnotated = true;
+
+        work = 0;
+        retained.Clear();
+        TypeNode second = provider.GetTypeFromDefinition(
+            Fixture.Reader, Fixture.Inner, rawTypeKind: 0x12);
+
+        Assert.True(firstWork > 0);
+        Assert.Equal(firstWork, work);
+        Assert.Equal(firstRetained, retained);
+        Assert.NotSame(first, second);
+        Assert.False(second.IsNullableAnnotated);
+        Assert.Equal("N.Outer.Inner`1", second.RenderCanonical());
+    }
+
+    [Fact]
+    public void ReusedProvider_CachedNameStillHonorsMaterializationBudget()
+    {
+        bool exhausted = false;
+        var provider = new TypeNodeProvider(
+            beforeMaterialize: _ =>
+            {
+                if (exhausted)
+                    throw new InvalidOperationException("budget exhausted");
+            });
+        _ = provider.GetTypeFromDefinition(
+            Fixture.Reader, Fixture.Inner, rawTypeKind: 0x12);
+        exhausted = true;
+
+        InvalidOperationException failure = Assert.Throws<InvalidOperationException>(
+            () => provider.GetTypeFromDefinition(
+                Fixture.Reader, Fixture.Inner, rawTypeKind: 0x12));
+        Assert.Equal("budget exhausted", failure.Message);
+    }
+
     static (
         MetadataReader Reader,
         TypeDefinitionHandle Inner,

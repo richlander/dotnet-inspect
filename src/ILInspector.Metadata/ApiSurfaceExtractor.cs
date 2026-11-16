@@ -1171,6 +1171,11 @@ public static partial class ApiSurfaceExtractor
             ? null
             : materializationContext.Observe;
         Action<int> observeAttributeMaterialize = materializationContext.Observe;
+        TypeNodeProvider? signatureProvider = null;
+        TypeNodeProvider GetSignatureProvider() => signatureProvider ??=
+            observeText is null
+                ? TypeNodeProvider.Instance
+                : new TypeNodeProvider(observeText, observeDecodeWork);
 
         ApiAssemblyIdentity? currentAssemblyIdentity = reader.IsAssembly
             ? ApiAssemblyIdentity.FromDefinition(
@@ -1875,7 +1880,8 @@ public static partial class ApiSurfaceExtractor
                     observeText,
                     observeDecodeWork,
                     constraintResolution,
-                    observeAttributeMaterialize);
+                    observeAttributeMaterialize,
+                    GetSignatureProvider());
                 var modifiers = ApiMethodModifiers.FromAttributes(
                     methodAttributes,
                     isExplicitInterfaceImplementation);
@@ -2154,7 +2160,8 @@ public static partial class ApiSurfaceExtractor
                         || (apiAxis && bestAccess != MethodAttributes.Public),
                     observeText,
                     observeDecodeWork,
-                    observeAttributeMaterialize);
+                    observeAttributeMaterialize,
+                    GetSignatureProvider());
                 List<string?> jsonPropertyNames =
                     AttributeReader.ReadJsonPropertyNames(
                         reader,
