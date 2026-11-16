@@ -1133,6 +1133,7 @@ public class EcosystemFindSearchSessionTests
     public async Task ZeroRowPrefixSettlementIsNotADurableBlock()
     {
         var layer = Layer("first", "First.Core", "Contoso.");
+        var published = new List<EcosystemFindBlock<string>>();
         using var session = new EcosystemFindSearchSession<string>(
             Request([layer]),
             (_, _) => Task.FromResult(new EcosystemFindBlock<string>(
@@ -1141,7 +1142,8 @@ public class EcosystemFindSearchSessionTests
                 [new("Contoso.Empty", "1.0.0")]), token),
             (_, _, _) => Task.FromResult(new EcosystemFindBlock<string>(
                 "empty", 0, HasFailures: true, Incomplete: true)
-            { Failure = "Package settlement failed." }));
+            { Failure = "Package settlement failed." }),
+            publish: published.Add);
 
         EcosystemFindSearchSummary<string> result =
             await session.ExecuteAsync(TestContext.Current.CancellationToken);
@@ -1151,6 +1153,10 @@ public class EcosystemFindSearchSessionTests
         Assert.Equal(
             "Contoso.Empty",
             Assert.Single(result.Failures).Source);
+        EcosystemFindBlock<string> failure = Assert.Single(
+            published,
+            block => block.Failure is not null);
+        Assert.Equal("Package settlement failed.", failure.Failure);
     }
 
     private sealed class ThrowingSink : IEcosystemFindFindingSink

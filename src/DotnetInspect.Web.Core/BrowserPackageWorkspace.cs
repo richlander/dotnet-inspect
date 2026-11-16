@@ -846,6 +846,24 @@ internal static class BrowserPackageWorkspace
             runtimeIdentifier: null,
             cancellationToken: cancellationToken);
 
+    internal static Task<BrowserPackageRealizationResult>
+        RealizeSurfaceWithSettlementAsync(
+            string packageId,
+            string? version,
+            string? targetFramework,
+            CancellationToken cancellationToken = default) =>
+        RunPackageOperationAsync(
+            deadline => RealizeCoreAsync(
+                packageId,
+                version,
+                targetFramework,
+                runtimeIdentifier: null,
+                Gallery,
+                deadline,
+                assetDemand: PackageAssetDemand.Surface),
+            PackageOperationTimeout,
+            cancellationToken);
+
     internal static Task<BrowserPackageRealizationResult> RealizeWithSettlementAsync(
         string packageId,
         string? version,

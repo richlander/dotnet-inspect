@@ -146,4 +146,51 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
         Assert.NotNull(item.Activation.Action);
     }
 
+    [Fact]
+    public async Task ManagedEcosystemTypeFind_IndexedPrefixPackageNeedsNoLiveDemand()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateEcosystemAsync(
+                owner,
+                "ecosystem-find-indexed-prefix-without-demand",
+                EcosystemPackIds.Aspire);
+        var events = new List<BrowserEcosystemTypeFindEvent>();
+
+        BrowserEcosystemTypeFindInspection inspection =
+            await BrowserEcosystemTypeFindOperation.ExecuteAsync(
+                owner,
+                posting.RetainedDefinitionId,
+                posting.RealizationId,
+                resultGeneration: 1,
+                new(
+                    "Aspire.Hosting.ApplicationModel.RedisResource",
+                    [EcosystemPackIds.Aspire.Value],
+                    [],
+                    RowStart: 1,
+                    RowEnd: 25,
+                    MaximumPrefixPackages: 25,
+                    TargetFramework: "net11.0"),
+                new BrowserEcosystemFindIndexAssetLoad.Available(
+                    [LoadFindIndex("aspire.json")]),
+                events.Add,
+                TestContext.Current.CancellationToken);
+
+        BrowserEcosystemTypeFindFinding finding = Assert.Single(
+            inspection.Settlement.Findings,
+            candidate => candidate.FullName
+                == "Aspire.Hosting.ApplicationModel.RedisResource");
+        BrowserEcosystemTypeFindMembership membership = Assert.Single(
+            finding.Memberships,
+            candidate => candidate.Ecosystem
+                == EcosystemPackIds.Aspire.Value);
+        Assert.Equal("PackagePrefix", membership.Basis);
+        Assert.DoesNotContain(
+            events,
+            findEvent => findEvent.Progress?.Phase
+                == BrowserEcosystemTypeFindPhase.Prefix);
+    }
+
 }

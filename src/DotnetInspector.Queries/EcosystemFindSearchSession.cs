@@ -64,13 +64,23 @@ public sealed class EcosystemFindSearchRequest
 
     public ImmutableArray<EcosystemFindMembership> MembershipsFor(
         ExactLibrarySourceCoordinate source)
+        => MembershipsFor(source, includeUndemandedPrefixes: false);
+
+    public ImmutableArray<EcosystemFindMembership> IndexedMembershipsFor(
+        ExactLibrarySourceCoordinate source)
+        => MembershipsFor(source, includeUndemandedPrefixes: true);
+
+    private ImmutableArray<EcosystemFindMembership> MembershipsFor(
+        ExactLibrarySourceCoordinate source,
+        bool includeUndemandedPrefixes)
     {
         ArgumentNullException.ThrowIfNull(source);
         return source switch
         {
             ExactLibrarySourceCoordinate.Package package =>
                 MembershipsForPackage(
-                    package.PackageCoordinate.PackageId),
+                    package.PackageCoordinate.PackageId,
+                    includeUndemandedPrefixes),
             ExactLibrarySourceCoordinate.Platform platform =>
                 MembershipsForPlatform(platform.Population),
             _ => [],
@@ -78,7 +88,14 @@ public sealed class EcosystemFindSearchRequest
     }
 
     public ImmutableArray<EcosystemFindMembership> MembershipsForPackage(
-        string packageId)
+        string packageId) =>
+        MembershipsForPackage(
+            packageId,
+            includeUndemandedPrefixes: false);
+
+    private ImmutableArray<EcosystemFindMembership> MembershipsForPackage(
+        string packageId,
+        bool includeUndemandedPrefixes)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(packageId);
         var memberships =
@@ -100,7 +117,8 @@ public sealed class EcosystemFindSearchRequest
                 continue;
             }
 
-            if (!PrefixDemand.Contains(layer.Registration.Id))
+            if (!includeUndemandedPrefixes
+                && !PrefixDemand.Contains(layer.Registration.Id))
                 continue;
             WorkspaceEcosystemPopulationDeclaration.PackagePrefix? prefix =
                 layer.Registration.Populations
@@ -553,7 +571,11 @@ public sealed class EcosystemFindSearchSession<T> : IDisposable
                     };
                     if (attributed.RowCount == 0
                         && attributed.Findings.Count == 0)
+                    {
                         Observe(attributed, token);
+                        if (attributed.Failure is not null)
+                            _publish?.Invoke(attributed);
+                    }
                     else
                     {
                         int before = DemandProgress;

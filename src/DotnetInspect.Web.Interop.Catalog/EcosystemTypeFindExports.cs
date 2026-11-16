@@ -881,7 +881,7 @@ internal static class BrowserEcosystemTypeFindOperation
         [
             .. find.Matches.Select(match => EcosystemFindFinding.Create(
                 match,
-                RequireMemberships(request, match))),
+                RequireMemberships(request, match, indexed: true))),
         ];
         bool incomplete = find.Coverage.Any(static coverage =>
             !coverage.Gaps.IsEmpty);
@@ -1080,18 +1080,19 @@ internal static class BrowserEcosystemTypeFindOperation
             PendingEventSink pending,
             CancellationToken cancellationToken)
     {
-        BrowserPackageAcquisitionResult acquisition =
-            await BrowserPackageWorkspace.AcquireWithSettlementAsync(
+        BrowserPackageRealizationResult realization =
+            await BrowserPackageWorkspace.RealizeSurfaceWithSettlementAsync(
                     candidate.PackageId,
                     candidate.Version,
+                    targetFramework,
                     cancellationToken)
                 .ConfigureAwait(false);
-        if (acquisition is not BrowserPackageAcquisitionResult.Acquired acquired)
+        if (realization is not BrowserPackageRealizationResult.Realized realized)
         {
             string failure =
-                ((BrowserPackageAcquisitionResult.NotSettled)acquisition)
+                ((BrowserPackageRealizationResult.NotSettled)realization)
                     .VersionSettlement.Content.ToString()
-                ?? "Package acquisition did not settle.";
+                ?? "Package realization did not settle.";
             return new(
                 BrowserEcosystemTypeFindBlock.Empty,
                 RowCount: 0,
@@ -1104,10 +1105,22 @@ internal static class BrowserEcosystemTypeFindOperation
 
         await using BrowserScopeLease<BrowserInspectionScope> scope =
             await BrowserPackageWorkspace.OpenScopeAsync(
-                    acquired.Acquisition.Package,
-                    targetFramework,
+                    realized.Realization,
                     cancellationToken)
                 .ConfigureAwait(false);
+        if (!scope.Scope.HasSurfaceDeclarationContext)
+        {
+            return new(
+                BrowserEcosystemTypeFindBlock.Empty,
+                RowCount: 0,
+                HasFailures: true,
+                Incomplete: true)
+            {
+                Failure =
+                    $"Package '{candidate.PackageId}' {candidate.Version} "
+                    + "has no inspectable surface declaration context.",
+            };
+        }
         TypeDeclarationLocatorResult locator =
             scope.Scope.UseSurfaceDeclarationContext(
                 (workspace, context) =>
@@ -1177,10 +1190,15 @@ internal static class BrowserEcosystemTypeFindOperation
 
     static ImmutableArray<EcosystemFindMembership> RequireMemberships(
         EcosystemFindSearchRequest request,
-        TypeFindSemanticMatch match)
+        TypeFindSemanticMatch match,
+        bool indexed = false)
     {
         ImmutableArray<EcosystemFindMembership> memberships =
-            request.MembershipsFor(match.Declaration.Source.Coordinate);
+            indexed
+                ? request.IndexedMembershipsFor(
+                    match.Declaration.Source.Coordinate)
+                : request.MembershipsFor(
+                    match.Declaration.Source.Coordinate);
         if (memberships.IsEmpty)
         {
             throw new InvalidOperationException(
