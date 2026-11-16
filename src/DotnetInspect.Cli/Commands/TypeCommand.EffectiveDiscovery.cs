@@ -527,9 +527,10 @@ public static partial class TypeCommand
             return false;
         }
 
-        // Only a spelling that round-trips exactly is admitted; the rich
-        // route owns lookup for every other spelling.
-        if (MetadataTypeDefinitionName.ParseSerialized(options.TypeName)
+        // Reflection grammar treats C# generic notation as a literal name;
+        // the rich route owns that query even when it round-trips.
+        if (options.TypeName.Contains('<')
+            || MetadataTypeDefinitionName.ParseSerialized(options.TypeName)
                 is not MetadataTypeDefinitionNameResult.Valid valid
             || valid.Name.Namespace.Length == 0
             || !string.Equals(

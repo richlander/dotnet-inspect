@@ -352,7 +352,8 @@ public static class AssemblyContextApiSurfaceQuery
         ExecuteParticipantResolved(
             AssemblyContextGroup group,
             AssemblyContextParticipant participant,
-            ApiSurfaceScope scope)
+            ApiSurfaceScope scope,
+            MetadataTypeDefinitionName? selectedDefinition = null)
     {
         if (!Enum.IsDefined(scope))
             throw new ArgumentOutOfRangeException(nameof(scope));
@@ -368,11 +369,14 @@ public static class AssemblyContextApiSurfaceQuery
                     snapshot);
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Open(snapshot);
-                ApiSurface surface = session.CompatibilityApiSurface(
-                    participant.Assembly,
-                    catalog,
-                    participant.BindingPolicy,
-                    ExtractionScope(scope));
+                ApiSurface surface = selectedDefinition is null
+                    ? session.CompatibilityApiSurface(
+                        participant.Assembly, catalog,
+                        participant.BindingPolicy, ExtractionScope(scope))
+                    : session.CompatibilityApiSurface(
+                        participant.Assembly, catalog,
+                        participant.BindingPolicy, ExtractionScope(scope),
+                        selectedDefinition);
                 return new AssemblyApiSurface(
                     surface,
                     [.. surface.InspectionFailures]);

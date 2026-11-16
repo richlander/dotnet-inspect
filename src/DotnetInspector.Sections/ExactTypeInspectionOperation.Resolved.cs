@@ -5,7 +5,7 @@ namespace DotnetInspector.Sections;
 
 public static partial class ExactTypeInspectionOperation
 {
-    public static async Task<TResult> ExecuteWithLiveTargetAsync<TResult>(
+    public static Task<TResult> ExecuteWithLiveTargetAsync<TResult>(
         ResolvedAssemblyReference assembly,
         IAssemblyBindingPolicy bindingPolicy,
         string type,
@@ -17,13 +17,48 @@ public static partial class ExactTypeInspectionOperation
             CancellationToken,
             ValueTask<TResult>> use,
         CancellationToken cancellationToken = default)
+        => ExecuteWithLiveTargetCoreAsync(
+            assembly, bindingPolicy, type, null, scope, use, cancellationToken);
+
+    public static Task<TResult> ExecuteWithLiveTargetAsync<TResult>(
+        ResolvedAssemblyReference assembly,
+        IAssemblyBindingPolicy bindingPolicy,
+        MetadataTypeDefinitionName type,
+        ApiSurfaceScope scope,
+        Func<
+            InspectionEnvelope<ExactTypeInspectionResult>,
+            SelectedContextExactTypeLiveTarget?,
+            ApiSurface?,
+            CancellationToken,
+            ValueTask<TResult>> use,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(type);
+        return ExecuteWithLiveTargetCoreAsync(
+            assembly, bindingPolicy, type.ToEscapedFullName(), type,
+            scope, use, cancellationToken);
+    }
+
+    private static async Task<TResult> ExecuteWithLiveTargetCoreAsync<TResult>(
+        ResolvedAssemblyReference assembly,
+        IAssemblyBindingPolicy bindingPolicy,
+        string type,
+        MetadataTypeDefinitionName? selectedDefinition,
+        ApiSurfaceScope scope,
+        Func<
+            InspectionEnvelope<ExactTypeInspectionResult>,
+            SelectedContextExactTypeLiveTarget?,
+            ApiSurface?,
+            CancellationToken,
+            ValueTask<TResult>> use,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(use);
         cancellationToken.ThrowIfCancellationRequested();
         await using var workspace = new InspectionWorkspace();
         ResolvedAssemblyExactTypeInspectionExecution resolved =
             ExactTypeInspectionQuery.ExecuteResolvedAssembly(
-                workspace, assembly, bindingPolicy, type, scope);
+                workspace, assembly, bindingPolicy, type, scope, selectedDefinition);
         ExactTypeInspectionExecution execution = resolved.Execution;
         cancellationToken.ThrowIfCancellationRequested();
         var envelope = new InspectionEnvelope<ExactTypeInspectionResult>(

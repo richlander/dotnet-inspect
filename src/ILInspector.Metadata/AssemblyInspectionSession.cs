@@ -776,6 +776,22 @@ public sealed class AssemblyInspectionSession :
             includeType);
 
     /// <summary>
+    /// Projects one exact definition and its local extension suppliers, retaining
+    /// complete projection when the selection cannot be established.
+    /// </summary>
+    public ApiSurface CompatibilityApiSurface(
+        ResolvedAssemblyReference source,
+        TypeResolutionCatalog catalog,
+        IAssemblyBindingPolicy bindingPolicy,
+        ApiSurfaceExtractionScope scope,
+        MetadataTypeDefinitionName selectedType) =>
+        CompatibilityApiSurface(
+            source, catalog, bindingPolicy, scope,
+            includeType: ApiTypeSelection.BindDefinition(
+                _image.GetMetadataReader(),
+                ProbeDeclaration(selectedType)));
+
+    /// <summary>
     /// Reads a TypeDef's instance-field primitive after the durable address
     /// matches this image. Used by TypeResolution so enum-width consumers never
     /// borrow a <c>MetadataReader</c>.

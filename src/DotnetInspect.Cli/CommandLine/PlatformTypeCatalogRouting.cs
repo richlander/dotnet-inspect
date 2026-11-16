@@ -320,6 +320,8 @@ internal static class PlatformTypeCatalogRouting
             "DOTNET_ROOT");
         if (HasPacks(configured))
             return Path.GetFullPath(configured!);
+        if (DotnetInspector.Services.PlatformResolver.IsInstalledHiveConfinedToDotnetRoot)
+            return null;
 
         string runtimeDirectory =
             RuntimeEnvironment.GetRuntimeDirectory()

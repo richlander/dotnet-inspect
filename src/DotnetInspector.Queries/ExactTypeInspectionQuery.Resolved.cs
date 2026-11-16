@@ -15,18 +15,22 @@ internal static partial class ExactTypeInspectionQuery
         ResolvedAssemblyReference assembly,
         IAssemblyBindingPolicy bindingPolicy,
         string requestedType,
-        ApiSurfaceScope scope)
+        ApiSurfaceScope scope,
+        MetadataTypeDefinitionName? selectedDefinition = null)
     {
         ArgumentNullException.ThrowIfNull(workspace);
         ArgumentNullException.ThrowIfNull(assembly);
         ArgumentNullException.ThrowIfNull(bindingPolicy);
         ArgumentException.ThrowIfNullOrWhiteSpace(requestedType);
+        ExactTypeSelectionKind selectionKind = selectedDefinition is null
+            ? ExactTypeSelectionKind.Query
+            : ExactTypeSelectionKind.DefinitionIdentity;
         var root = new AssemblyContextParticipant(assembly, bindingPolicy);
         AssemblyContextGroup rootGroup =
             workspace.CreateAssemblyContextGroup([root]);
         AssemblyContextEntry<AssemblyApiSurface> rootEntry =
             AssemblyContextApiSurfaceQuery.ExecuteParticipantResolved(
-                rootGroup, root, scope);
+                rootGroup, root, scope, selectedDefinition);
         if (rootEntry is not AssemblyContextEntry<AssemblyApiSurface>.Available rootSurface)
             return Unavailable("The selected Library API could not be read.");
 
@@ -40,7 +44,9 @@ internal static partial class ExactTypeInspectionQuery
         TypeResolutionRequest[] forwardedRequests =
         [
             .. catalogSurface.TypeForwarders
-                .Where(forwarder => forwarder.DefinitionName is not null)
+                .Where(forwarder => forwarder.DefinitionName is { } definition
+                    && (selectedDefinition is null
+                        || definition.Equals(selectedDefinition)))
                 .Select(forwarder => TypeResolutionRequest.FromAssembly(
                     assembly,
                     AssemblyResolutionScope.Any,
@@ -102,7 +108,7 @@ internal static partial class ExactTypeInspectionQuery
         if (catalogSurface.InspectionFailures.Any(failure =>
             failure.Operation != ApiSurface.ConstraintResolutionOperation
                 && MayAffectTypeLookup(
-                    failure, requestedType, ExactTypeSelectionKind.Query)))
+                    failure, requestedType, selectionKind)))
         {
             ImmutableArray<ApiSurfaceInspectionFailure> lookupFailures =
             [
@@ -123,7 +129,7 @@ internal static partial class ExactTypeInspectionQuery
         }
         ExactTypeCatalogSelection selection = SelectCatalog(
             catalogSurface, requestedType, allowImpliedMember: false,
-            ExactTypeSelectionKind.Query);
+            selectionKind);
         ApiType? selectedType = selection.Type;
         string? matchedName = selection.MatchedType;
         if (selectedType is null)
@@ -140,10 +146,10 @@ internal static partial class ExactTypeInspectionQuery
         }
         ImmutableArray<string> suggestions = selection.Suggestions;
 
-        if (selectedType.DefinitionName is not { } selectedDefinition)
+        if (selectedType.DefinitionName is not { } definitionName)
             return Unavailable("The selected Type has no Metadata definition identity.");
         TypeResolutionRequest request = TypeResolutionRequest.FromAssembly(
-            assembly, AssemblyResolutionScope.Any, selectedDefinition);
+            assembly, AssemblyResolutionScope.Any, definitionName);
         using var resolutionCatalog = new TypeResolutionCatalog();
         using TypeResolutionContext context =
             resolutionCatalog.CreateContext(bindingPolicy, [assembly], [request]);
@@ -178,7 +184,7 @@ internal static partial class ExactTypeInspectionQuery
             workspace.Identity,
             new ExactTypeInspectionContext(loaded),
             requestedType,
-            ExactTypeSelectionKind.Query,
+            selectionKind,
             [participant],
             definingSource: null,
             definingSources: null,
@@ -226,7 +232,7 @@ internal static partial class ExactTypeInspectionQuery
             var participant = new AssemblyContextParticipant(supplier, bindingPolicy);
             AssemblyContextGroup group = workspace.CreateAssemblyContextGroup([participant]);
             var entry = AssemblyContextApiSurfaceQuery.ExecuteParticipantResolved(
-                group, participant, scope);
+                group, participant, scope, selectedDefinition);
             projections.Add(supplier.Registration, entry);
             return entry;
         }
