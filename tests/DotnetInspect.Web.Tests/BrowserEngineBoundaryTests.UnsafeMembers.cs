@@ -212,7 +212,9 @@ public sealed partial class BrowserEngineBoundaryTests
     public async Task PlatformUnsafeCodeTypes_UsesFindingUnsafeAny()
     {
         const string packageId = "microsoft.netcore.app.runtime.linux-x64";
-        const string version = "11.0.9802";
+        // The session package cache keys archives by id and version, so this
+        // fixture needs a version no other Platform fixture serves.
+        const string version = "11.0.9812";
         const string framework = "net11.0-unsafe-members";
         string assemblyPath = FixtureCatalog.DecompilerUnsafeNew.AssemblyPath();
         string assemblyName = Path.GetFileName(assemblyPath);

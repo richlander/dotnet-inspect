@@ -269,17 +269,31 @@ internal static class BrowserMemberResolution
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // The role that declares the member supplies its declaration and
+            // caller-unsafe contract: the reference surface when it declares
+            // the member, otherwise the implementation.
             AssemblyContextMemberDeclaration member =
-                resolution.Scope.UseParticipant(
-                resolution.Participant,
-                (group, selected) => ResolveDeclaration(
-                    group,
-                    selected,
-                    typeId,
-                    memberName,
-                    selectorKey,
-                    metadataToken,
-                    "Platform declaration"));
+                (resolution.Scope.HasReferenceSurface(resolution.Participant)
+                    ? resolution.Scope.UseSurfaceParticipant(
+                        resolution.SurfaceParticipant,
+                        (group, selected) => TryResolveDeclaration(
+                            group,
+                            selected,
+                            typeId,
+                            memberName,
+                            selectorKey,
+                            metadataToken))
+                    : null)
+                ?? resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    (group, selected) => ResolveDeclaration(
+                        group,
+                        selected,
+                        typeId,
+                        memberName,
+                        selectorKey,
+                        metadataToken,
+                        "Platform declaration"));
             return new ScopedPlatformDeclarationResolution(
                 resolution,
                 member);
@@ -512,6 +526,27 @@ internal static class BrowserMemberResolution
                     metadataToken == 0 ? null : metadataToken),
                 BrowserApiSurfacePolicy.Limits),
             operation);
+
+    static AssemblyContextMemberDeclaration? TryResolveDeclaration(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken) =>
+        AssemblyContextMemberSelectionQuery.ExecuteDeclaration(
+                group,
+                participant,
+                new(
+                    typeIdentity,
+                    memberName,
+                    selectorKey,
+                    metadataToken == 0 ? null : metadataToken),
+                BrowserApiSurfacePolicy.Limits)
+            is AssemblyContextEntry<AssemblyContextMemberDeclaration>.Available
+                available
+            ? available.Value
+            : null;
 
     internal static AssemblyContextMemberBody ResolveImplementationMember(
         AssemblyContextGroup group,

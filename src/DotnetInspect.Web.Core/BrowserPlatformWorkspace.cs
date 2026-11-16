@@ -20,21 +20,34 @@ namespace DotnetInspect.Web;
 /// One cumulative Browser platform scope for a target framework.
 /// </summary>
 /// <remarks>
+/// <para>
 /// The scope contains only product-realized platform participants and exposes
 /// them only through group-owned product queries. Its exact coordinates pin
 /// the version and producer selected for each platform family.
+/// </para>
+/// <para>
+/// The scope has the two roles that
+/// <c>docs/design/inspect-web-platform-scope-roles.md</c> owns. The
+/// implementation group holds runtime-pack assemblies and answers
+/// <see cref="UseParticipant{TResult}"/>. The optional surface group holds
+/// their same-named reference-pack counterparts and answers
+/// <see cref="UseSurfaceParticipant{TResult}"/>. An implementation assembly
+/// with no reference counterpart is its own surface.
+/// </para>
 /// </remarks>
 [SupportedOSPlatform("browser")]
 internal sealed class BrowserPlatformScope(
     InspectionWorkspace workspace,
     WorkspaceContextLoadOutcome.Loaded context,
     IReadOnlyDictionary<string, string> platformPacks,
-    bool exactPackageRealization) : IAsyncDisposable
+    bool exactPackageRealization,
+    WorkspaceContextLoadOutcome.Loaded? surface = null) : IAsyncDisposable
 {
     readonly InspectionWorkspace _workspace = workspace;
     readonly ImmutableDictionary<string, string> _platformPacks =
         platformPacks.ToImmutableDictionary(StringComparer.OrdinalIgnoreCase);
     WorkspaceContextLoadOutcome.Loaded? _context = context;
+    WorkspaceContextLoadOutcome.Loaded? _surface = surface;
 
     internal WorkspaceContextLoadOutcome.Loaded Context =>
         _context
@@ -84,6 +97,98 @@ internal sealed class BrowserPlatformScope(
         return query(Context.Group, member.Participant);
     }
 
+    /// <summary>
+    /// Returns the surface member paired with one implementation member: its
+    /// same-named reference-pack counterpart within the same family, or the
+    /// implementation member itself when the reference pack has none.
+    /// </summary>
+    internal WorkspaceContextMember SurfaceParticipant(
+        WorkspaceContextMember implementation)
+    {
+        ArgumentNullException.ThrowIfNull(implementation);
+        RequireImplementationMember(implementation);
+        if (_surface is null)
+            return implementation;
+        var coordinate =
+            (RealizedMemberCoordinate.Platform)implementation.Realized;
+        return _surface.Members.SingleOrDefault(candidate =>
+                candidate.Realized is RealizedMemberCoordinate.Platform platform
+                && platform.Family.Equals(
+                    coordinate.Family,
+                    StringComparison.Ordinal)
+                && string.Equals(
+                    candidate.Participant.Assembly.Identity.Name,
+                    implementation.Participant.Assembly.Identity.Name,
+                    StringComparison.OrdinalIgnoreCase))
+            ?? implementation;
+    }
+
+    /// <summary>
+    /// Whether one implementation member has a separate reference-pack
+    /// surface.
+    /// </summary>
+    internal bool HasReferenceSurface(WorkspaceContextMember implementation) =>
+        !ReferenceEquals(SurfaceParticipant(implementation), implementation);
+
+    /// <summary>
+    /// Hands one surface member, as returned by
+    /// <see cref="SurfaceParticipant"/>, to a query over the group that owns it.
+    /// </summary>
+    internal TResult UseSurfaceParticipant<TResult>(
+        WorkspaceContextMember member,
+        Func<AssemblyContextGroup, AssemblyContextParticipant, TResult> query)
+    {
+        ArgumentNullException.ThrowIfNull(member);
+        ArgumentNullException.ThrowIfNull(query);
+        if (_surface is { } surface
+            && surface.Members.Any(candidate => ReferenceEquals(
+                candidate.Participant.Assembly.Registration,
+                member.Participant.Assembly.Registration)))
+        {
+            return query(surface.Group, member.Participant);
+        }
+
+        return UseParticipant(member, query);
+    }
+
+    /// <summary>
+    /// Materializes the surface Library for one implementation member. A
+    /// reference-pack surface materializes API-only; an implementation that
+    /// is its own surface keeps the implementation role.
+    /// </summary>
+    internal ValueTask<AssemblyContextLibraryAdapterResult>
+        MaterializeSurfaceAsync(
+            WorkspaceContextMember implementation,
+            AssemblyContextLibraryMaterializationLimits limits,
+            CancellationToken cancellationToken)
+    {
+        WorkspaceContextMember surface = SurfaceParticipant(implementation);
+        AssemblyContextLibraryRole role =
+            ReferenceEquals(surface, implementation)
+                ? AssemblyContextLibraryRole.Implementation
+                : AssemblyContextLibraryRole.ApiOnly;
+        return UseSurfaceParticipant(
+            surface,
+            (group, member) => AssemblyContextLibraryAdapter.MaterializeAsync(
+                group,
+                member,
+                role,
+                limits,
+                cancellationToken));
+    }
+
+    void RequireImplementationMember(WorkspaceContextMember member)
+    {
+        if (!Members.Any(candidate => ReferenceEquals(
+                candidate.Participant.Assembly.Registration,
+                member.Participant.Assembly.Registration)))
+        {
+            throw new ArgumentException(
+                "The participant does not belong to this platform scope.",
+                nameof(member));
+        }
+    }
+
     internal WorkspaceContextMember Participant(
         string family,
         string assembly)
@@ -125,6 +230,7 @@ internal sealed class BrowserPlatformScope(
     public ValueTask DisposeAsync()
     {
         _context = null;
+        _surface = null;
         return BrowserInspectionScope.CloseWorkspaceAsync(_workspace);
     }
 }
@@ -137,6 +243,13 @@ internal sealed record BrowserPlatformScopeResolution(
     BrowserScopeLease<BrowserPlatformScope> ScopeLease,
     string? ContextId = null) : IAsyncDisposable
 {
+    /// <summary>
+    /// The surface member for <see cref="Participant"/>: its reference-pack
+    /// counterpart, or the participant itself when it has none.
+    /// </summary>
+    internal WorkspaceContextMember SurfaceParticipant =>
+        Scope.SurfaceParticipant(Participant);
+
     public ValueTask DisposeAsync() => ScopeLease.DisposeAsync();
 }
 
@@ -2169,11 +2282,20 @@ internal static class BrowserPlatformWorkspace
                         PlatformSourceFacet.Implementation,
                         PlatformSourceSelectionMode.Precedence,
                         [adapter.ImplementationRealization]),
+                    new(
+                        PlatformSourceFacet.Reference,
+                        PlatformSourceSelectionMode.Precedence,
+                        [adapter.ReferenceRealization]),
                 ]);
             var admissions =
                 ImmutableArray.CreateBuilder<
                     WorkspacePlatformAssemblyAdmission>(
                     demands.Length);
+            var surfaceAdmissions =
+                ImmutableArray.CreateBuilder<
+                    WorkspacePlatformAssemblyAdmission>(
+                    demands.Length);
+            long surfaceBytes = 0;
             foreach (ExactPlatformDemand demand in demands)
             {
                 deadline.Token.ThrowIfCancellationRequested();
@@ -2282,21 +2404,72 @@ internal static class BrowserPlatformWorkspace
                         library.Identity,
                         library.OpenRead,
                         adapter.ImplementationRealization.Name));
+                PackageReferenceLibrary? reference =
+                    await RealizeSurfaceAsync(
+                            adapter,
+                            sources,
+                            target,
+                            library.Identity,
+                            sourceLease,
+                            deadline)
+                        .ConfigureAwait(false);
+                if (reference is not null)
+                {
+                    surfaceBytes += reference.ContentLength;
+                    surfaceAdmissions.Add(
+                        WorkspacePlatformAssemblyAdmission
+                            .FromImage(
+                            coordinate,
+                            reference.Identity,
+                            reference.OpenRead,
+                            adapter.ReferenceRealization.Name));
+                }
             }
 
+            // One aggregate image budget covers both role groups. Reference
+            // images are a small fraction of their implementations, so the
+            // surface group retains exactly its reference bytes and the
+            // implementation group keeps the remainder, rather than halving
+            // the budget as package roles do.
+            if (surfaceBytes > BrowserInspectionScope.MaxRetainedImageBytes)
+            {
+                throw new InvalidOperationException(
+                    "The Platform reference surface exceeds the workspace image-retention budget.");
+            }
             WorkspaceContextLoadOutcome outcome =
                 WorkspaceContextLoader.AdmitPlatformAssemblies(
                     workspace,
                     admissions.MoveToImmutable(),
                     demands[0].Framework,
                     WorkspaceContextLoader.RepresentativeRuntimeIdentifier,
-                    BrowserInspectionScope.MaxRetainedImageBytes,
+                    BrowserInspectionScope.MaxRetainedImageBytes
+                        - surfaceBytes,
                     deadline.Token);
+            WorkspaceContextLoadOutcome? surface =
+                outcome is WorkspaceContextLoadOutcome.Loaded
+                && surfaceAdmissions.Count > 0
+                    ? WorkspaceContextLoader.AdmitPlatformAssemblies(
+                        workspace,
+                        surfaceAdmissions.ToImmutable(),
+                        demands[0].Framework,
+                        WorkspaceContextLoader
+                            .RepresentativeRuntimeIdentifier,
+                        surfaceBytes,
+                        deadline.Token)
+                    : null;
+            if (surface is WorkspaceContextLoadOutcome.Failed surfaceFailure)
+            {
+                throw new InvalidOperationException(
+                    "The Platform reference surface could not be admitted: "
+                    + FailureMessage(surfaceFailure));
+            }
             return await AttemptAsync(
                 workspace,
                 outcome,
                 store.PackageKeys,
-                exactPackageRealization: true).ConfigureAwait(false);
+                exactPackageRealization: true,
+                surface as WorkspaceContextLoadOutcome.Loaded)
+                .ConfigureAwait(false);
         }
         catch (Exception failure)
         {
@@ -2304,6 +2477,88 @@ internal static class BrowserPlatformWorkspace
                 .ConfigureAwait(false);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Realizes the same-named reference-pack counterpart of one
+    /// implementation assembly, or returns null when the family's reference
+    /// pack has no such member.
+    /// </summary>
+    /// <remarks>
+    /// Surface and implementation pair by assembly name, so the request binds
+    /// the implementation identity by name rather than demanding an
+    /// equivalent identity.
+    /// </remarks>
+    static async Task<PackageReferenceLibrary?> RealizeSurfaceAsync(
+        PackagePlatformHouseAdapter adapter,
+        PlatformSourcePlan sources,
+        PlatformFamilyTarget target,
+        AssemblyReferenceIdentity identity,
+        PackageSourceSettlementLease sourceLease,
+        BrowserPackageWorkspace.BrowserPackageOperationDeadline deadline)
+    {
+        TimeSpan sourceTimeout =
+            BrowserPackageWorkspace.SourceSettlementOperationTimeout(
+                deadline.Remaining);
+        var request = new PlatformHouseRequest(
+            PlatformHouseRequestIdentity.Create(
+                "browser-platform-surface"),
+            new PlatformTargetDemand.Exact(target),
+            new PlatformHouseRequestOrigin.Standalone(
+                PlatformStandaloneOperationIdentity.Create(
+                    "browser-platform-surface")),
+            new PlatformHouseOperation.Realize(
+                new PlatformPopulationDemand.Library(
+                    new PlatformLibraryDemand.AssemblyReferenceBinding(
+                        identity)),
+                PlatformViewDemand.Reference),
+            sources,
+            new PlatformHouseWorkBudget(
+                maxSourceOperations: 8,
+                maxTargetCandidates: 0,
+                maxAssemblies: 1,
+                maxXmlDocuments: 0,
+                maxPortablePdbs: 0,
+                maxSourceDocuments: 0,
+                maxBytes: BrowserInspectionScope.MaxRetainedImageBytes,
+                maxForwardingHops: 0,
+                maxDuration: sourceTimeout),
+            deadline.Token);
+        PackagePlatformHouseResult<PackageReferenceRealization> result =
+            await adapter.RealizeReferenceAsync(
+                    request,
+                    sourceLease.IssueOperationLease(
+                        deadline.Token,
+                        sourceTimeout,
+                        sourceTimeout))
+                .ConfigureAwait(false);
+        if (result is not PackagePlatformHouseResult<
+                PackageReferenceRealization>.Succeeded succeeded)
+        {
+            var terminal = (PackagePlatformHouseResult<
+                PackageReferenceRealization>.NotSucceeded)result;
+            // No counterpart: the reference pack lacks the member, or the
+            // configured source does not publish the reference pack. Either
+            // way the implementation is its own surface. Transport, timeout,
+            // and content failures stay visible.
+            return terminal.Diagnostic.Kind
+                is PackagePlatformSourceDiagnosticKind.MemberUnavailable
+                or PackagePlatformSourceDiagnosticKind.PackageUnavailable
+                ? null
+                : throw new InvalidOperationException(
+                    "Package-backed Platform reference realization "
+                    + $"failed ({terminal.Diagnostic.Kind}: "
+                    + $"{terminal.Diagnostic.Summary}).");
+        }
+
+        return succeeded.Value.Libraries.SingleOrDefault(candidate =>
+                string.Equals(
+                    candidate.Identity.Name,
+                    identity.Name,
+                    StringComparison.OrdinalIgnoreCase))
+            ?? throw new InvalidOperationException(
+                "Package-backed Platform reference realization did not "
+                + "return the same-named assembly.");
     }
 
     static PlatformTargetFramework BasePlatformFramework(string value)
@@ -2549,7 +2804,8 @@ internal static class BrowserPlatformWorkspace
         InspectionWorkspace workspace,
         WorkspaceContextLoadOutcome outcome,
         ImmutableHashSet<string> packageKeys,
-        bool exactPackageRealization = false)
+        bool exactPackageRealization = false,
+        WorkspaceContextLoadOutcome.Loaded? surface = null)
     {
         if (outcome is WorkspaceContextLoadOutcome.Loaded loaded)
         {
@@ -2557,7 +2813,8 @@ internal static class BrowserPlatformWorkspace
                 Scope(
                     workspace,
                     loaded,
-                    exactPackageRealization),
+                    exactPackageRealization,
+                    surface),
                 packageKeys,
                 failure: null);
         }
@@ -2586,14 +2843,16 @@ internal static class BrowserPlatformWorkspace
     static BrowserPlatformScope Scope(
         InspectionWorkspace workspace,
         WorkspaceContextLoadOutcome.Loaded loaded,
-        bool exactPackageRealization = false)
+        bool exactPackageRealization = false,
+        WorkspaceContextLoadOutcome.Loaded? surface = null)
     {
         EnsureAssemblyCapacity(loaded.Members.Length);
         return new BrowserPlatformScope(
             workspace,
             loaded,
             PlatformPacks(loaded.AvailablePlatformAssemblies),
-            exactPackageRealization);
+            exactPackageRealization,
+            surface);
     }
 
     static ImmutableDictionary<string, string> PlatformPacks(

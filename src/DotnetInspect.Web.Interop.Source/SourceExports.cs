@@ -707,18 +707,28 @@ public static partial class SourceExports
                 $"'{typeIdentity}' is not an exact metadata type identity.");
         }
 
-        await using BrowserMemberResolution.ScopedPlatformTypeResolution resolved =
-            await BrowserMemberResolution.PlatformImplementationTypeAsync(
-                targetFramework,
-                platformVersion,
-                assemblyName,
-                pack,
-                typeIdentity,
-                contextId,
-                cancellationToken);
+        // API declarations are a surface view: they read the reference-pack
+        // assembly when the Library has one, as package API declarations read
+        // the compile asset.
+        await using BrowserPlatformScopeResolution resolved =
+            contextId is null
+                ? await BrowserPlatformWorkspace.OpenAssemblyAsync(
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    cancellationToken)
+                : await BrowserPlatformWorkspace.OpenRetainedContextAssemblyAsync(
+                    contextId,
+                    targetFramework,
+                    platformVersion,
+                    assemblyName,
+                    pack,
+                    cancellationToken);
+        cancellationToken.ThrowIfCancellationRequested();
         InspectionEnvelope<TypeApiDeclarationResult> inspection =
-            resolved.Scope.UseParticipant(
-                resolved.Participant,
+            resolved.Scope.UseSurfaceParticipant(
+                resolved.SurfaceParticipant,
                 (group, member) => TypeApiDeclarationInspection.Execute(
                     group,
                     member,

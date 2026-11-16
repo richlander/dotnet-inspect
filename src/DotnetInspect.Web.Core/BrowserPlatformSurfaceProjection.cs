@@ -143,9 +143,11 @@ internal static class BrowserPlatformSurfaceProjection
         ArgumentNullException.ThrowIfNull(coordinate);
         assetFileName ??= participant.Participant.Assembly.AssetFileName;
 
+        // The Type list is the Library's surface: the reference-pack assembly
+        // when the scope holds one, otherwise the implementation itself.
         BrowserPlatformSurfaceProjectionResult result =
-            scope.UseParticipant(
-                participant,
+            scope.UseSurfaceParticipant(
+                scope.SurfaceParticipant(participant),
                 (group, selected) => TryProject(
                     group,
                     selected,
