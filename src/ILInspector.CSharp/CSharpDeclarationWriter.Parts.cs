@@ -364,10 +364,16 @@ internal static partial class CSharpDeclarationWriter
                 synthesizedAttributeReferences);
         }
 
+        // A pair can relate members declared on different Types. The plan takes
+        // one declaring name, so the other side's name shadows like a lexical
+        // name: a reference with that simple name stays qualified on both sides
+        // rather than reading as that side's containing Type.
         public MemberPlanInputs Union(MemberPlanInputs other)
             => new(
                 [.. References, .. other.References],
-                [.. ShadowingNames, .. other.ShadowingNames],
+                DeclaredTypeName == other.DeclaredTypeName
+                    ? [.. ShadowingNames, .. other.ShadowingNames]
+                    : [.. ShadowingNames, .. other.ShadowingNames, DeclaredTypeName],
                 other.DeclaredTypeName,
                 [.. NestedTypeIdentities, .. other.NestedTypeIdentities],
                 [.. QualificationOnlyReferences, .. other.QualificationOnlyReferences],

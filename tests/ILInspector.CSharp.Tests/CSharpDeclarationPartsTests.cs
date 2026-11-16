@@ -302,6 +302,46 @@ public sealed class CSharpDeclarationPartsTests
         Assert.True(current.IsIdentified);
     }
 
+    // A pair can relate members declared on different Types. Inside the
+    // baseline's Samples.Widget, a bare `Widget` would name that containing
+    // Type, so A.Widget stays qualified on both sides.
+    [Fact]
+    public void Pair_AcrossDeclaringTypes_KeepsEachDeclaringNameShadowed()
+    {
+        static ApiMember Make() => new()
+        {
+            Name = "Make",
+            Kind = "method",
+            Accessibility = "public",
+            SignatureModel = new ApiSignature
+            {
+                ReturnType = "A.Widget",
+                MemberName = "Make",
+            },
+        };
+        var options = new CSharpDeclarationOptions { TypeNameMode = CSharpTypeNameMode.ShortWithUsings };
+        var widget = new ApiType { Namespace = "Samples", Name = "Widget", Kind = "class" };
+        var gadget = new ApiType { Namespace = "Samples", Name = "Gadget", Kind = "class" };
+
+        var (baseline, current) = CSharpDeclarationWriter.RenderMemberDeclarationPair(
+            widget,
+            Make(),
+            gadget,
+            Make(),
+            options);
+        var (reversedBaseline, reversedCurrent) = CSharpDeclarationWriter.RenderMemberDeclarationPair(
+            gadget,
+            Make(),
+            widget,
+            Make(),
+            options);
+
+        Assert.Equal("public A.Widget Make()", baseline!.Text);
+        Assert.Equal("public A.Widget Make()", current!.Text);
+        Assert.Equal("public A.Widget Make()", reversedBaseline!.Text);
+        Assert.Equal("public A.Widget Make()", reversedCurrent!.Text);
+    }
+
     [Fact]
     public void Pair_OneSidedMemberUsesThePresentSide()
     {
