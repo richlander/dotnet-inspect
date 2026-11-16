@@ -1,0 +1,39 @@
+{
+  "S1": {
+    "changed": "Run parameter changed from int count to long count.",
+    "classification": "none",
+    "type_declaration_1_0_0": "public class Widget",
+    "type_changed": "not stated"
+  },
+  "S2": {
+    "changed": "Read(TimeSpan window), returning double, was added.",
+    "classification": "none",
+    "type_declaration_1_0_0": "not stated",
+    "type_changed": "not stated"
+  },
+  "S3": {
+    "changed": "nothing",
+    "classification": "none",
+    "type_declaration_1_0_0": "not stated",
+    "type_changed": "not stated"
+  },
+  "S4": {
+    "changed": "Count's Tag attribute changed from \"a\" to \"b\".",
+    "classification": "none",
+    "type_declaration_1_0_0": "public class Widget",
+    "type_changed": "not stated"
+  },
+  "S5": {
+    "changed": "Flush replaced new byte[count] with ArrayPool<byte>.Shared.Rent((int)count).",
+    "classification": "none",
+    "type_declaration_1_0_0": "public class Widget",
+    "type_changed": "not stated"
+  },
+  "S6": {
+    "changed": "Reset() was removed.",
+    "classification": "none",
+    "type_declaration_1_0_0": "public class Widget",
+    "type_changed": "not stated"
+  },
+  "format_notes": "Treated hunk-header text as the stated containing Type declaration, not as evidence that the declaration was unchanged. Treated “Member Body” in the S5 heading as a scenario label, not an output classification."
+}

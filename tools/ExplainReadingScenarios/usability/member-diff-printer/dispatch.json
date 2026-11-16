@@ -1,0 +1,35 @@
+{
+  "source_head": "2b143ebd20f6727cf541e0fb3cebf44b0368b579",
+  "model": "gpt-6-sol",
+  "reasoning": "high",
+  "replicates": 2,
+  "arms": [
+    "G",
+    "U",
+    "M",
+    "ML",
+    "MLH",
+    "sep-pipe",
+    "sep-bracket",
+    "sep-comment"
+  ],
+  "isolation": "empty cwd, --no-custom-instructions, --available-tools none",
+  "inputs": {
+    "scenarios.json": "86f8fc6a57d4c3843ad442bb92162fee5dd42f4cfa09aa54517300e02f1f855e",
+    "generate.py": "b56a1685ec8489c17eb8768fa1622d3fc289df9295bf5163736edc6a5011dff2",
+    "run.py": "3fec64404afaf0ba199d2e116d079b2969a1eb67a88cef795be6d2723c86b893",
+    "participant.txt": "444485a9f671cb17dd7b2f9bf5133f293e0c36cf6434b0d9b1d43f0af4c429cd",
+    "task-main.txt": "656be6d33a83b936465b12e4899e931456d714f26cabf1515245c29a1276b210",
+    "task-separator.txt": "651e119d881e5bec0f0e649b8e9729abbbd8df65019d0d0c98d38575462e1a1b",
+    "criteria.txt": "6113fa8e64ccfcadd5d64c5aecc199b35fe3a9345a8683bb30e3523a034ec18a",
+    "arms/G.md": "717f14ad5c9ad5da5e42fcd784d0b100e7ab11311a52feab37813c8d46d0026c",
+    "arms/U.md": "e5015993271e600c90bd0ee6df65cc098ac58c390c6c3a4eeed5c676b26657bc",
+    "arms/M.md": "5f1223a6057745721e46f6ad64de1950d6a3358075a40a39059dd39b6718f2cb",
+    "arms/ML.md": "52ff9bb2bdb25288341f11f55c7ebbbfcc187dd065ff771535570590de53d784",
+    "arms/MLH.md": "27f254b6bfd6e45b3399c967c106d43712ed595825ab637e5edddcb7818dae14",
+    "arms/sep-pipe.md": "118a28697ec8eab35ccf54bf4b44021b63098b1e3e685652d2fc3f7699595490",
+    "arms/sep-bracket.md": "5b865dfa0feabd5add3efcc0ea91dd989cb57380bf42d9bb3ffe16aed0441fa8",
+    "arms/sep-comment.md": "800c0870b3f183722b9f567a83134bbc88df3ea82f87166eb834ea9af8078698"
+  },
+  "issue": 11185
+}
