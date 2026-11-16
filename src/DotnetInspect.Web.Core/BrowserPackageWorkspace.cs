@@ -852,16 +852,32 @@ internal static class BrowserPackageWorkspace
             string? version,
             string? targetFramework,
             CancellationToken cancellationToken = default) =>
+        RealizeSurfaceWithSettlementAsync(
+            packageId,
+            version,
+            targetFramework,
+            Gallery,
+            PackageOperationTimeout,
+            cancellationToken);
+
+    internal static Task<BrowserPackageRealizationResult>
+        RealizeSurfaceWithSettlementAsync(
+            string packageId,
+            string? version,
+            string? targetFramework,
+            IPackageSourceClient source,
+            TimeSpan operationTimeout,
+            CancellationToken cancellationToken) =>
         RunPackageOperationAsync(
             deadline => RealizeCoreAsync(
                 packageId,
                 version,
                 targetFramework,
                 runtimeIdentifier: null,
-                Gallery,
+                source,
                 deadline,
                 assetDemand: PackageAssetDemand.Surface),
-            PackageOperationTimeout,
+            operationTimeout,
             cancellationToken);
 
     internal static Task<BrowserPackageRealizationResult> RealizeWithSettlementAsync(
@@ -987,7 +1003,15 @@ internal static class BrowserPackageWorkspace
                 requestedVersion,
                 targetFramework,
                 runtimeIdentifier) + (inventoryOnly ? ":inventory" : "")
-                    + (librarySelector is null ? "" : CompositeKey("library", librarySelector.Kind.ToString(), librarySelector.Value, assetDemand.ToString())),
+                    + (inventoryOnly
+                        ? ""
+                        : CompositeKey("assets", assetDemand.ToString()))
+                    + (librarySelector is null
+                        ? ""
+                        : CompositeKey(
+                            "library",
+                            librarySelector.Kind.ToString(),
+                            librarySelector.Value)),
             source);
         (BrowserSharedOperation<BrowserPackageRealizationResult> Operation,
             List<PackageHouseAcquisitionReceipt> Acquisitions) pending;
@@ -1111,10 +1135,19 @@ internal static class BrowserPackageWorkspace
                 targetContext,
                 PackageHouseAssetSelectionKind.Compile,
                 PackageHouseLibraryHandoffMode.SelectedLibraries,
+                assetDemand: assetDemand,
                 evidenceDemand: PackageHouseEvidenceDemand.FrameworkReferences);
         string selectionRequest = (inventoryOnly ? "inventory:" : "")
             + SelectionRequestToken(targetFramework, runtimeIdentifier)
-            + (librarySelector is null ? "" : CompositeKey("library", librarySelector.Kind.ToString(), librarySelector.Value, assetDemand.ToString()))
+            + (inventoryOnly
+                ? ""
+                : CompositeKey("assets", assetDemand.ToString()))
+            + (librarySelector is null
+                ? ""
+                : CompositeKey(
+                    "library",
+                    librarySelector.Kind.ToString(),
+                    librarySelector.Value))
             + (retainedRuntimePopulationRequest is null
                 ? ""
                 : CompositeKey(

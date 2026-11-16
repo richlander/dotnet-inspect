@@ -193,4 +193,114 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                 == BrowserEcosystemTypeFindPhase.Prefix);
     }
 
+    [Fact]
+    public async Task ManagedEcosystemTypeFind_HasIndependentPublicationGeneration()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateEcosystemAsync(
+                owner,
+                "ecosystem-find-independent-generation",
+                EcosystemPackIds.Aspire);
+        const string text =
+            "Aspire.Hosting.ApplicationModel.ContainerResource";
+        EcosystemFindIndexArtifact index = LoadFindIndex("aspire.json");
+        var events = new List<BrowserEcosystemTypeFindEvent>();
+        Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
+            await owner.FindTypesAsync(
+                posting.RetainedDefinitionId,
+                posting.RealizationId,
+                "JsonSerializer",
+                resultGeneration: 3,
+                TestContext.Current.CancellationToken));
+        Assert.IsType<BrowserIndexedTypeFindExecutionResult.Completed>(
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .FindIndexedTypesAsync(
+                    owner,
+                    posting.RetainedDefinitionId,
+                    posting.RealizationId,
+                    [index],
+                    text,
+                    maximumRows: 25,
+                    resultGeneration: 3,
+                    TestContext.Current.CancellationToken));
+
+        BrowserEcosystemTypeFindInspection inspection =
+            await BrowserEcosystemTypeFindOperation.ExecuteAsync(
+                owner,
+                posting.RetainedDefinitionId,
+                posting.RealizationId,
+                resultGeneration: 1,
+                new(
+                    text,
+                    [EcosystemPackIds.Aspire.Value],
+                    [],
+                    RowStart: 1,
+                    RowEnd: 25,
+                    MaximumPrefixPackages: 3,
+                    TargetFramework: "net11.0"),
+                new BrowserEcosystemFindIndexAssetLoad.Available([index]),
+                events.Add,
+                TestContext.Current.CancellationToken);
+
+        Assert.Contains(
+            inspection.Settlement.Findings,
+            finding => finding.FullName == text);
+        Assert.DoesNotContain(
+            inspection.Settlement.Failures,
+            failure => failure.Message.Contains(
+                "newer",
+                StringComparison.OrdinalIgnoreCase));
+        string action = Assert.Single(
+            events,
+            findEvent => findEvent.Finding?.Finding.FullName == text
+                && findEvent.Finding.Activation.Action is not null)
+            .Finding!.Activation.Action!;
+        Assert.NotNull(
+            await Catalog.BrowserRetainedWorkspaceActivationService
+                .TryActivateIndexedTypeFindActionAsync(
+                    owner,
+                    action,
+                    TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
+    public async Task ManagedEcosystemTypeFind_ResidentActionsUseIndependentAuthority()
+    {
+        CompleteRestorationExecutionOptions options = await OptionsAsync();
+        await using var owner =
+            new BrowserRetainedWorkspaceActivationOwner(() => options);
+        BrowserRetainedWorkspacePosting posting =
+            await ActivateAsync(
+                owner,
+                "ecosystem-find-independent-resident-action",
+                Packet());
+
+        Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
+            await owner.FindTypesAsync(
+                posting.RetainedDefinitionId,
+                posting.RealizationId,
+                "JsonSerializer",
+                resultGeneration: 3,
+                TestContext.Current.CancellationToken));
+        BrowserTypeFindExecutionResult.Completed ecosystem =
+            Assert.IsType<BrowserTypeFindExecutionResult.Completed>(
+                await owner.FindEcosystemSemanticTypesAsync(
+                    posting.RetainedDefinitionId,
+                    posting.RealizationId,
+                    TypeFindQuestion.Create(
+                        ["JsonSerializer"],
+                        FindVisibility.Public),
+                    resultGeneration: 1,
+                    TestContext.Current.CancellationToken));
+        BrowserTypeFindCandidateActivation? activation =
+            ecosystem.Result.Activations.FirstOrDefault(
+                candidate => candidate.Action is not null);
+        Assert.NotNull(activation);
+        string action = activation.Action!;
+        Assert.NotNull(owner.ResolveTypeFindAction(action));
+    }
+
 }

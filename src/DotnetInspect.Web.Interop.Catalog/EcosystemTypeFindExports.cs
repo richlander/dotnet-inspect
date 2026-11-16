@@ -598,7 +598,7 @@ internal static class BrowserEcosystemTypeFindOperation
             pending.Progress(
                 BrowserEcosystemTypeFindPhase.Bounded,
                 "retained Workspace");
-            resident = await owner.FindSemanticTypesAsync(
+            resident = await owner.FindEcosystemSemanticTypesAsync(
                     retainedDefinitionId,
                     realizationId,
                     (TypeFindQuestion)request.Question,
@@ -828,7 +828,7 @@ internal static class BrowserEcosystemTypeFindOperation
         ];
         BrowserIndexedTypeFindExecutionResult execution =
             await BrowserRetainedWorkspaceActivationService
-                .FindIndexedTypesAsync(
+                .FindEcosystemIndexedTypesAsync(
                     owner,
                     retainedDefinitionId,
                     realizationId,
@@ -836,7 +836,7 @@ internal static class BrowserEcosystemTypeFindOperation
                     text,
                     remaining ?? request.ResultRows.DelegatedInputRows!.End,
                     resultGeneration,
-                    cancellationToken)
+                    cancellationToken: cancellationToken)
                 .ConfigureAwait(false);
         if (execution
             is not BrowserIndexedTypeFindExecutionResult.Completed completed)

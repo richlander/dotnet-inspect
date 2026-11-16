@@ -155,6 +155,14 @@ internal sealed class BrowserTypeFindOperation : IDisposable
         _framework = new(host);
     }
 
+    internal bool OwnsAction(string action)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(action);
+        return action.StartsWith(
+            $"type-find-{_issuer}-",
+            StringComparison.Ordinal);
+    }
+
     internal async ValueTask<BrowserTypeFindExecutionResult> ExecuteAsync(
         WorkspaceRealizationOperationLease operation,
         BrowserNavigationStateSlot navigation,
@@ -1537,6 +1545,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
 internal sealed partial class BrowserRetainedWorkspaceActivationOwner
 {
     BrowserTypeFindOperation _typeFind = null!;
+    BrowserTypeFindOperation _ecosystemTypeFind = null!;
 
     internal async ValueTask<BrowserTypeFindExecutionResult> FindTypesAsync(
         string retainedDefinitionId,
@@ -1551,6 +1560,7 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
                 resultGeneration,
                 semanticQuestion: null,
                 resultSession: null,
+                ecosystemOperation: false,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -1569,6 +1579,7 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
                 semanticQuestion: null,
                 resultSession
                     ?? throw new ArgumentNullException(nameof(resultSession)),
+                ecosystemOperation: false,
                 cancellationToken)
             .ConfigureAwait(false);
 
@@ -1588,6 +1599,28 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
                 resultGeneration,
                 question,
                 resultSession: null,
+                ecosystemOperation: false,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
+
+    internal async ValueTask<BrowserTypeFindExecutionResult>
+        FindEcosystemSemanticTypesAsync(
+            string retainedDefinitionId,
+            string realizationId,
+            TypeFindQuestion question,
+            long resultGeneration,
+            CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(question);
+        return await FindTypesCoreAsync(
+                retainedDefinitionId,
+                realizationId,
+                question.Patterns.Single().Text,
+                resultGeneration,
+                question,
+                resultSession: null,
+                ecosystemOperation: true,
                 cancellationToken)
             .ConfigureAwait(false);
     }
@@ -1599,6 +1632,7 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
         long resultGeneration,
         TypeFindQuestion? semanticQuestion,
         FindSemanticResultSession? resultSession,
+        bool ecosystemOperation,
         CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
@@ -1616,7 +1650,9 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
                     "The requested retained Workspace realization is not active.");
             }
             posting = active;
-            typeFind = _typeFind;
+            typeFind = ecosystemOperation
+                ? _ecosystemTypeFind
+                : _typeFind;
         }
 
         WorkspaceRealizationOperationAdmission admission =
@@ -1635,7 +1671,11 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
         lock (_gate)
         {
             if (!ReferenceEquals(_active, posting)
-                || !ReferenceEquals(_typeFind, typeFind))
+                || !ReferenceEquals(
+                    ecosystemOperation
+                        ? _ecosystemTypeFind
+                        : _typeFind,
+                    typeFind))
             {
                 return new BrowserTypeFindExecutionResult.Stale(
                     "The active Workspace realization changed.");
@@ -1683,29 +1723,49 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
             CancellationToken cancellationToken = default)
     {
         BrowserTypeFindOperation typeFind;
+        BrowserTypeFindOperation ecosystemTypeFind;
         lock (_gate)
+        {
             typeFind = _typeFind;
-        return typeFind.ActivateAsync(this, action, cancellationToken);
+            ecosystemTypeFind = _ecosystemTypeFind;
+        }
+        return (ecosystemTypeFind.OwnsAction(action)
+                ? ecosystemTypeFind
+                : typeFind)
+            .ActivateAsync(this, action, cancellationToken);
     }
 
     internal BrowserTypeFindCapturedDestination? ResolveTypeFindAction(
         string action)
     {
         BrowserTypeFindOperation typeFind;
+        BrowserTypeFindOperation ecosystemTypeFind;
         lock (_gate)
+        {
             typeFind = _typeFind;
-        return typeFind.ResolveAction(action);
+            ecosystemTypeFind = _ecosystemTypeFind;
+        }
+        return ecosystemTypeFind.OwnsAction(action)
+            ? ecosystemTypeFind.ResolveAction(action)
+            : typeFind.ResolveAction(action);
     }
 
-    void InitializeTypeFind() =>
+    void InitializeTypeFind()
+    {
         _typeFind = new BrowserTypeFindOperation(_host);
+        _ecosystemTypeFind = new BrowserTypeFindOperation(_host);
+    }
 
     void ReplaceTypeFindOperation()
     {
         _typeFind.Dispose();
+        _ecosystemTypeFind.Dispose();
         InitializeTypeFind();
     }
 
-    void DisposeTypeFind() =>
+    void DisposeTypeFind()
+    {
         _typeFind.Dispose();
+        _ecosystemTypeFind.Dispose();
+    }
 }
