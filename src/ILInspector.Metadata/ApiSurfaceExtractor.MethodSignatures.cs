@@ -339,6 +339,22 @@ public static partial class ApiSurfaceExtractor
     internal static List<string> RenderMemberAttributes(
         MetadataReader reader,
         CustomAttributeHandleCollection attributes,
+        Action<string>? beforeRetain = null,
+        Action<int>? beforeMaterialize = null)
+        => RenderMemberAttributes(
+            reader,
+            attributes,
+            beforeRetain,
+            beforeMaterialize,
+            out _);
+
+    /// <summary>
+    /// The member's rendered attribute list, with each attribute's metadata
+    /// Type full name in <paramref name="attributeTypes"/>, parallel to it.
+    /// </summary>
+    internal static List<string> RenderMemberAttributes(
+        MetadataReader reader,
+        CustomAttributeHandleCollection attributes,
         Action<string>? beforeRetain,
         Action<int>? beforeMaterialize,
         out List<string> attributeTypes)
