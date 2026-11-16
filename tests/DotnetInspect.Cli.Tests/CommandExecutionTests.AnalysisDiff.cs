@@ -1765,11 +1765,10 @@ public partial class CommandExecutionTests
         Assert.Contains(newEvidence, output);
     }
 
-    // The unsafe member census compared by declared member: Removed, Added,
-    // Changed, and Present, where a renumbered closure is no change
-    // (docs/design/unsafe-code-section.md#diff).
+    // Library Diff lists each Type whose unsafe code changed, once, with no
+    // per-Type counts (docs/design/unsafe-code-section.md#diff).
     [Fact]
-    public async Task Diff_UnsafeMember_LibraryTransitionsClassifyEachMember()
+    public async Task Diff_UnsafeMember_LibraryListsChangedTypes()
     {
         var (exit, output, error) = await RunAppAsync(
             "diff", "--library",
@@ -1778,41 +1777,49 @@ public partial class CommandExecutionTests
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
-        const string Stable = "Public: pointer dereference ×2; stack allocation";
+        const string Subject = "UnsafeMemberDiffSample :: UnsafeMemberDiffFixtures.";
+        Assert.Equal(
+            [
+                ("PairFinding.Added", Subject + "AddedUnsafeType", "absent", "present"),
+                ("PairFinding.Removed", Subject + "RemovedUnsafeType", "present", "absent"),
+                ("PairFinding.Changed", Subject + "UnsafeMemberDiffSample", "present", "present"),
+            ],
+            output.Split('\n')
+                .Select(static line => line.TrimEnd('\r').Split('\t'))
+                .Where(static columns => columns.Length >= 7
+                    && columns[1] == "analysis.unsafe-code")
+                .Select(static columns => (columns[0], columns[2], columns[5], columns[6])));
+    }
+
+    // Type scope compares the selected Type's census by declared member:
+    // Removed, Added, Changed, and Present, where a renumbered closure is no
+    // change. The Library lists the Type as Changed because some member's
+    // transition is not Present.
+    [Fact]
+    public async Task Diff_UnsafeMember_TypeTransitionsClassifyEachMember()
+    {
+        var (exit, output, error) = await RunAppAsync(
+            "diff", "--library", UnsafeMemberPair,
+            "-t", "UnsafeMemberDiffFixtures.UnsafeMemberDiffSample",
+            "--analysis", "unsafe-code");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        const string Stable = "Public, legacy rules: pointer dereference ×2; stack allocation";
         Assert.Equal(
             [
                 ("PairFinding.Added", "AddedUnsafe(int)", "absent", Stable),
                 (
                     "PairFinding.Changed",
                     "ChangedUnsafe(int)",
-                    "Public: pointer dereference; stack allocation",
+                    "Public, legacy rules: pointer dereference; stack allocation",
                     Stable),
                 ("PairFinding.Removed", "RemovedUnsafe(int)", Stable, "absent"),
                 ("PairFinding.Present", "RenumberedClosure()", Stable, Stable),
                 ("PairFinding.Present", "StableUnsafe(int)", Stable, Stable),
             ],
-            UnsafeMemberTransitions(output, "UnsafeMemberDiffSample :: "));
-    }
-
-    // Type scope compares the selected Type's census, with the same rows
-    // the Library comparison gives that Type.
-    [Fact]
-    public async Task Diff_UnsafeMember_TypeTransitionsAgreeWithLibrary()
-    {
-        var library = await RunAppAsync(
-            "diff", "--library", UnsafeMemberPair,
-            "--analysis", "unsafe-code");
-        var type = await RunAppAsync(
-            "diff", "--library", UnsafeMemberPair,
-            "-t", "UnsafeMemberDiffFixtures.UnsafeMemberDiffSample",
-            "--analysis", "unsafe-code");
-
-        Assert.Equal(0, type.Exit);
-        Assert.Empty(type.Error);
-        Assert.Equal(
-            UnsafeMemberTransitions(library.Output, "UnsafeMemberDiffSample :: "),
             UnsafeMemberTransitions(
-                type.Output,
+                output,
                 "UnsafeMemberDiffFixtures.UnsafeMemberDiffSample :: "));
     }
 
@@ -1843,7 +1850,7 @@ public partial class CommandExecutionTests
     }
 
     // A package whose Library assembly is renamed pairs nothing across the
-    // endpoints: the old assembly's members are Removed and the new one's
+    // endpoints: the old assembly's Types are Removed and the new one's
     // Added, under their own subjects.
     [Fact]
     public async Task Diff_UnsafeMember_PackageAssemblyRenameReportsBothSides()
@@ -1911,8 +1918,9 @@ public partial class CommandExecutionTests
             JsonElement[] added = [.. transitions.Where(static row =>
                 row.GetProperty("transition").GetString() == "PairFinding.Added")];
             Assert.Equal(transitions.Length, removed.Length + added.Length);
-            Assert.Equal(5, removed.Length);
-            Assert.Equal(5, added.Length);
+            // Each assembly's two Types with unsafe code.
+            Assert.Equal(2, removed.Length);
+            Assert.Equal(2, added.Length);
             Assert.All(removed, static row => Assert.StartsWith(
                 "Old.dll :: ", row.GetProperty("target").GetString()));
             Assert.All(added, static row => Assert.StartsWith(

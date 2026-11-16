@@ -4873,6 +4873,28 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task Member_VersionedAspNetCoreFramework_BindsConstraintsWithinFamily()
+    {
+        SkipUnlessAspNetCoreAvailable();
+        var (_, version, _) = PlatformResolver.ResolveFramework("aspnetcore");
+
+        // Results<TResult1, TResult2> constrains both parameters to IResult,
+        // which the selected ASP.NET Core family supplies from another library.
+        var (exit, output, error) = await RunAppAsync(
+            "member", "Microsoft.AspNetCore.Http.HttpResults.Results<T1,T2>",
+            "--platform", "Microsoft.AspNetCore.Http.Results",
+            "--framework", $"aspnetcore@{version}",
+            "-m", "ExecuteAsync", "--markdown");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "An IResult that could be one of two different IResult types.",
+            output);
+        Assert.Contains("ExecuteAsync", output);
+    }
+
+    [Fact]
     public async Task Member_NonMethodRows_RenderFullDeclarations()
     {
         var (exit, output, error) = await RunAppAsync(

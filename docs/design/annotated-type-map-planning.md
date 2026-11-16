@@ -113,7 +113,8 @@ each **result kind**, exactly what that result reads:
 | One-version Rows | no | no | yes |
 | One-version Count or Exists | no | no | yes |
 | Map-diff Rows | both | when a finding family is selected | yes |
-| Map-diff Count or Exists | both | no | kept in the selection, no demand |
+| Map-diff Count | both | no | kept in the selection, no demand |
+| Map-diff Exists | terminal-native pair evidence for both | no | kept in the selection, no demand |
 
 - A one-version result, at every terminal, reads only admitted findings, the
   map's listing rule for one version, so it demands only the selected finding
@@ -126,12 +127,14 @@ each **result kind**, exactly what that result reads:
   filtering them to admitted descriptors. When it names none, no finding
   transition can be admitted, so it demands no fact stream and builds no
   census.
-- A map diff's Count and Exists read only the shape comparison. They demand
-  only the shape-fact families; the selected finding families stay in the
-  resolved selection but bind no adapter, because they cannot change the
-  result. A Type's Exists in the map diff therefore stays the shape
-  comparison, and a host drawing Type marks builds no fact census and computes
-  no map of an unopened Type.
+- A map diff's Count reads only the shape comparison and demands the complete
+  per-side shape-fact families.
+- A map diff's Exists reads the same shape semantics through terminal-native
+  pair evidence under #11166; it does not demand complete per-side
+  contributions merely to stop their later comparison.
+- For both terminals, selected finding families stay in the resolved selection
+  but bind no adapter, because they cannot change the result. A host drawing
+  Type marks builds no fact census and computes no map of an unopened Type.
 
 Which analyses a request names never changes how a fact is matched.
 
@@ -376,6 +379,12 @@ gated by the admission test.
    step also brings step 2's resolution to the result-kind table above: a
    one-version result demands only its finding families, and a one-version
    request naming none resolves with no demand.
+   [Annotated Type Map Body-shape family](annotated-type-map-body-family.md)
+   owns the Body producer, identity, family, and adapters under
+   [#11163](https://github.com/richlander/dotnet-inspect/issues/11163).
+   Map Diff Exists remains unresolved until terminal-native pair evidence
+   under [#11166](https://github.com/richlander/dotnet-inspect/issues/11166)
+   can settle without first producing complete per-side contributions.
 6. Withdrawn. The Type-scoped API diff of #10221 loads its Types directly
    through the
    [exact Type load](library-api-diff-presentation.md#exact-type-load). The
@@ -396,12 +405,9 @@ path, exact NativeAOT before and after evidence.
   its consumed owners do.
 - It does not plan Library scope. The map's Library scope arrives with its
   map diff in its own adoption step 5; Library-scope planning follows it.
-- It does not define pair-scoped adapters. A pair resolves per-side
-  result-kind contributions, and the map diff compares those rather than
-  stopping a lockstep walk at its first difference; the map admits both routes
-  to the same result. If the map's adoption steps 3 and 5 show that lockstep,
-  which can census only listed Members, is cheaper, pair-scoped adapters are a
-  follow-up to this owner.
+- It does not yet define terminal-native pair evidence. #11166 owns that
+  amendment for Map Diff Exists. Until it lands, Exists does not resolve
+  through complete per-side contributions; Rows and Count continue to do so.
 - It does not execute producers, settle contributions, compare maps or
   contributions, or generate the document.
 - It does not define all-applicable requests, presets, portable request

@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using DotnetInspector.Packages;
 using DotnetInspector.Queries;
 using DotnetInspector.Sections;
+using DotnetInspector.SourceSelection;
 using ILInspector.Metadata;
 using QuerySpace.Rows;
 
@@ -31,6 +32,7 @@ internal sealed record BrowserTypeFindCandidateReference(
 
 internal sealed record BrowserTypeFindCandidateActivation(
     BrowserTypeFindCandidateReference Candidate,
+    string? Identity,
     BrowserTypeFindActivationSource Source,
     BrowserTypeFindActivationStatus Status,
     string? Action,
@@ -160,6 +162,47 @@ internal sealed class BrowserTypeFindOperation : IDisposable
         string text,
         long resultGeneration,
         CancellationToken cancellationToken = default)
+        => await ExecuteCoreAsync(
+                operation,
+                navigation,
+                preparation,
+                retainedDefinitionId,
+                text,
+                resultGeneration,
+                resultSession: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal async ValueTask<BrowserTypeFindExecutionResult> ExecuteAsync(
+        WorkspaceRealizationOperationLease operation,
+        BrowserNavigationStateSlot navigation,
+        BrowserRetainedNavigationPreparation preparation,
+        string retainedDefinitionId,
+        string text,
+        long resultGeneration,
+        FindSemanticResultSession resultSession,
+        CancellationToken cancellationToken = default)
+        => await ExecuteCoreAsync(
+                operation,
+                navigation,
+                preparation,
+                retainedDefinitionId,
+                text,
+                resultGeneration,
+                resultSession
+                    ?? throw new ArgumentNullException(nameof(resultSession)),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    async ValueTask<BrowserTypeFindExecutionResult> ExecuteCoreAsync(
+        WorkspaceRealizationOperationLease operation,
+        BrowserNavigationStateSlot navigation,
+        BrowserRetainedNavigationPreparation preparation,
+        string retainedDefinitionId,
+        string text,
+        long resultGeneration,
+        FindSemanticResultSession? resultSession,
+        CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(operation);
         ArgumentNullException.ThrowIfNull(navigation);
@@ -246,10 +289,21 @@ internal sealed class BrowserTypeFindOperation : IDisposable
             resultGeneration,
             operation.Scope,
             registrations.Revision);
+        TypeFindQuestion? semanticQuestion =
+            resultSession is null
+                ? null
+                : TypeFindQuestion.Create(
+                    [text],
+                    FindVisibility.Public);
         TypeDeclarationLocatorInspectionExecution execution =
             await TypeDeclarationLocatorInspection.ExecuteWithResultAsync(
                     workspace,
-                    [new TypeDeclarationLocatorRequest.Pattern(text)],
+                    [
+                        semanticQuestion is null
+                            ? new TypeDeclarationLocatorRequest.Pattern(text)
+                            : new TypeDeclarationLocatorRequest.Semantic(
+                                semanticQuestion),
+                    ],
                     new TypeDeclarationLocatorSectionPlan(
                         RowSelectionIntent<string>.Empty,
                         TypeDeclarationVisibilityPlan.Default),
@@ -270,6 +324,40 @@ internal sealed class BrowserTypeFindOperation : IDisposable
 
         ImmutableArray<WorkspaceDeclarationContext> contexts =
             workspace.GetDeclarationContextsSnapshot();
+        HashSet<BrowserTypeFindSemanticIdentity>? admittedFindings = null;
+        if (resultSession is not null && semanticQuestion is not null)
+        {
+            TypeFindSemanticPopulation population =
+                TypeFindSourceEvaluator.EvaluateLocatorMatches(
+                    semanticQuestion,
+                    locator);
+            TypeFindBlock block =
+                FindSemanticReducer.ReduceType(
+                    semanticQuestion,
+                    population);
+            admittedFindings = [];
+            foreach (TypeFindSemanticMatch match in block.Matches)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                FindSemanticFindingPublication findingPublication =
+                    resultSession.Publish(match);
+                if (findingPublication
+                    is FindSemanticFindingPublication.RowLimitReached)
+                {
+                    break;
+                }
+                if (findingPublication
+                    is FindSemanticFindingPublication.Published)
+                {
+                    admittedFindings.Add(new(
+                        match.Declaration.Source.Coordinate,
+                        match.Declaration.Name,
+                        match.Declaration.ModuleVersionId,
+                        match.Declaration.Source.ContextOrder,
+                        match.Declaration.Source.MemberOrder));
+                }
+            }
+        }
         ImmutableArray<SourcePackageBinding> sourcePackages =
             ResolveSourcePackageBindings(operation, contexts);
         var pendingFramework =
@@ -292,9 +380,23 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     answer.Candidates[candidateIndex];
                 TypeDeclarationLocatorCandidate rawCandidate =
                     ResolveRawCandidate(rawAnswer, candidate);
+                if (admittedFindings is not null
+                    && !admittedFindings.Contains(new(
+                        rawCandidate.Coordinate,
+                        candidate.Name,
+                        candidate.ModuleVersionId,
+                        rawCandidate.Observation.Occurrence.ContextOrder,
+                        rawCandidate.Observation.Occurrence.MemberOrder)))
+                {
+                    continue;
+                }
                 var reference = new BrowserTypeFindCandidateReference(
                     answer.Identity.Ordinal,
                     candidateIndex + 1);
+                string? identity = BrowserSpotlightTypeIdentity.TryCreate(
+                    rawCandidate.Coordinate,
+                    candidate.Name,
+                    candidate.ModuleVersionId);
 
                 if (rawCandidate.Observation.Origin
                         is WorkspaceDeclarationOrigin.PackageScope
@@ -313,6 +415,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     {
                         activations.Add(new(
                             reference,
+                            identity,
                             BrowserTypeFindActivationSource.Package,
                             binding.Status,
                             Action: null,
@@ -328,6 +431,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     {
                         activations.Add(new(
                             reference,
+                            identity,
                             BrowserTypeFindActivationSource.Package,
                             FromNavigation(action.Kind),
                             Action: null,
@@ -359,6 +463,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                         navigation.RetireRetainedTypeActions([action.Action]);
                         activations.Add(new(
                             reference,
+                            identity,
                             BrowserTypeFindActivationSource.Package,
                             BrowserTypeFindActivationStatus.Stale,
                             Action: null,
@@ -373,6 +478,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                         navigation.RetireRetainedTypeActions([action.Action]);
                         activations.Add(new(
                             reference,
+                            identity,
                             BrowserTypeFindActivationSource.Package,
                             BrowserTypeFindActivationStatus.Stale,
                             Action: null,
@@ -392,6 +498,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                                 candidate.Observation.AssemblyIdentity.Name))));
                     activations.Add(new(
                         reference,
+                        identity,
                         BrowserTypeFindActivationSource.Package,
                         BrowserTypeFindActivationStatus.Available,
                         actionId,
@@ -410,6 +517,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     int activationIndex = activations.Count;
                     activations.Add(new(
                         reference,
+                        identity,
                         BrowserTypeFindActivationSource.Framework,
                         BrowserTypeFindActivationStatus.Unavailable,
                         Action: null,
@@ -424,6 +532,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
 
                 activations.Add(new(
                     reference,
+                    identity,
                     BrowserTypeFindActivationSource.Unsupported,
                     BrowserTypeFindActivationStatus.Unavailable,
                     Action: null,
@@ -454,6 +563,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                 {
                     activations[pending.ActivationIndex] = new(
                         pending.Reference,
+                        activations[pending.ActivationIndex].Identity,
                         BrowserTypeFindActivationSource.Framework,
                         FromFramework(blocked.Block),
                         Action: null,
@@ -488,6 +598,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                 {
                     activations[pending.ActivationIndex] = new(
                         pending.Reference,
+                        activations[pending.ActivationIndex].Identity,
                         BrowserTypeFindActivationSource.Framework,
                         BrowserTypeFindActivationStatus.Stale,
                         Action: null,
@@ -504,6 +615,7 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                         selected.Descriptor)));
                 activations[pending.ActivationIndex] = new(
                     pending.Reference,
+                    activations[pending.ActivationIndex].Identity,
                     BrowserTypeFindActivationSource.Framework,
                     BrowserTypeFindActivationStatus.Available,
                     actionId,
@@ -983,16 +1095,29 @@ internal sealed class BrowserTypeFindOperation : IDisposable
                     source.Occurrence.Occurrence,
                     origin.Occurrence.Occurrence)),
         ];
+        if (sources.Length == 0)
+        {
+            RealizedMemberCoordinate.Package coordinate =
+                origin.Occurrence.Occurrence.Package.Coordinate;
+            return CreatePackageBinding(
+                operation.Realization,
+                candidate,
+                origin.Occurrence.Occurrence,
+                new WorkspaceContextMember(
+                    WorkspaceMemberCoordinate.Package(
+                        coordinate.PackageId,
+                        coordinate.Version,
+                        coordinate.Framework,
+                        coordinate.RuntimeIdentifier),
+                    coordinate,
+                    participant));
+        }
         if (sources.Length != 1)
         {
             return new(
                 null,
-                sources.Length == 0
-                    ? BrowserTypeFindActivationStatus.Unavailable
-                    : BrowserTypeFindActivationStatus.Ambiguous,
-                sources.Length == 0
-                    ? "The original Package declaration source is unavailable."
-                    : "The original Package declaration source is ambiguous.");
+                BrowserTypeFindActivationStatus.Ambiguous,
+                "The original Package declaration source is ambiguous.");
         }
 
         SourcePackageBinding source = sources[0];
@@ -1364,6 +1489,13 @@ internal sealed class BrowserTypeFindOperation : IDisposable
         WorkspaceContextMember? Library,
         BrowserTypeFindActivationStatus Status,
         string? Reason);
+
+    sealed record BrowserTypeFindSemanticIdentity(
+        ExactLibrarySourceCoordinate Source,
+        MetadataTypeDefinitionName Declaration,
+        Guid ModuleVersionId,
+        int ContextOrder,
+        int MemberOrder);
 }
 
 internal sealed partial class BrowserRetainedWorkspaceActivationOwner
@@ -1376,6 +1508,39 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
         string text,
         long resultGeneration,
         CancellationToken cancellationToken = default)
+        => await FindTypesCoreAsync(
+                retainedDefinitionId,
+                realizationId,
+                text,
+                resultGeneration,
+                resultSession: null,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    internal async ValueTask<BrowserTypeFindExecutionResult> FindTypesAsync(
+        string retainedDefinitionId,
+        string realizationId,
+        string text,
+        long resultGeneration,
+        FindSemanticResultSession resultSession,
+        CancellationToken cancellationToken = default)
+        => await FindTypesCoreAsync(
+                retainedDefinitionId,
+                realizationId,
+                text,
+                resultGeneration,
+                resultSession
+                    ?? throw new ArgumentNullException(nameof(resultSession)),
+                cancellationToken)
+            .ConfigureAwait(false);
+
+    async ValueTask<BrowserTypeFindExecutionResult> FindTypesCoreAsync(
+        string retainedDefinitionId,
+        string realizationId,
+        string text,
+        long resultGeneration,
+        FindSemanticResultSession? resultSession,
+        CancellationToken cancellationToken)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(retainedDefinitionId);
         ArgumentException.ThrowIfNullOrWhiteSpace(realizationId);
@@ -1418,15 +1583,26 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner
             }
         }
 
-        return await typeFind.ExecuteAsync(
-                operation,
-                posting.NavigationState,
-                posting.NavigationPreparation,
-                posting.RetainedDefinitionId,
-                text,
-                resultGeneration,
-                cancellationToken)
-            .ConfigureAwait(false);
+        return resultSession is null
+            ? await typeFind.ExecuteAsync(
+                    operation,
+                    posting.NavigationState,
+                    posting.NavigationPreparation,
+                    posting.RetainedDefinitionId,
+                    text,
+                    resultGeneration,
+                    cancellationToken)
+                .ConfigureAwait(false)
+            : await typeFind.ExecuteAsync(
+                    operation,
+                    posting.NavigationState,
+                    posting.NavigationPreparation,
+                    posting.RetainedDefinitionId,
+                    text,
+                    resultGeneration,
+                    resultSession,
+                    cancellationToken)
+                .ConfigureAwait(false);
     }
 
     internal ValueTask<BrowserTypeFindActivationResult>

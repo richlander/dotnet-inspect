@@ -59,8 +59,9 @@ It does not own:
 - View Facet Registry membership, labels, applicability, ordering, or
   availability;
 - immersive Diff or Clone viewer internals;
-- the separately owned method-body and paired authored-Source comparison
-  evidence shown inline and in immersive viewers; or
+- the separately owned method-body comparison evidence shown inline under
+  Member Body, and the paired authored-Source evidence shown in Explore's
+  **Text** mode; or
 - page-level shell, navigation-pane, action-row, responsive, or data-bar
   placement.
 
@@ -284,49 +285,30 @@ view of the Type query's bounded candidate rows.
 Member is the first subject that presents detailed comparison evidence in the
 Compare working surface.
 
-For **Public API** content, Member Diff projects the exact Member entry from the
-containing Library-root Diff document. It summarizes correspondence,
-compatibility, and the complete API-change evidence carried there, in this
-order:
+For **Public API** content, Member Diff presents the Member's declaration diff
+under the [Member diff](member-diff.md) model. Its input is the exact Member
+relation of the containing Library-root Diff document or, for a current Member
+with no relation, the inputs that owner defines:
 
 ```text
 <Member>                                                 Diff | Clone
-result status · effective target · Change target
-What changed        classified API changes of the relation
-Authored Source     inline diff viewer                   Explore
+result status · effective target · Change target         Explore
+annotated declaration diff with enclosure
 ```
 
-- **What changed** renders each relation change once: classification, the
-  producer's explanation, and distinct Before/After values when they add
-  information. Producer kind and category taxonomy do not repeat the same
-  claim. When the relation has no classified change, the section says that the
-  change belongs to the containing Type.
+- The declaration diff is the answer, with annotations, notes, and enclosure
+  as the Member diff owner defines them. Compare does not repeat them as a
+  separate list.
 - Compare does not append endpoint selectors, digests, canonical signatures,
-  line terminators, mapped-range receipts, or other supporting evidence. The
-  visible API and Source documents contain the relevant comparison data;
-  detailed evidence remains available through CLI output.
-- **Authored Source** appears only when the relation carries an owner-issued
-  Member diff destination whose present endpoints are method anchors, the
-  domain of the paired authored-Source query. Fetching authored Source for
-  both endpoints is network work, so the section first offers one explicit
-  **Show authored Source diff** action; activating it runs the paired
-  comparison for the destination's exact endpoints and anchors and shows the
-  result in the embedded host of the
-  [Diff viewer interaction](inspect-web-diff-viewer-interaction.md). An
-  absent endpoint shows **Not present on this side** from the relation, not
-  the query's unrequested outcome; an endpoint without authored Source shows
-  its typed reason. The section never substitutes decompiled text or an
-  empty diff. Once loaded, the inline view presents the Source document
-  directly without endpoint cards, statistics, line-terminator facts, or
-  mapped-range receipts.
+  line terminators, mapped-range receipts, or other supporting evidence; that
+  evidence remains available through CLI output.
 - **Explore** opens the Member diff destination owned by
   [Inspect Web Compare Explore](inspect-web-compare-explore.md) and appears
-  whenever that destination is issued, whether or not authored Source was
-  requested, because Explore owns modes that do not need it. It sits in the
-  Authored Source section header when that section is present, and otherwise
-  in the What changed section header.
+  whenever that destination is issued. It sits in the result header.
 
-The inline comparison runs under
+The authored-Source comparison is not part of the inline Public API result. It
+remains Explore's **Text** mode, which is an explicit request because fetching
+authored Source for both endpoints is network work. That comparison runs under
 [Operation Authority](inspect-web-operation-authority.md). Its identity is the
 comparison request, which is immutable: the retained Package model, the
 current and resolved target package versions, framework, compile asset, and
@@ -336,28 +318,13 @@ result instance, which leaving and reentering Compare replaces.
 A pending comparison is superseded, and its late completion publishes
 nothing, when the Package Diff baseline changes, the Package model is
 replaced or removed, Compare switches from Diff to Clone, or the user
-navigates away from the Member.
-
-A settled successful or identical result is retained under the request
-identity. Any later visit to the same Member Diff whose destination yields the
-same identity shows it without asking again, whether the user returns by
-Back, by drilling down from Type, or by switching lenses. It is discarded when
-a new Diff result carries a different identity for that Member, when the
-baseline changes, or when the Package model is replaced or removed. A failed,
-rejected, or canceled result is not retained, and the action offers it again.
-
-Compare owns one authored-Source comparison per request identity, shared by
-the inline section and Explore's **Text** mode. Either may start it: the
-inline action, or opening **Text** mode, which is also an explicit request.
-Either attaches to a comparison already pending or settled for the same
-identity instead of starting another, so one identity never has two
-comparisons in flight. Opening or closing Explore does not supersede it, and a
-result that settles while Explore is open is the inline section's result on
-return.
-
-A property, field, or event Member has no Authored Source section until a
-product-issued accessor-level comparison exists; its What changed section and
-collapsed Member evidence remain.
+navigates away from the Member. A settled successful or identical result is
+retained under the request identity, so reopening **Text** for the same
+identity shows it without asking again. It is discarded when a new Diff result
+carries a different identity for that Member, when the baseline changes, or
+when the Package model is replaced or removed. A failed, rejected, or canceled
+result is not retained, and reopening **Text** offers it again. Opening or
+closing Explore does not supersede a pending comparison.
 
 Member Diff shows no section whose evidence has no issued producer: it adds no
 placeholder, disabled section, or "not available yet" pane.
@@ -366,9 +333,9 @@ For **Member Body** content, the separately owned
 [Member Body Diff](inspect-web-member-body-diff.md) projects the selected
 implementation relation and places the shared C#/IL diff viewer directly on
 this same Member boundary for a current Member addition, signature change,
-body change, or combined signature-and-body change. It does not route the user
-through Public API's What changed or authored-Source composition, and Explore
-only expands the same retained Member Body document. A deleted Member remains
+body change, or combined signature-and-body change, under the same
+[Member diff](member-diff.md) model as Public API. It does not route the user
+through Public API's declaration diff, and Explore only expands the same retained Member Body document. A deleted Member remains
 the non-activatable Type-level row defined above; Compare does not create a
 Member boundary for an identity that is absent from the current Type.
 Signature changes and additions consume the portable Library API diff's
@@ -386,9 +353,8 @@ The legacy contextual **Compare method bodies** and
 **Compare authored source** actions and dialogs are retired under
 [#6491](https://github.com/richlander/dotnet-inspect/issues/6491). Their
 managed method-body and paired authored-Source evidence remains separately
-owned substrate that the inline Authored Source section and immersive
-destinations consume; the inline section is part of the Member Diff
-composition, not a revival of the retired dialog. Compare does
+owned substrate that Explore's **Text** mode and immersive destinations
+consume, not a revival of the retired dialog. Compare does
 not recreate the retired dialogs or treat representation comparison and
 cross-version comparison as interchangeable.
 
@@ -529,9 +495,9 @@ The staged path is:
 9. whole-Type and Member immersive viewer adoption under their focused owners;
    the Member Diff destination is owned by
    [Inspect Web Compare Explore](inspect-web-compare-explore.md); and
-10. the inline Member Diff composition, which embeds the
-    [Diff viewer interaction](inspect-web-diff-viewer-interaction.md) for the
-    paired authored-Source comparison.
+10. the inline Member Diff composition, which presents the
+    [Member diff](member-diff.md) in the
+    [Diff viewer interaction](inspect-web-diff-viewer-interaction.md).
 
 Each stage lands only when its own result and failure states are complete. An
 unimplemented downstream destination remains unavailable; the UI does not
@@ -545,11 +511,9 @@ Member Clone detail. No checked clone relation is issued yet, so Member Clone
 labels its retrieval similarity and states that no relation was issued. Stage
 9 issues the Member Diff destination; its Explore viewer is replaced under
 [Inspect Web Compare Explore](inspect-web-compare-explore.md). Stage 10 is the
-inline Member Diff composition above: the After endpoint link, the Before
-endpoint link once Navigation issues its canonical location, the explicit
-Authored Source comparison in the embedded
-[Diff viewer interaction](inspect-web-diff-viewer-interaction.md) host, and
-Explore placement. Compare still advertises no whole-Type
+inline Member Diff composition above: the annotated declaration diff in the
+embedded [Diff viewer interaction](inspect-web-diff-viewer-interaction.md)
+host and Explore placement. Authored Source is Explore's **Text** mode only. Compare still advertises no whole-Type
 action.
 
 The stage-3 Navigation capability follows Navigation's existing shared
@@ -601,29 +565,27 @@ behavior.
     complete returned snapshot and aligns history before presenting the
     semantic outcome, without installing the rejected descendant or treating
     the drill-down as applied.
-12. Open Member Compare Diff for a changed method Member whose endpoints both
-    have authored Source. Confirm that What changed and the Authored Source
-    section lead, followed by collapsed Member evidence; that the After detail
-    opens the Member through its issued lens destination; that the Before
-    detail is a link only when Navigation issues its canonical location, and
-    then opens a new browsing context; that no comparison runs until
-    **Show authored Source diff** is activated; and that the result renders
-    in the embedded diff viewer and is still shown after navigating away and
-    back to the Member.
-13. Activate **Show authored Source diff**, then change the Package Diff
-    baseline while the comparison is pending and again after it settles.
-    Confirm that the pending completion publishes nothing, that the settled
-    result is discarded, and that the section offers the action again for
-    the new result. Confirm that a failed comparison is not retained.
-14. Open Member Compare Diff for an added Member. Confirm that the Before card
-    and the Before side of the inline diff say **Not present on this side**,
-    that the card is not a link, and that no placeholder section appears for
-    evidence without an issued producer.
-15. Open Member Compare Diff for a changed property Member. Confirm that no
-    Authored Source section appears and that Explore, when its destination is
-    issued, sits in the What changed section header.
-16. Confirm that Explore appears only when the Member diff destination is
-    issued, and that it appears before authored Source is requested.
+12. Open Member Compare Diff with Public API content for a Member whose
+    parameter type changed. Confirm that the result is the annotated
+    declaration diff with a caret on the parameter type, the relation's
+    classification as a note on the declaration, and the containing Type as
+    enclosure; that no separate change list appears; and that no
+    authored-Source comparison runs. Open an unchanged Member and confirm the
+    no-relation result the Member diff owner defines.
+13. Open Explore's **Text** mode, then change the Package Diff baseline while
+    the comparison is pending and again after it settles. Confirm that the
+    pending completion publishes nothing, that the settled result is
+    discarded, and that **Text** requests it again for the new result.
+    Confirm that a failed comparison is not retained.
+14. Open Member Compare Diff for a Member of an added Type. Confirm a one-sided
+    declaration diff whose Type declaration is enclosure noted with the Type's
+    addition, and that no placeholder section appears for evidence without an
+    issued producer.
+15. Open Member Compare Diff for a changed property Member. Confirm that its
+    declaration diff appears and that no authored-Source Explore destination
+    is issued.
+16. Confirm that Explore appears in the result header only when the Member diff
+    destination is issued.
 17. Select Member Body and open current Members representing a whole addition,
     a signature change, a body change, and a combined signature-and-body
     change. Confirm each uses the same inline Member viewer. Supply a deleted

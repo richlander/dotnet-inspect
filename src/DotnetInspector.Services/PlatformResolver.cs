@@ -497,6 +497,17 @@ public static class PlatformResolver
     }
 
     /// <summary>
+    /// Returns the framework family of a <c>name[@version]</c> framework
+    /// specifier, such as <c>aspnetcore</c> for <c>aspnetcore@11.0.0</c>.
+    /// </summary>
+    public static string GetFrameworkFamily(string frameworkSpec)
+    {
+        ArgumentNullException.ThrowIfNull(frameworkSpec);
+        int atIndex = frameworkSpec.LastIndexOf('@');
+        return atIndex > 0 ? frameworkSpec[..atIndex] : frameworkSpec;
+    }
+
+    /// <summary>
     /// Resolves a framework short name (with optional version) to a ref pack path.
     /// </summary>
     public static (string? RefPath, string? Version, string? Error) ResolveFramework(

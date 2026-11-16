@@ -35,6 +35,7 @@ public class MemberOptionsParserTests
         var platformOption = new Option<string?>("--platform");
         var frameworkOption = new Option<string?>("--framework");
         var tfmOption = new Option<string?>("--tfm");
+        var workspaceOption = new Option<string?>("--workspace");
         var allOption = new Option<bool>("--all");
         var memberOption = new Option<string[]>("-m") { AllowMultipleArgumentsPerToken = true };
         memberOption.Aliases.Add("--member");
@@ -70,6 +71,7 @@ public class MemberOptionsParserTests
         memberCommand.Options.Add(platformOption);
         memberCommand.Options.Add(frameworkOption);
         memberCommand.Options.Add(tfmOption);
+        memberCommand.Options.Add(workspaceOption);
         memberCommand.Options.Add(allOption);
         memberCommand.Options.Add(memberOption);
         memberCommand.Options.Add(ctorOption);
@@ -109,7 +111,7 @@ public class MemberOptionsParserTests
             unsafeOption, indexOption, shareOption, kindOption,
             binOption, callerProjectOption, callerPackageOption, repoOption, atOption,
             routerDeferredTargetOption, sourcePartsOption, sourcePartOption,
-            explainOption, companionOption);
+            explainOption, companionOption, workspaceOption);
 
         return (root, opts, args);
     }
@@ -183,6 +185,42 @@ public class MemberOptionsParserTests
     }
 
     [Fact]
+    public async Task WorkspacePacket_UsesOneExactTypeWithoutSourceResolution()
+    {
+        var options = await ParseSuccessAsync(
+            "member",
+            "System.Linq.Enumerable",
+            "--workspace",
+            "packet",
+            "-m",
+            "Where");
+
+        Assert.Equal("packet", options.WorkspacePacket);
+        Assert.Equal("System.Linq.Enumerable", options.TypeName);
+        Assert.Null(options.PackagePath);
+        Assert.Null(options.AssemblyPath);
+        Assert.Null(options.PlatformAssembly);
+        Assert.Contains("Where", options.MemberFilter);
+    }
+
+    [Theory]
+    [InlineData("System.*", "--workspace", "packet")]
+    [InlineData("System.Linq.Enumerable", "--workspace", "packet", "--package", "System.Linq")]
+    public async Task WorkspacePacket_RejectsGlobAndConflictingSources(
+        params string[] args)
+    {
+        ArgumentPreprocessor.Reset();
+        var (root, opts, cmdArgs) = CreateTestCommand();
+
+        var result = await MemberOptionsParser.ParseAsync(
+            root.Parse(["member", .. args]),
+            opts,
+            cmdArgs);
+
+        Assert.IsType<MemberOptionsParser.VersionError>(result);
+    }
+
+    [Fact]
     public async Task CallerScope_BinAndDirectory_PopulateCallerScopeDirectories()
     {
         var options = await ParseSuccessAsync(
@@ -219,6 +257,18 @@ public class MemberOptionsParserTests
         Assert.Null(options.PackagePath);
         Assert.Null(options.AssemblyPath);
         Assert.Null(options.PlatformAssembly);
+    }
+
+    [Fact]
+    public async Task WorkspacePacket_AllowsPositionalMemberAndShare()
+    {
+        var options = await ParseSuccessAsync(
+            "member", "System.Linq.Enumerable", "Where:1",
+            "--workspace", "packet", "--share", "packet");
+
+        Assert.Equal("packet", options.WorkspacePacket);
+        Assert.Equal(WorkspaceShareFormat.Packet, options.ShareFormat);
+        Assert.Contains("Where", options.MemberFilter);
     }
 
     [Theory]
