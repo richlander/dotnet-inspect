@@ -34,9 +34,12 @@ public static partial class EcosystemPackCatalog
     /// <summary>
     /// Returns the Platform library population that the first claiming
     /// ecosystem itself declares, when that claimant is Platform-search
-    /// eligible. Null means no eligible claim, or an eligible claimant that
-    /// declares no Platform population of its own; lineage is not consulted
-    /// and no other family is substituted.
+    /// eligible. This is the bare-target Platform default: a name selects
+    /// Platform by default only when its claimant declares its own Platform
+    /// population. Null means no eligible claim, or an eligible claimant that
+    /// declares no Platform population of its own (Microsoft.Extensions, whose
+    /// names are mostly NuGet packages), so the default is Package; lineage is
+    /// not consulted and no other family is substituted.
     /// </summary>
     public static PlatformLibraryPopulationDeclaration?
         FindPlatformSearchPopulation(string assemblyName)

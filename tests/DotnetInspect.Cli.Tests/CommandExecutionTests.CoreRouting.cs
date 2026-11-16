@@ -389,25 +389,53 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("## Library Info", output, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task BareName_LibraryOutsideSelectedRuntimeFamily_IsNotFoundDespiteInstalledAspNetCore()
+    [Theory]
+    [InlineData("System.Threading.RateLimiting")]
+    [InlineData("Microsoft.Extensions.Logging", "--platform")]
+    public async Task BareName_LibraryOutsideSelectedRuntimeFamily_IsNotFoundDespiteInstalledAspNetCore(
+        params string[] args)
     {
         // Owner: docs/cli-architecture.md#bare-target-domain-selection - one selected Platform family; never add another family.
-        // Microsoft.Extensions.Logging ships only in the ASP.NET Core shared
-        // framework. Its Microsoft.Extensions claimant declares no Platform
-        // population, so Runtime is selected; installed ASP.NET Core must not
-        // widen the whole-name Library lookup.
+        // Both libraries ship only in the ASP.NET Core shared framework.
+        // System.Threading.RateLimiting is Runtime-claimed, so its default
+        // Platform family is Runtime. Microsoft.Extensions declares no
+        // Platform population, so an explicit --platform also selects
+        // Runtime. Installed ASP.NET Core must not widen either whole-name
+        // Library lookup.
         SkipUnlessAspNetCoreAvailable();
         using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
         var (exit, output, error) = await RunAppAsync(
-            "Microsoft.Extensions.Logging", "--markdown");
+            [.. args, "--markdown"]);
 
         Assert.Equal(1, exit);
         Assert.Empty(output);
         Assert.Equal(
-            "Error: Type or member 'Microsoft.Extensions.Logging' was not found in the selected Platform domain.",
+            $"Error: Type or member '{args[0]}' was not found in the selected Platform domain.",
             error.Trim());
         AssertNoOtherDomainDecision(decisions);
+    }
+
+    [Fact]
+    public async Task BareName_MicrosoftExtensionsRuntimeLibrary_ResolvesInRuntimeOnlyWithPlatformOverride()
+    {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - Microsoft.Extensions
+        // defaults to Package; explicit --platform resolves in the Runtime default family.
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.Extensions.Logging.Abstractions", "--platform");
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith(
+            "Microsoft.Extensions.Logging.Abstractions.dll (Platform)",
+            output,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("NuGet package", error, StringComparison.Ordinal);
+        Assert.Contains(
+            decisions.Decisions,
+            static decision => decision.Stage == "router-rewrite"
+                && decision.Detail.EndsWith(
+                    "-> library Microsoft.Extensions.Logging.Abstractions --framework runtime",
+                    StringComparison.Ordinal));
     }
 
     [Fact]
@@ -685,6 +713,29 @@ public partial class CommandExecutionTests
         Assert.DoesNotContain("Type declarations", output);
         Assert.DoesNotContain("## Package Info", output);
         Assert.DoesNotContain("Library: System.CommandLine.dll | Types:", output);
+    }
+
+    // Owner: docs/design/ecosystem-dependency-recognition.md#direct-assembly-name-claims.
+    // Both names are published NuGet packages that also ship in a shared
+    // framework (Logging in ASP.NET Core, Abstractions in Runtime). The
+    // Microsoft.Extensions claimant declares no Platform population, so the
+    // bare name resolves through the real feed as a Package.
+    [Theory]
+    [InlineData("Microsoft.Extensions.Logging")]
+    [InlineData("Microsoft.Extensions.Logging.Abstractions")]
+    public async Task BareName_PublishedMicrosoftExtensionsPackage_RoutesToPackage(string name)
+    {
+        var (exit, output, error) = await RunAppAsync(name);
+
+        Assert.Equal(0, exit);
+        Assert.StartsWith(
+            $"Note: Routing to NuGet package '{name}' · Microsoft.Extensions",
+            error,
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("platform library", error, StringComparison.Ordinal);
+        Assert.StartsWith($"{name}@", output, StringComparison.Ordinal);
+        Assert.Contains("(NuGet;", output, StringComparison.Ordinal);
+        Assert.Contains($"{name}.dll", output, StringComparison.Ordinal);
     }
 
     [Fact]

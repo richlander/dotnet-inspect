@@ -40,6 +40,8 @@ The **Ecosystem Dependency Recognition** owner in
 - one resource-free direct assembly-name claim on each shipped Ecosystem;
 - first-claim selection in product order and host-neutral Platform-search
   eligibility derived from the platform-curated Ecosystem lineage;
+- the bare-target Platform default and its one Platform population, derived
+  from an eligible claimant's own declared Platform population;
 - exact immutable Package-asset AssemblyDef evidence for assembly recognition;
 - classification of one bounded direct-dependency observation batch;
 - one owner-issued Package or Library semantic subject for every batch;
@@ -70,8 +72,9 @@ Its exact claim is:
 > resolving dependencies. Separately, let each shipped Ecosystem answer
 > whether one assembly simple name matches its authored associations, return
 > the first claiming Ecosystem in product order, and report whether that claim
-> makes Platform search eligible without claiming recognition or source
-> availability.
+> makes Platform search eligible, and whether it makes Platform the bare-target
+> default in one declared Platform population, without claiming recognition or
+> source availability.
 
 The answer is deliberately product-relative. An unrecognized dependency means
 that no association in the supplied product profile matched it. It does not
@@ -270,6 +273,24 @@ lineage includes .NET Runtime and Microsoft.Extensions. A first claimant in an
 additional Ecosystem such as Aspire, AI, Blazor, or .NET MAUI is not. Hosts do
 not select or reconstruct the Platform Ecosystem set. Eligibility still
 requires actual Platform resolution before any Platform source is claimed.
+
+The same result also owns the bare-target Platform default. A first claimant
+selects Platform by default only when it is eligible and declares its own
+Platform library population; that population is the one Platform family the
+default resolves in. .NET Runtime and ASP.NET Core declare one.
+Microsoft.Extensions does not: its names are mostly NuGet packages, and only
+some of its assemblies also ship in a shared framework. A Microsoft.Extensions claim therefore stays
+Platform-search eligible but defaults to Package. Eligibility consumers other
+than the bare-target default, such as Platform-first Library resolution,
+dependency inspection and ecosystem annotations, keep using eligibility
+unchanged.
+
+`Microsoft.Extensions.Logging@10.0.0` and
+`Microsoft.Extensions.Hosting@10.0.0` are published on nuget.org and also ship
+in `Microsoft.AspNetCore.App.Ref@11.0.0`.
+`Microsoft.Extensions.Logging.Abstractions@10.0.0` is published on nuget.org
+and also ships in `Microsoft.NETCore.App.Ref@11.0.0`. All three default to
+Package; an explicit Platform request still resolves the last in Runtime.
 
 ### Exact associations
 
