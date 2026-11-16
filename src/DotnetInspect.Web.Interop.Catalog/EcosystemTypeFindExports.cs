@@ -8,7 +8,6 @@ using DotnetInspector.Queries;
 using DotnetInspector.Sections;
 using DotnetInspector.SourceSelection;
 using DotnetInspect.Web;
-using ILInspector.Metadata;
 using NuGetFetch;
 using QuerySpace;
 using QuerySpace.Rows;
@@ -298,26 +297,26 @@ internal static class BrowserEcosystemTypeFindProjection
             BrowserSpotlightTypeIdentity.TryCreate(match)
             ?? throw new InvalidOperationException(
                 "An Ecosystem Type finding has no stable Browser identity.");
-        TypeDeclarationDiscoveryAttributes? discovery =
-            match.DiscoveryAttributes;
+        BrowserTypeFindMetadataProjection metadata =
+            BrowserTypeFindMetadataProjection.Project(match);
         return new(
             identity,
             finding.Scope.ToString(),
             [.. finding.Memberships.Select(ProjectMembership)],
-            ProjectPattern(match.Pattern),
+            ProjectPattern(match.Pattern, metadata),
             match.EffectivePattern,
             match.Match.ToString(),
             match.Similarity,
             match.TypeName,
             match.Namespace,
             match.FullName,
-            ProjectSource(match.Declaration.Source),
+            ProjectSource(match.Declaration.Source, metadata),
             match.Declaration.ModuleVersionId,
             match.Declaration.DeclarationOrder,
-            match.DeclarationKind.ToString(),
-            match.DefinitionKind?.ToString(),
-            discovery?.IsEditorBrowsableNever,
-            discovery?.IsObsolete);
+            metadata.DeclarationKind,
+            metadata.DefinitionKind,
+            metadata.IsEditorBrowsableNever,
+            metadata.IsObsolete);
     }
 
     static BrowserEcosystemTypeFindMembership ProjectMembership(
@@ -333,7 +332,8 @@ internal static class BrowserEcosystemTypeFindProjection
             membership.PackagePrefix?.Prefix);
 
     static BrowserEcosystemTypeFindPattern ProjectPattern(
-        TypeFindPattern pattern) =>
+        TypeFindPattern pattern,
+        BrowserTypeFindMetadataProjection metadata) =>
         pattern switch
         {
             TypeFindPattern.Ordinary ordinary => new(
@@ -356,16 +356,18 @@ internal static class BrowserEcosystemTypeFindProjection
                 "Namespace",
                 ExactNamespaceFallback: null,
                 @namespace.NamespaceName,
-                @namespace.Match.ToString()),
+                metadata.PatternNamespaceMatch
+                    ?? throw new InvalidOperationException(
+                        "A namespace Type Find pattern has no match kind.")),
             _ => throw new InvalidOperationException(
                 "Type Find returned an unsupported pattern."),
         };
 
     static BrowserEcosystemTypeFindSource ProjectSource(
-        FindSourceIdentity source)
+        FindSourceIdentity source,
+        BrowserTypeFindMetadataProjection metadata)
     {
         ExactLibrarySourceCoordinate coordinate = source.Coordinate;
-        AssemblyReferenceIdentity library = source.AssemblyIdentity;
         (string kind, string label, string? packageId,
             string? packageVersion, string? platformFamily) =
             coordinate switch
@@ -405,13 +407,11 @@ internal static class BrowserEcosystemTypeFindProjection
             packageVersion,
             platformFamily,
             new(
-                library.Name,
-                library.Version?.ToString()
-                    ?? throw new InvalidOperationException(
-                        "An exact Type source has no assembly version."),
-                library.Culture,
-                library.PublicKeyToken),
-            ProjectProvenance(source.Selection),
+                metadata.AssemblyName,
+                metadata.AssemblyVersion,
+                metadata.AssemblyCulture,
+                metadata.AssemblyPublicKeyToken),
+            ProjectProvenance(metadata.Provenance),
             source.PackageRequest?.RequestedTargetFramework,
             source.PackageRequest?.RequestedRuntimeIdentifier,
             source.ContextOrder,
@@ -419,96 +419,21 @@ internal static class BrowserEcosystemTypeFindProjection
     }
 
     static BrowserEcosystemTypeFindProvenance ProjectProvenance(
-        AssemblyResolutionProvenance provenance) =>
-        provenance switch
-        {
-            AssemblyResolutionProvenance.PackageAsset package => new(
-                "Package",
-                package.PackageId,
-                package.PackageVersion,
-                package.Tfm,
-                package.Rid,
-                package.AssetPath,
-                Framework: null,
-                FrameworkVersion: null,
-                Project: null,
-                ResolverSource: null,
-                ContentReference: null,
-                Digest: null,
-                DeclaredName: null),
-            AssemblyResolutionProvenance.PlatformAsset platform => new(
-                "Platform",
-                PackageId: null,
-                PackageVersion: null,
-                TargetFramework: null,
-                RuntimeIdentifier: null,
-                AssetPath: null,
-                platform.Framework,
-                platform.FrameworkVersion,
-                Project: null,
-                platform.ResolverSource,
-                ContentReference: null,
-                Digest: null,
-                DeclaredName: null),
-            AssemblyResolutionProvenance.ProjectAsset project => new(
-                "Project",
-                PackageId: null,
-                PackageVersion: null,
-                project.Tfm,
-                project.Rid,
-                AssetPath: null,
-                Framework: null,
-                FrameworkVersion: null,
-                project.Project,
-                ResolverSource: null,
-                ContentReference: null,
-                Digest: null,
-                DeclaredName: null),
-            AssemblyResolutionProvenance.LocalAsset local => new(
-                "Local",
-                PackageId: null,
-                PackageVersion: null,
-                TargetFramework: null,
-                RuntimeIdentifier: null,
-                AssetPath: null,
-                Framework: null,
-                FrameworkVersion: null,
-                Project: null,
-                local.ResolverSource,
-                ContentReference: null,
-                Digest: null,
-                DeclaredName: null),
-            AssemblyResolutionProvenance.DesignatedAsset designated => new(
-                "Designated",
-                PackageId: null,
-                PackageVersion: null,
-                TargetFramework: null,
-                RuntimeIdentifier: null,
-                AssetPath: null,
-                Framework: null,
-                FrameworkVersion: null,
-                Project: null,
-                designated.ResolverSource,
-                ContentReference: null,
-                Digest: null,
-                DeclaredName: null),
-            AssemblyResolutionProvenance.EmbeddedAsset embedded => new(
-                "Embedded",
-                PackageId: null,
-                PackageVersion: null,
-                TargetFramework: null,
-                RuntimeIdentifier: null,
-                AssetPath: null,
-                Framework: null,
-                FrameworkVersion: null,
-                Project: null,
-                ResolverSource: null,
-                embedded.ContentRef,
-                embedded.Digest,
-                embedded.DeclaredName),
-            _ => throw new InvalidOperationException(
-                "Type Find returned unsupported assembly provenance."),
-        };
+        BrowserAssemblyResolutionProvenanceProjection provenance) =>
+        new(
+            provenance.Kind,
+            provenance.PackageId,
+            provenance.PackageVersion,
+            provenance.TargetFramework,
+            provenance.RuntimeIdentifier,
+            provenance.AssetPath,
+            provenance.Framework,
+            provenance.FrameworkVersion,
+            provenance.Project,
+            provenance.ResolverSource,
+            provenance.ContentReference,
+            provenance.Digest,
+            provenance.DeclaredName);
 }
 
 [SupportedOSPlatform("browser")]
