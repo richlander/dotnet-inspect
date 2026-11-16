@@ -40,6 +40,12 @@ containing Type was added as a whole". Neither the browser nor CLI `diff -m`
 showed the declaration. Member Body, meanwhile, already showed an annotated
 diff. The two contents of one Member used two models.
 
+For example, System.Text.Json 10.0.0 adds `JsonSerializerOptions.Strict`. For
+9.0.0 to 10.0.0, `diff` reports only "Member 'Strict' was added". As a Member
+diff, it is a one-sided `public static JsonSerializerOptions Strict { get; }`
+inside `public sealed class JsonSerializerOptions` in `System.Text.Json`. Its
+git hunk is headed by that class declaration.
+
 .NET API review reads API change as a signature diff. A text diff can only
 show what changed. This system knows the structure, so it can also show where
 the change sits: the Type a new Member joins and the declaration a body change
@@ -167,7 +173,9 @@ text beneath, as [caret stacking](caret-stacking.md) renders it, or a note.
 
 - **Public API**: each declaration part that differs between two present
   sides is a caret annotation with its counterpart text, as the structural
-  printer labels a changed span ("changed from int"). A part present on one
+  printer labels a changed span ("changed from int"). The caret underlines
+  only the tokens that differ within the part, such as `long` in
+  `long count`. A part present on one
   side only is a caret labeled added or removed, with no counterpart text. A
   one-sided diff has no part carets, because its whole declaration is the
   difference. Each classified API change of the relation is a note
@@ -187,29 +195,54 @@ prose list.
 ## Inputs
 
 **Public API** compares the Member's declaration as the product's C# display
-policy prints it: attributes, modifiers, signature, nullability, constraints,
-and `[Obsolete]`, without a body. Its lines are numbered within the
-declaration. The input identifies its parts: each attribute, the return type,
-the name, each parameter, and each constraint. Parts correspond across sides
+policy prints it, custom attributes included: attributes, modifiers,
+signature, accessors, nullability, constraints, and `[Obsolete]`, without a
+body. Its lines are numbered within the declaration. The input identifies its
+parts: each attribute, each modifier, the return type, the name, each
+parameter, each accessor, and each constraint. Parts correspond across sides
 by role and position: attributes by attribute Type and then by position among
-attributes of that Type, the return type, the name, parameters by position,
-and constraints by type parameter. A part present on one side only is a
-difference.
+attributes of that Type, modifiers by keyword, the return type, the name,
+parameters by position, accessors by kind, and constraints by type parameter.
+A part present on one side only is a difference.
+
+Parts are identified from the model, never inferred from text. When the
+printed declaration and the model's parts do not agree, the side records its
+parts as unidentified: the compared lines remain, and no part caret is placed.
+
+Attributes pair by their Type's identity, which the API surface records for
+each retained attribute beside its rendered text. The surface extractor knows
+that identity when it renders the attribute from metadata. MD1 records it
+where the surface keeps only rendered text today. A reordered attribute list
+therefore pairs `A("old")` with `A("new")` and carets the changed argument.
+
+Type names in both declarations are shortened against the names of both
+versions together, so the same Type is spelled the same way on each side. A
+name may be qualified more than either version alone would need, for example
+when the current version introduces a second Type with the same simple name.
+A name never differs between sides only because of how it was shortened.
+
+A containing Type that lies outside the compared surface is recorded in
+enclosure by its name only, without declaration text.
 
 The two sides' declarations are compared, and that comparison decides whether
 the declaration changed:
 
 - A Member that the Library API Diff relates across versions uses that
-  relation's two sides. A Member on one side only is a one-sided diff.
+  relation's two sides. A Member on one side only is a one-sided diff. A
+  related Member whose two declarations print the same is still Changed: its
+  lines are context and its classified changes are notes on the declaration,
+  because the change lies outside what the declaration prints.
 - A Member with no relation, under a complete comparison, pairs with the
   baseline Member of the same exact identity, the pairing
   [#10201](https://github.com/richlander/dotnet-inspect/issues/10201) owns.
   The declaration comparison decides, so an attribute change outside the
   comparison's classified scope is a difference with its caret and no
   classification note. A missing counterpart is a failure, not an addition.
-- A Member with no relation, under an incomplete comparison, is Unavailable
-  with the comparison's reason and holds no lines, because the missing
-  relation may be a correspondence the comparison did not reach.
+- Under an incomplete comparison, every Member diff is Unavailable with the
+  comparison's reason and holds no lines. Library API Diff issues no
+  relations for an incomplete comparison, and a missing relation may be a
+  correspondence the comparison did not reach. The host reports the
+  incompleteness as it reports any incomplete result.
 
 This design does not change Member correspondence.
 
@@ -300,7 +333,7 @@ directory, with fixed criteria, before the printer changes.
 
 | Host | Presentation |
 | --- | --- |
-| Agent | The complete document as JSON, with every line's kind, each side's enclosure, annotations, and notes |
+| Agent | The complete document as JSON, with every line's kind, each side's enclosure, annotations, and notes. CLI `diff -m --json` emits it by default; `-S Changes --json` keeps the classified-change rows |
 | CLI text | The inspect printer |
 | GNU-compatible output | The unified diff lowering, with hunk headings |
 | Inspect Web | Member Compare's Public API and Member Body contents, in the shared [diff viewer](inspect-web-diff-viewer-interaction.md) as enclosure rows, annotations, and its mapped diff |
@@ -364,3 +397,18 @@ Each step is independently mergeable and lands with its production host.
 7. The inspect printer's output for each of the above begins with the legend
    line, marks enclosure `·`, and prints no `@@` hunk header, as the printer
    trials chose.
+8. A Member whose attributes were reordered and one argument changed pairs
+   each attribute with its counterpart by Type, and carets only the changed
+   argument. A removed `virtual` and an added setter each carry a caret on
+   their part.
+9. When the current version adds a Type with the same simple name as a Type
+   in a Member's declaration, that Type is spelled the same way on both
+   sides, and no line differs only in its spelling.
+10. Under an incomplete comparison, a Member that changed is Unavailable with
+    the comparison's reason and holds no lines, and the CLI reports the
+    incompleteness and exits nonzero.
+11. A related Member whose two declarations print the same is Changed, with
+    every line context and its classified changes as notes on the
+    declaration.
+12. A Member whose containing Type lies outside the compared surface records
+    that Type in enclosure by name only, without declaration text.
