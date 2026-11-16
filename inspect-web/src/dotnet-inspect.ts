@@ -15862,7 +15862,12 @@ const libraryControlActions: LibraryControlBindingActions = {
         reconcilePlatformForwarderView(true);
         forwarders = selectedPlatformForwarderPresentation(pkg);
       }
-      if (forwarders?.loading) await forwarders.loading;
+      // A Library that already lists a Type, including a marked forwarded
+      // reference Type, is not empty, so it opens without the inventory.
+      const listsType = listedForwarderRows().length > 0
+        || pkg.types.some(type =>
+          libraryKey(type) === library.id && !isListedAsForwarder(type));
+      if (forwarders?.loading && !listsType) await forwarders.loading;
       if (state.package !== pkg
         || selectedLibrary()?.id !== library.id
         || !navigationSequence.isCurrent(navigationSeq)) return;

@@ -337,6 +337,13 @@ test("a forwarded reference Type stays a forwarder while its inventory loads", a
   await expect(page.locator('[data-inspector-tab][data-lens="source"]')).toHaveCount(0);
   await expect(reader).toHaveCount(1);
   await expect(reader).toContainText("Forwarded");
+  // The Library already lists that Type, so Navigate opens it without
+  // waiting for the held inventory.
+  await chooseSubject(page, "library", "Library");
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+  await page.locator("[data-library-types]").click();
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+  await expect(reader).toHaveAttribute("aria-selected", "true");
 
   await releaseFacade(page, "finish-forwarder-view");
   await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
