@@ -334,7 +334,8 @@ public sealed partial class MethodBodySource : IOperandNameResolver
             MethodDefinition method = _reader.GetMethodDefinition(handle);
             if ((method.Attributes & MethodAttributes.Static) == 0
                 || !TypeMatcher.MatchesMemberName(
-                    _reader.GetString(method.Name),
+                    _reader.StringComparer,
+                    method.Name,
                     methodName))
             {
                 continue;

@@ -1292,6 +1292,15 @@ Type and Member before any legacy name fallback. Legacy dotted-name fallback
 uses ordinal definition matching and refuses coincident projections; it does
 not apply query aliases or choose the first matching row. Member admission,
 accessor selection, and overload ordering retain their existing owners.
+The inventory reuses constructor-name and base-Type-name decoding within one
+reader operation. It still visits and validates the complete declaration
+population, and decodes each declaration's attribute values independently.
+The selected-body extension check compares heap names through the shared
+Member matcher without allocating unrelated method-name strings. These
+preparation reductions do not skip admission or rejected-declaration evidence.
+Session inventory consumes the retained admitted reader under
+[session-owned format admission](#session-owned-format-admission), rather than
+repeating the raw-PE compatibility admission and constructing another reader.
 
 The final audit found an additional independently owned route added after the
 original plan: API-coordinate source selection still owns local Type matching.
