@@ -280,7 +280,8 @@ public static class CSharpStructuredTypePlanProducer
     static CSharpFormatter CreateFormatter(
         ApiType type,
         bool omitPropertyAccessors,
-        IReadOnlyCollection<string> namespaces)
+        IReadOnlyCollection<string> namespaces,
+        bool includeSignatureAttributes = true)
     {
         CSharpDeclaredTypeSelfNameAdmission.Admitted? selfName = null;
         if (type.DefinitionName is not null
@@ -310,23 +311,33 @@ public static class CSharpStructuredTypePlanProducer
             ContainingNamespace = type.Namespace,
             Usings = namespaces,
             DeclaredTypeSelfName = selfName,
+            IncludeSignatureAttributes = includeSignatureAttributes,
         });
     }
 
     /// <summary>
     /// One Type's declaration line as a listing frames it: a nested Type by
-    /// its own name, inside the lines of the Types that contain it.
+    /// its own name, inside the lines of the Types that contain it. The line
+    /// omits the attribute lines a listing prints above it, so a delegate's
+    /// return attributes, like any Type's attributes, are not part of it.
     /// </summary>
     internal static string RenderEnclosingTypeDeclaration(ApiType type)
     {
         ArgumentNullException.ThrowIfNull(type);
         bool nested = type.DefinitionName is { Segments.Length: > 1 };
         ApiType declared = PrepareTypeForDeclaration(type, nested, []);
-        CSharpFormatter formatter = CreateFormatter(declared, omitPropertyAccessors: false, namespaces: []);
         if (type.Kind != "delegate")
-            return formatter.FormatTypeDeclaration(declared);
+        {
+            return CreateFormatter(declared, omitPropertyAccessors: false, namespaces: [])
+                .FormatTypeDeclaration(declared);
+        }
 
         // A delegate is declared by its Invoke signature, as a listing prints it.
+        CSharpFormatter formatter = CreateFormatter(
+            declared,
+            omitPropertyAccessors: false,
+            namespaces: [],
+            includeSignatureAttributes: false);
         ApiMember invoke = type.Members.SingleOrDefault(static member => member is { Kind: "method", Name: "Invoke" })
             ?? throw new InvalidOperationException(
                 $"Delegate '{type.FullName}' has no Invoke member to declare it.");
