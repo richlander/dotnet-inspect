@@ -83,6 +83,8 @@ type LibraryOperationName = "inspectLibrary" | "openUploadedLibrary";
 type MetadataOperationName =
   | "cancelLibraryApiDiff"
   | "cancelLibraryFindingDiffAny"
+  | "cancelTypeFindingDiffAny"
+  | "queryTypeFindingDiffAny"
   | "findTypes"
   | "queryAnnotatedTypeRelations"
   | "queryLibraryApiDiff"
@@ -193,7 +195,6 @@ type CatalogOperationName =
   | "explainResources"
   | "describeWorkspaceComponents"
   | "explainWorkspaceComponent"
-  | "findIndexedTypes"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
@@ -1423,6 +1424,14 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<MetadataFacade["cancelLibraryFindingDiffAny"]>
       ) => facades.metadata.cancelLibraryFindingDiffAny(...args),
     ),
+    cancelTypeFindingDiffAny: valueOperation(
+      "ordinary-metadata-cancel-type-finding-diff-any", 2,
+      (facades, ...args: Parameters<MetadataFacade["cancelTypeFindingDiffAny"]>) => facades.metadata.cancelTypeFindingDiffAny(...args),
+    ),
+    queryTypeFindingDiffAny: valueOperation(
+      "ordinary-metadata-query-type-finding-diff-any", 2,
+      (facades, ...args: Parameters<MetadataFacade["queryTypeFindingDiffAny"]>) => facades.metadata.queryTypeFindingDiffAny(...args),
+    ),
     queryLibraryFindingDiffAny: valueOperation(
       "ordinary-metadata-query-library-finding-diff-any",
       2,
@@ -2197,14 +2206,6 @@ export const engineWorkerOrdinaryOperations = {
         }
       },
     ),
-    findIndexedTypes: valueOperation(
-      "ordinary-catalog-find-indexed-types",
-      5,
-      (
-        facades,
-        ...args: Parameters<CatalogFacade["findIndexedTypes"]>
-      ) => facades.catalog.findIndexedTypes(...args),
-    ),
     abandonRetainedWorkspaceNavigation: valueOperation(
       "ordinary-catalog-abandon-retained-workspace-navigation",
       6,
@@ -2845,6 +2846,8 @@ export function bindEngineWorkerOrdinaryClient(
       cancelLibraryFindingDiffAny: bind(
         engineWorkerOrdinaryOperations.metadata.cancelLibraryFindingDiffAny,
       ),
+      cancelTypeFindingDiffAny: bind(engineWorkerOrdinaryOperations.metadata.cancelTypeFindingDiffAny),
+      queryTypeFindingDiffAny: bind(engineWorkerOrdinaryOperations.metadata.queryTypeFindingDiffAny, "background"),
       queryLibraryFindingDiffAny: bind(
         engineWorkerOrdinaryOperations.metadata.queryLibraryFindingDiffAny,
         "background",
@@ -3115,9 +3118,6 @@ export function bindEngineWorkerOrdinaryClient(
     catalog: {
       selectProjectInspector: bind(
         engineWorkerOrdinaryOperations.catalog.selectProjectInspector,
-      ),
-      findIndexedTypes: bind(
-        engineWorkerOrdinaryOperations.catalog.findIndexedTypes,
       ),
       abandonRetainedWorkspaceNavigation: bind(
         engineWorkerOrdinaryOperations.catalog

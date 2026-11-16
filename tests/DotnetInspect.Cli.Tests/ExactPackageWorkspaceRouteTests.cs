@@ -457,7 +457,7 @@ public sealed partial class ExactPackageWorkspaceRouteTests
         Assert.Empty(ordinary.Error);
         Assert.Equal(ordinary.Output, output);
         Assert.StartsWith(
-            $"{SelectedPackage} {Version} (",
+            $"{SelectedPackage}@{Version} (",
             output,
             StringComparison.Ordinal);
         Assert.DoesNotContain(
@@ -1208,7 +1208,7 @@ public sealed partial class ExactPackageWorkspaceRouteTests
 
         Assert.Equal(1, exitCode);
         Assert.StartsWith(
-            $"{SelectedPackage} {Version} (",
+            $"{SelectedPackage}@{Version} (",
             output,
             StringComparison.Ordinal);
         Assert.Contains(

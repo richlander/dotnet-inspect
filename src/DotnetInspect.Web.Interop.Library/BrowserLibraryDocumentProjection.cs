@@ -65,6 +65,12 @@ internal static class BrowserLibraryDocumentProjection
                 TypeNames = available.Document.Types is null
                     ? null
                     : ProjectNames(available.Document),
+                Image = available.Document.Image is { } image
+                    ? Project(image)
+                    : null,
+                Description = available.Document.Description is { } description
+                    ? Project(description)
+                    : null,
                 Share = BrowserLibraryWireProjection.Project(envelope.Share),
             },
             LibraryInspectionOutcome.Rejected rejected => new(
@@ -87,6 +93,32 @@ internal static class BrowserLibraryDocumentProjection
             },
             _ => throw new InvalidOperationException("Unknown Library inspection outcome."),
         };
+    }
+
+    // Sections spells every fact, so this contract assembly reads only strings,
+    // numbers, and Booleans and stays off ILInspector.Metadata.
+    private static BrowserLibraryImageFacts Project(LibraryImageFacts image)
+    {
+        LibraryImageFactLabels labels = LibraryFactLabels.Image(image);
+        return new(
+            labels.ImageBytes,
+            labels.TargetFramework,
+            labels.Compilation,
+            labels.Architecture,
+            labels.StrongNameSigned,
+            labels.Reproducible);
+    }
+
+    private static BrowserLibraryDescriptionFacts Project(
+        LibraryDescriptionFacts description)
+    {
+        LibraryDescriptionFactLabels labels =
+            LibraryFactLabels.Description(description);
+        return new(
+            labels.InformationalVersion,
+            labels.Company,
+            labels.Product,
+            labels.Copyright);
     }
 
     private static BrowserLibraryTypeNames ProjectNames(LibraryDocument document)

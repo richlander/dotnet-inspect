@@ -1109,6 +1109,37 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.Equal(
             BrowserAnalysisCompileLibraryStatus.Selected,
             opportunities.CompileLibrary.Status);
+        BrowserPackagePerformance performance =
+            Assert.IsType<BrowserPackagePerformance>(
+                JsonSerializer.Deserialize(
+                    await DotnetInspect.Web.Interop.Analysis.AnalysisExports.QueryPlatformPerformance(
+                        "net11.0",
+                        version,
+                        "DotnetInspect.Web.Tests.dll",
+                        "netcore.app"),
+                    BrowserAnalysisJsonContext.Default.BrowserPackagePerformance));
+        Assert.Equal(
+            BrowserAnalysisCompileLibraryStatus.Selected,
+            performance.CompileLibrary.Status);
+        Assert.NotEmpty(performance.Members);
+        Assert.True(
+            performance.TotalOpportunities
+                >= performance.Members.Sum(member => member.OpportunityCount));
+        // The analyzed runtime-pack assembly names every row as the Platform
+        // Type list names its Types, so each row navigates to a listed Type.
+        HashSet<string> platformTypeIds =
+            [.. siblingSurface.Types.Select(type => type.Id)];
+        Assert.All(
+            performance.Members,
+            member =>
+            {
+                Assert.Equal("DotnetInspect.Web.Tests", member.Assembly);
+                Assert.Equal(
+                    "DotnetInspect.Web.Tests",
+                    member.DeclaringType.AssemblyId);
+                Assert.Equal("netcore.app", member.DeclaringType.PlatformPack);
+                Assert.Contains(member.DeclaringType.Id, platformTypeIds);
+            });
         BrowserPackageMetadata metadata =
             Assert.IsType<BrowserPackageMetadata>(
                 JsonSerializer.Deserialize(

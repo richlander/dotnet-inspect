@@ -171,6 +171,53 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     [Fact]
+    public async Task PackageIcon_RetainedCompleteArchiveAnswersWithoutRequests()
+    {
+        string packageId = $"gallery.icon.retained.{Guid.NewGuid():N}";
+        const string version = "1.2.3";
+        var handler = new GalleryPackageHandler(
+            packageId,
+            version,
+            PackageEntries(
+                ($"{packageId}.nuspec", Encoding.UTF8.GetBytes(
+                    $"<package><metadata><id>{packageId}</id><version>{version}</version></metadata></package>")),
+                ("lib/net11.0/Library.dll",
+                    File.ReadAllBytes(typeof(InertString).Assembly.Location))));
+        using IPackageSourceClient source = Gallery(handler);
+        BrowserPackageRealization realization =
+            Assert.IsType<BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace.RealizeWithSettlementAsync(
+                    packageId,
+                    version,
+                    "net11.0",
+                    source,
+                    TimeSpan.FromSeconds(10),
+                    TestContext.Current.CancellationToken)).Realization;
+        Assert.IsType<InMemoryPackageContent>(realization.Coordinate.Package.Content);
+        int requests = handler.Requested.Count;
+
+        PackageIconRangeResult result =
+            await BrowserPackageWorkspace.ReadPackageIconAsync(
+                packageId,
+                version,
+                source,
+                TimeSpan.FromSeconds(5),
+                TestContext.Current.CancellationToken);
+
+        Assert.IsType<PackageIconResult.Missing>(
+            Assert.IsType<PackageIconRangeResult.Completed>(result).Icon);
+        Assert.Equal(requests, handler.Requested.Count);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => BrowserPackageWorkspace.ReadPackageIconAsync(
+                packageId,
+                version,
+                source,
+                TimeSpan.FromSeconds(5),
+                new CancellationToken(canceled: true)));
+    }
+
+    [Fact]
     public async Task PackageDocument_ExactFileAcquisitionSkipsOnlyLeadingUtf8Bom()
     {
         string packageId = $"gallery.documents.{Guid.NewGuid():N}";

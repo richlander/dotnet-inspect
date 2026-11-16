@@ -80,25 +80,13 @@ public static partial class CallGraphExports
                 PackageSupplyChainBaseline
                     .SelfAndRegisteredEcosystems,
                 pruning);
-        if (envelope.Content
-            is PackageDependencyMemberCallGraphInspectionOutcome
-                .Unavailable unavailable)
-        {
-            throw new InvalidOperationException(
-                $"The dependency-aware member call graph was unavailable ({unavailable.Reason}): {unavailable.Detail}");
-        }
-
-        var available =
-            (PackageDependencyMemberCallGraphInspectionOutcome.Available)
-                envelope.Content;
         BrowserCallGraph graph =
             BrowserCallGraphWireProjection.Project(
-                BrowserCallGraphProjection.Project(
-                    available.Document,
-                    packageId,
-                    version,
-                    targetFramework),
-                envelope.Diagnostics);
+                envelope,
+                packageId,
+                version,
+                targetFramework,
+                memberName);
 
         // Keep JSON return provenance outside async cleanup for the generated typed facade.
         return JsonSerializer.Serialize(

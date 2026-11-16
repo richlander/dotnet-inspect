@@ -389,15 +389,16 @@ offers:
 | Provision | Answers | Shape |
 | --- | --- | --- |
 | Lockstep Exists | Rungs 1 and 2 | Walks both images, compares symbolic facts (the API census, the Body declaration census, and IL), stops each axis at its first difference |
-| Map diff | T2 and M1, and T1 as its projection | Reads both versions' [Annotated Type Map](annotated-type-map.md) shape facts for the address, and for listed rows their fact streams and findings, and compares them by key: the addressed Type's entries for T1 and T2, and only the addressed key's entries for M1. For T1 it compares shape facts only, with no fact comparison and no fact census. It resolves each side's contributions through its [planner](annotated-type-map-planning.md#non-claims) and compares them by generation's [map diff](annotated-type-map-generation.md#map-diff), so it does not stop extraction at a row's first difference; a pair-scoped adapter that does is the planner's follow-up, and the map's own wording is reconciled in [#11003](https://github.com/richlander/dotnet-inspect/issues/11003). It has no text comparison and builds no Type-scope source view |
+| Map diff | T2 and M1; T1 only as a held T2 projection until #11166 | Rows and Count read both versions' complete [Annotated Type Map](annotated-type-map.md) shape contributions for the address; listed Rows then read fact streams and findings. A direct T1 request does not use that complete boundary. The terminal-native pair evidence of [#11166](https://github.com/richlander/dotnet-inspect/issues/11166) must stop API and Body producer work at the first transition before Map Diff Exists registers. It has no text comparison and builds no Type-scope source view |
 | Complete | M2 | Builds the complete models of the addressed Member and explains every difference |
 
 A one-version map holds only the Members its request implicates, so two of
 them never answer T1 or T2; the map diff provision reads both sides' shape
-facts for the address. A host may keep a map diff it produced as that
-provision's cache, which [Demand-shaped](#demand-shaped) allows: it is never a
-prerequisite of a Type- or Member-addressed request. Lockstep Exists is T1's
-provision that stops at each row's first difference.
+facts for the address. A host may keep a T2 map diff and project T1 from that
+held result as a cache, which [Demand-shaped](#demand-shaped) allows; it is
+never a prerequisite of a Type- or Member-addressed request. Lockstep Exists
+remains T1's direct provision until #11166 adds terminal-native Map pair
+evidence that stops at each row's first difference.
 
 All provisions share one fact substrate: Member and operand identity are [Symbol
 Keys](symbol-key.md), Member grain is Finding Diff Any's census key, and the
@@ -518,6 +519,9 @@ Each step is its own focused effort:
       states and pairing the addressed Type by identity, becomes a route with a
       CLI section and a Browser export, over the Type census settlement of
       [#10776](https://github.com/richlander/dotnet-inspect/pull/10776).
+      Landed as [Finding Diff Any's Type route](finding-diff-any.md#type), with
+      single-Type pairing in
+      [#11162](https://github.com/richlander/dotnet-inspect/pull/11162).
    4. **T2.** After the map's [adoption](annotated-type-map.md#adoption)
       steps 2 to 5, which include the Annotated Source owner's fact
       comparison, the map diff becomes the T2 route, admitting API change kinds

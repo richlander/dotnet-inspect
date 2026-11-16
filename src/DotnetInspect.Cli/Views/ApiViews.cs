@@ -10,6 +10,12 @@ using Markout;
 
 namespace DotnetInspect.Cli.Views;
 
+internal static class ApiViewSectionNames
+{
+    internal const string WorkspaceExtensionCandidates =
+        "Workspace Extension Candidates";
+}
+
 internal static class ApiViewText
 {
     public static InertString Field(string value) =>
@@ -658,12 +664,77 @@ public class ExtensionMethodsView
 
     [MarkoutSection(Name = "Extension Methods")]
     public List<MemberRow>? SelectRowsWithDocs { get; set; }
+
+    [MarkoutSection(
+        Name = ApiViewSectionNames.WorkspaceExtensionCandidates)]
+    public List<WorkspaceExtensionCandidateRow>? ContextualRows { get; set; }
+
     [MarkoutIgnore]
     public bool HasRows =>
         Rows is { Count: > 0 }
         || RowsWithDocs is { Count: > 0 }
         || SelectRows is { Count: > 0 }
-        || SelectRowsWithDocs is { Count: > 0 };
+        || SelectRowsWithDocs is { Count: > 0 }
+        || ContextualRows is { Count: > 0 };
+}
+
+[MarkoutSerializable]
+public sealed class WorkspaceExtensionCandidateRow
+{
+    public string Participant { get; init; } = "";
+    public string Outcome { get; init; } = "";
+
+    [MarkoutSkipNull]
+    [MarkoutPropertyName("Participant Count")]
+    public int? Count { get; init; }
+
+    [MarkoutSkipNull]
+    public string? CountOutcome { get; init; }
+
+    [MarkoutSkipNull]
+    public string? RowsOutcome { get; init; }
+
+    [MarkoutSkipNull]
+    public int? RowsReturned { get; init; }
+
+    [MarkoutSkipNull]
+    public int? Occurrences { get; init; }
+
+    [MarkoutSkipNull]
+    public int? NextOrdinal { get; init; }
+
+    [MarkoutSkipNull]
+    public int? Considered { get; init; }
+
+    [MarkoutSkipNull]
+    public int? Examined { get; init; }
+
+    [MarkoutSkipNull]
+    public int? Excluded { get; init; }
+
+    [MarkoutSkipNull]
+    public int? Unavailable { get; init; }
+
+    [MarkoutSkipNull]
+    public int? Limited { get; init; }
+
+    [MarkoutSkipNull]
+    public string? Candidate { get; init; }
+
+    [MarkoutSkipNull]
+    public string? Fingerprint { get; init; }
+
+    [MarkoutSkipNull]
+    public string? Signature { get; init; }
+
+    [MarkoutSkipNull]
+    public string? Receiver { get; init; }
+
+    [MarkoutSkipNull]
+    public string? Diagnostics { get; init; }
+
+    [MarkoutChild]
+    public bool IsCandidate { get; init; }
 }
 
 [MarkoutSerializable]
@@ -1552,6 +1623,7 @@ public sealed class EmptyMemberCallsView
 [MarkoutContext(typeof(OperatorsView))]
 [MarkoutContext(typeof(ExplicitInterfaceImplementationsView))]
 [MarkoutContext(typeof(ExtensionMethodsView))]
+[MarkoutContext(typeof(WorkspaceExtensionCandidateRow))]
 [MarkoutContext(typeof(MemberCodeView))]
 [MarkoutContext(typeof(EmptyMemberCallsView))]
 [MarkoutContext(typeof(CallSiteRow))]
@@ -1895,7 +1967,8 @@ public record UnsafeCodeTypeRow(
     // All or none, in constructor order -- see UnsafeMemberRow.
     public string Type { get; init; } = MarkoutInline.Code(Type);
 
-    public string State { get; init; } = State;
+    /// <inheritdoc cref="LibraryViewText"/>
+    public string State { get; init; } = LibraryViewText.Contain(State);
 }
 
 /// <summary>

@@ -934,11 +934,21 @@ public partial class CommandExecutionTests
         Assert.Empty(windowError);
         Assert.StartsWith("signature\t", window);
 
+        // A lone Call Graph defaults to its finite tree (#11077); explicit
+        // --markdown keeps the authored edge-table document.
         var (graphExit, graph, _) = await RunAppAsync(
             [.. target, "-S", SectionNames.CallGraph]);
 
         Assert.Equal(0, graphExit);
-        Assert.Contains("## Call Graph", graph);
+        Assert.DoesNotContain("## Call Graph", graph);
+        Assert.Contains("└─ ", graph);
+        Assert.Contains("ConstructorChainTarget", graph);
+
+        var (markdownGraphExit, markdownGraph, _) = await RunAppAsync(
+            [.. target, "-S", SectionNames.CallGraph, "--markdown"]);
+
+        Assert.Equal(0, markdownGraphExit);
+        Assert.Contains("## Call Graph", markdownGraph);
     }
 
     [Fact]
@@ -2990,7 +3000,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", typeof(MemberCallGraphFixture).FullName!, "--library", TestAssemblyPath,
-            nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph");
+            nameof(MemberCallGraphFixture.Inner), "-S", "Call Graph", "--markdown");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);
@@ -4860,6 +4870,28 @@ public partial class CommandExecutionTests
         Assert.StartsWith("signature", output);
         Assert.Contains("Warning: column 'Select' not found in section 'Methods'", error);
         Assert.Contains("Run -D \"Methods\" to list available columns.", error);
+    }
+
+    [Fact]
+    public async Task Member_VersionedAspNetCoreFramework_BindsConstraintsWithinFamily()
+    {
+        SkipUnlessAspNetCoreAvailable();
+        var (_, version, _) = PlatformResolver.ResolveFramework("aspnetcore");
+
+        // Results<TResult1, TResult2> constrains both parameters to IResult,
+        // which the selected ASP.NET Core family supplies from another library.
+        var (exit, output, error) = await RunAppAsync(
+            "member", "Microsoft.AspNetCore.Http.HttpResults.Results<T1,T2>",
+            "--platform", "Microsoft.AspNetCore.Http.Results",
+            "--framework", $"aspnetcore@{version}",
+            "-m", "ExecuteAsync", "--markdown");
+
+        Assert.Equal(0, exit);
+        Assert.Empty(error);
+        Assert.Contains(
+            "An IResult that could be one of two different IResult types.",
+            output);
+        Assert.Contains("ExecuteAsync", output);
     }
 
     [Fact]

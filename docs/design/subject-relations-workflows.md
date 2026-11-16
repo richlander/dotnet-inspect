@@ -10,6 +10,14 @@ The QuerySpace-native composition reframe is tracked by
 The request-driven population reconciliation is tracked by
 [#8184](https://github.com/richlander/dotnet-inspect/issues/8184).
 Nothing in this document is a claim that the proposed commands or defaults ship.
+The unadopted exact-subject QuerySpace route registration and Metadata
+assembly-reference/extension population operation adapters were retired under
+[#11188](https://github.com/richlander/dotnet-inspect/issues/11188).
+Their dedicated tests no longer provide implementation evidence. The shared
+population model, Metadata producers/projections, and live hierarchy operations
+remain. Future route and host adoption must establish a fresh current
+House/QuerySpace plan and gates; the target workflow below is not completed by
+the retired prototypes.
 The local-throw refinement is tracked by
 [#6960](https://github.com/richlander/dotnet-inspect/issues/6960).
 
@@ -607,6 +615,41 @@ connectors to an Integration target. Subject Relations exposes direct logical
 incidence at one exact subject. An Integration-classified relation row is not a
 target corridor, and a corridor must not be flattened into a fabricated direct
 relation.
+
+### Workspace extension candidate population
+
+The initial workspace extension population is an L1 composition over one
+ordered retained assembly-context group. One request carries an exact
+Metadata-owned receiver identity, visibility, operation policy, and Count
+and/or bounded Rows demand to each participant's
+`AssemblyInspectionSession.ExtensionRelations` operation. The result preserves
+one `AssemblyContextSubject` and one typed outcome per participant in group
+order. Candidate-open rejection, producer rejection, partial coverage,
+diagnostics, and failure remain source-specific outcomes; none becomes zero
+Count or empty Rows.
+
+This slice establishes independently requested per-participant populations,
+not a workspace-global terminal. Rows bounds and continuations remain
+participant-local; the initial workspace request exposes only the first
+bounded segment and does not resume a participant continuation. No aggregate
+Count or global ordering is inferred. QuerySpace composition later decides
+whether compatible requests share work and how participant populations satisfy
+a workspace terminal. The direct producer remains the cold path; a prepared
+receiver index requires separate request-set economics and exact NativeAOT
+evidence.
+
+The receiver is the exact assembly/type identity encoded by the Metadata
+fidelity domain. This population does not resolve a selected definition
+through type forwarding, infer identity from display text, or claim complete
+C# extension applicability. It also does not settle Subject Relations rows,
+compose inherited Members, or change the CLI and Browser/Wasm hosts. Those are
+separate #9183 adoption slices.
+
+`eng/measure-workspace-extension-candidates.cs` compares this structured
+population with the existing full extension census plus exact receiver
+filtering. Its NativeAOT lanes use the same retained participants and report
+per-participant cardinality and stable logical-row checksums for Count and
+bounded Rows over zero, small, and dense real runtime receiver populations.
 
 ## Worked example: replace the verbs, keep the workflows
 

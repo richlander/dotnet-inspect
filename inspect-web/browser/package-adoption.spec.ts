@@ -1,6 +1,7 @@
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { readFileSync, writeFileSync } from "node:fs";
+import { basename, resolve } from "node:path";
 import { Buffer } from "node:buffer";
+import { createHash } from "node:crypto";
 import {
   expect,
   test,
@@ -9,6 +10,7 @@ import {
   type Route,
   type Worker,
 } from "@playwright/test";
+import type { BrowserBuildIdentity } from "../src/facades/inspect-web-host.js";
 import type {
   BrowserPackageCacheStats as CacheStats,
   BrowserPackageDependencyInspection as PackageDependencies,
@@ -35,6 +37,8 @@ import type {
 } from "../src/facades/inspect-web-catalog.js";
 import type {
   BrowserLibraryApiDiffResult,
+  BrowserTypeFindingDiffAnyRequest,
+  BrowserTypeFindingDiffAnyResult,
   InertString,
   InspectionShare,
 } from "../src/facades/inspect-web-metadata.js";
@@ -178,6 +182,8 @@ const libraryDiffV1Assembly = locateFixtureAssembly(
 const libraryDiffV2Assembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_LIBRARY_DIFF_V2_DLL",
 );
+const findingDiffV1Assembly = locateFixtureAssembly("INSPECT_WEB_PACKAGE_ADOPTION_FINDING_DIFF_V1_DLL");
+const findingDiffV2Assembly = locateFixtureAssembly("INSPECT_WEB_PACKAGE_ADOPTION_FINDING_DIFF_V2_DLL");
 const documentationAssembly = locateFixtureAssembly(
   "INSPECT_WEB_PACKAGE_ADOPTION_DOCUMENTATION_DLL",
 );
@@ -587,6 +593,8 @@ declare global {
     __spotlightPressedResult?: Element;
     __retainedTypeRequests?: { kind: string; typeRows: number }[];
     __adoption?: {
+      buildIdentity(): Promise<BrowserBuildIdentity>;
+      queryTypeFindingDiffAny(id: string, request: BrowserTypeFindingDiffAnyRequest): Promise<BrowserTypeFindingDiffAnyResult>;
       encodeWorkspaceShareState(state: BrowserWorkspaceShareState): Promise<BrowserWorkspaceShareEncodeResult>;
       queryPackage(
         packageId: string,
@@ -725,6 +733,8 @@ async function boot(page: Page): Promise<void> {
     await production.ready;
     const client = production.client;
     window.__adoption = {
+      buildIdentity: () => client.host.buildIdentity(),
+      queryTypeFindingDiffAny: (id, request) => client.metadata.queryTypeFindingDiffAny(id, request),
       encodeWorkspaceShareState: state => client.catalog.encodeWorkspaceShareState(state),
       queryPackage: (packageId, pkgVersion, framework) =>
         client.package.queryPackage(packageId, pkgVersion, framework, ""),
@@ -1541,6 +1551,8 @@ test.describe("Capability Spotlight search over real Wasm", () => {
     await expect(page.locator('[data-subject-tab][data-scope="library"]'))
       .toBeVisible({ timeout: 180_000 });
     await chooseSubject(page, "library");
+    // Library opens First Library; All libraries is an explicit choice.
+    await page.locator('[data-library-subject="all"]').click();
     await expect(page.locator('[data-library-subject="all"]'))
       .toHaveAttribute("aria-selected", "true");
     await chooseSubject(page, "type");
@@ -1628,6 +1640,76 @@ test.describe("Capability Spotlight search over real Wasm", () => {
 });
 
 test.describe("Package Query website over real Wasm", () => {
+  test("loads Type metadata only after choosing the Type subject", async ({ page, context }) => {
+    await installGalleryRoutes(context, new GalleryFixtureRegistry([fallbackReferences]));
+    await page.addInitScript(() => {
+      window.__retainedTypeRequests = [];
+      const OriginalWorker = window.Worker;
+      window.Worker = class extends OriginalWorker {
+        override postMessage(message: unknown, transfer: Transferable[]): void;
+        override postMessage(message: unknown, options?: StructuredSerializeOptions): void;
+        override postMessage(
+          message: unknown,
+          options?: Transferable[] | StructuredSerializeOptions,
+        ): void {
+          if (typeof message === "object" && message !== null
+            && "kind" in message && message.kind === "start"
+            && "operationKind" in message
+            && typeof message.operationKind === "string") {
+            window.__retainedTypeRequests!.push({
+              kind: message.operationKind,
+              typeRows: document.querySelectorAll("#type-list [data-type]").length,
+            });
+          }
+          if (Array.isArray(options)) super.postMessage(message, options);
+          else super.postMessage(message, options);
+        }
+      };
+    });
+    const packet = Buffer.from(JSON.stringify({
+      f: 3,
+      t: [[fallbackReferences.packageId.toLowerCase(), fallbackReferences.version,
+        fixtureFramework, null]],
+      g: [[0]], r: [], a: 0, x: 0,
+      v: [
+        { t: null, u: { k: "workspace" } },
+        { t: 0, r: { k: "package" }, u: { k: "package" },
+          f: "package.dependency-hierarchy" },
+      ],
+      b: fixtureFramework,
+    })).toString("base64url");
+    const typeProjectionCount = () => page.evaluate(() =>
+      window.__retainedTypeRequests!.filter(request =>
+        request.kind === "ordinary-metadata-query-type-projection").length);
+
+    await page.goto(`/?package=${fallbackReferences.packageId}&w=${packet}`);
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible({ timeout: 180_000 });
+    expect(await typeProjectionCount()).toBe(0);
+    await page.locator('[data-inspector-tab][data-package-lens="overview"]').click();
+    await expect(page.locator(".package-overview-surface"))
+      .toBeVisible();
+    await selectFirstExactLibrary(page);
+    await expect(page.locator(".library-subject-list"))
+      .toBeVisible();
+    expect(await typeProjectionCount()).toBe(0);
+
+    await chooseSubject(page, "type");
+    await expect(page.locator(".type-overview-surface"))
+      .toBeVisible({ timeout: 180_000 });
+    await expect.poll(typeProjectionCount).toBe(1);
+    await expect(page.locator(".type-overview-surface").getByRole("heading", {
+      name: "Type shape", exact: true,
+    })).toBeVisible({ timeout: 180_000 });
+
+    await chooseSubject(page, "package");
+    await page.locator('[data-inspector-tab][data-package-lens="dependencies"]').click();
+    await page.locator('[data-package-references-tab="hierarchy"]').click();
+    await expect(page.locator("#package-hierarchy-graph-diagram svg"))
+      .toBeVisible({ timeout: 180_000 });
+    expect(await typeProjectionCount()).toBe(1);
+  });
+
   test("restores a shared hierarchy when compile assets use a compatible framework", async ({ page, context }) => {
     await installGalleryRoutes(context, new GalleryFixtureRegistry([fallbackReferences]));
     await page.addInitScript(() => {
@@ -5980,4 +6062,119 @@ test("Spotlight finds literal package prefixes inline and keeps Activity in Comm
   await expect(page).toHaveURL(/\/$/);
   await expect(page.locator("#spotlight-input")).toBeFocused();
   expect(archives).toEqual([]);
+});
+
+
+test("Type Finding Diff Any uses the production Worker for generated, one-sided and residual Member states", async ({ page, context }, testInfo) => {
+  const packageId = "InspectWeb.FindingDiffAny";
+  const assembly = "ILInspector.Metadata.FindingDiffAny.dll";
+  await installGalleryRoutes(context, new GalleryFixtureRegistry([
+    { packageId, version: "1.0.0", archive: healthyNupkg(findingDiffV1Assembly, assembly) },
+    { packageId, version: "2.0.0", archive: healthyNupkg(findingDiffV2Assembly, assembly) },
+  ]));
+  await boot(page);
+  const measured = await page.evaluate(async ({ packageId: selectedPackageId, assembly: selectedAssembly, framework }) => {
+    const samples: { type: string; milliseconds: number; members: number; digest: string }[] = [];
+    for (const type of ["BodyOnly", "LambdaOnly", "AnchorNullability", "TypeAttributeChanged", "Added", "Removed", "AddedInternalEnum"]) {
+      let result: BrowserTypeFindingDiffAnyResult | undefined;
+      let expectedContent: string | undefined;
+      for (let sample = -1; sample < 5; sample++) {
+        const start = performance.now();
+        result = await window.__adoption!.queryTypeFindingDiffAny(crypto.randomUUID(), {
+          schemaVersion: 1, typeIdentifier: `FindingDiffAnyFixture.${type}`,
+          comparison: { schemaVersion: 3, packageId: selectedPackageId, currentVersion: "2.0.0", targetVersion: "1.0.0", targetFramework: framework,
+            runtimeIdentifier: "linux-x64", compileAssetId: `compile:ref/${framework}/${selectedAssembly}`, axes: "ApiAndBody" },
+        });
+        if (result.kind !== "Succeeded" || !result.value) throw new Error(`${result.kind}: ${result.error} ${result.diagnostic}`);
+        const milliseconds = performance.now() - start;
+        const content = JSON.stringify(result.value);
+        if (expectedContent !== undefined && expectedContent !== content) throw new Error("Member result changed between measurements.");
+        expectedContent = content;
+        const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
+        const digest = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+        if (sample >= 0) samples.push({ type, milliseconds, members: result.value.members.length, digest });
+      }
+      const value = result!.value!;
+      if (type === "BodyOnly" && (value.api !== "Unchanged" || value.body !== "Changed")) throw new Error("Body-only cue disagrees.");
+      if (type === "LambdaOnly" && (value.residualBody !== "Unchanged" || !value.members.some(member => member.body === "Changed"))) throw new Error("Generated owner cue missing.");
+      if (type === "AnchorNullability" && !value.members.some(member => member.api === "Changed" && member.beforeFingerprint !== member.afterFingerprint)) throw new Error("Nullable endpoint anchors missing.");
+      if (type === "TypeAttributeChanged" && (value.residualApi !== "Changed" || value.members.some(member => member.api !== "Unchanged"))) throw new Error("Residual API cue disagrees.");
+      if (type === "Added" && value.members.some(member => member.beforeFingerprint !== null)) throw new Error("Added Type has before anchors.");
+      if (type === "Removed" && value.members.length !== 0) throw new Error("Removed empty Type has Members.");
+      if (type === "AddedInternalEnum" && value.members.some(member => member.api !== "Unchanged" || member.body !== "Changed")) throw new Error("Internal enum partition disagrees.");
+    }
+    return samples;
+  }, { packageId, assembly, framework: fixtureFramework });
+  const measurementsPath = testInfo.outputPath("type-finding-diff-any-wasm.json");
+  writeFileSync(measurementsPath, JSON.stringify({ identity: await page.evaluate(() => window.__adoption!.buildIdentity()), browser: page.context().browser()!.version(), samples: measured }, null, 2));
+  await testInfo.attach("type-finding-diff-any-wasm.json", { path: measurementsPath, contentType: "application/json" });
+  expect(measured).toHaveLength(35);
+  await page.evaluate(() => window.__adoption!.dispose());
+});
+
+test("body-only Type change places implementation Member glyphs in the production page", async ({ page, context }) => {
+  const packageId = "InspectWeb.FindingDiffAny.Ui", assembly = "ILInspector.Metadata.FindingDiffAny.dll";
+  await installGalleryRoutes(context, new GalleryFixtureRegistry([
+    { packageId, version: "1.0.0", archive: healthyNupkg(findingDiffV1Assembly, assembly) },
+    { packageId, version: "2.0.0", archive: healthyNupkg(findingDiffV2Assembly, assembly) },
+  ]));
+  let releaseInventory!: () => void;
+  const inventoryReady = new Promise<void>(complete => { releaseInventory = complete; });
+  await context.route(`**/v3-flatcontainer/${packageId.toLowerCase()}/index.json`, async route => {
+    await inventoryReady;
+    await route.fulfill({ status: 200, headers: corsHeaders, contentType: "application/json", body: JSON.stringify({ versions: ["1.0.0", "2.0.0"] }) });
+  });
+  await page.goto(`/index.html?package=${packageId}&version=2.0.0&framework=${fixtureFramework}#pkg`);
+  await expect(page.locator('[data-subject-tab][data-scope="library"]')).toBeVisible({ timeout: 180_000 });
+  await selectFirstExactLibrary(page);
+  await chooseSubject(page, "type");
+  await page.locator('[data-type="FindingDiffAnyFixture.BodyOnly"]').click({ timeout: 60_000 });
+  await chooseInspector(page, "data-lens", "api");
+  releaseInventory();
+  const member = page.locator('#inspector-panel [data-member]').filter({ hasText: "Value" });
+  await expect(member.locator('.item-achievement-glyph.body-diff')).toBeVisible({ timeout: 120_000 });
+  await expect(page.locator('.type-change-status')).toContainText(/implementation changed/i);
+});
+
+
+test("Type Finding Diff Any pinned image cost", async ({ page, context, browser }, testInfo) => {
+  const beforePath = process.env.INSPECT_WEB_TYPE_DIFF_BEFORE_DLL;
+  const afterPath = process.env.INSPECT_WEB_TYPE_DIFF_AFTER_DLL;
+  const selectedType = process.env.INSPECT_WEB_TYPE_DIFF_TYPE;
+  test.skip(!beforePath || !afterPath || !selectedType, "Provide a pinned image pair and exact Type identity.");
+  const beforeBytes = readFileSync(beforePath!), afterBytes = readFileSync(afterPath!);
+  const packageId = "InspectWeb.TypePerf", assembly = basename(beforePath!);
+  expect(basename(afterPath!)).toBe(assembly);
+  await installGalleryRoutes(context, new GalleryFixtureRegistry([
+    { packageId, version: "1.0.0", archive: storedZip([{ name: `lib/${fixtureFramework}/${assembly}`, bytes: beforeBytes }]) },
+    { packageId, version: "2.0.0", archive: storedZip([{ name: `lib/${fixtureFramework}/${assembly}`, bytes: afterBytes }]) },
+  ]));
+  await boot(page);
+  const samples = await page.evaluate(async coordinates => {
+    const measurements: { milliseconds: number; members: number; digest: string }[] = [];
+    let expected: string | undefined;
+    for (let sample = -1; sample < 5; sample++) {
+      const start = performance.now();
+      const result = await window.__adoption!.queryTypeFindingDiffAny(crypto.randomUUID(), {
+        schemaVersion: 1, typeIdentifier: coordinates.type,
+        comparison: { schemaVersion: 3, packageId: coordinates.packageId, currentVersion: "2.0.0", targetVersion: "1.0.0",
+          targetFramework: coordinates.framework, runtimeIdentifier: "linux-x64", compileAssetId: `compile:lib/${coordinates.framework}/${coordinates.assembly}`, axes: "ApiAndBody" },
+      });
+      const milliseconds = performance.now() - start;
+      if (result.kind !== "Succeeded" || !result.value) throw new Error(`${result.kind}: ${result.error} ${result.diagnostic}`);
+      const content = JSON.stringify(result.value);
+      if (expected !== undefined && expected !== content) throw new Error("Member result changed between measurements.");
+      expected = content;
+      const hash = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(content));
+      const digest = [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, "0")).join("");
+      if (sample >= 0) measurements.push({ milliseconds, members: result.value.members.length, digest });
+    }
+    return measurements;
+  }, { packageId, assembly, framework: fixtureFramework, type: selectedType! });
+  const path = testInfo.outputPath("type-finding-diff-any-pinned.json");
+  writeFileSync(path, JSON.stringify({ identity: await page.evaluate(() => window.__adoption!.buildIdentity()), browser: browser.version(), type: selectedType,
+    beforeSha256: createHash("sha256").update(beforeBytes).digest("hex"), afterSha256: createHash("sha256").update(afterBytes).digest("hex"), samples }, null, 2));
+  await testInfo.attach("type-finding-diff-any-pinned.json", { path, contentType: "application/json" });
+  expect(samples).toHaveLength(5);
+  await page.evaluate(() => window.__adoption!.dispose());
 });

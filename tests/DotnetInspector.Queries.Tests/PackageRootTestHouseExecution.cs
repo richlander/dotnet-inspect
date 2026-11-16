@@ -6,16 +6,19 @@ namespace DotnetInspector.Queries.Tests;
 internal static class PackageRootTestHouseExecution
 {
     internal static PackageRootHouseExecution Create(
-        WorkspaceContextLoadOptions options)
+        WorkspaceContextLoadOptions options,
+        PackagePayloadAccess access = PackagePayloadAccess.Ranged)
     {
         ArgumentNullException.ThrowIfNull(options);
         return new(
             PackageHouseOperation.Create(
                 PackageHouseOperationProfile.Realize),
-            new Executor(options));
+            new Executor(options, access));
     }
 
-    private sealed class Executor(WorkspaceContextLoadOptions options)
+    private sealed class Executor(
+        WorkspaceContextLoadOptions options,
+        PackagePayloadAccess access)
         : IPackageRootHouseExecutor
     {
         public async Task<PackageHouseSettlement> ExecuteAsync(
@@ -59,7 +62,7 @@ internal static class PackageRootTestHouseExecution
                         options.PayloadLimits,
                         options.PackageTransferPolicy,
                         options.Log,
-                        access: PackagePayloadAccess.Ranged);
+                        access: access);
             PackageHouse house = authorization.Sources.Count == 0
                 && requiredProducerKey is null
                 ? new PackageHouse(

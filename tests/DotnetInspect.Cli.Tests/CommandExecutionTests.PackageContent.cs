@@ -735,7 +735,9 @@ public partial class CommandExecutionTests
     public async Task Package_SourceFilesSection_RendersLibraryTypeUrls()
     {
         var (exit, output, error) = await RunAppAsync(
-            "package", "System.CommandLine",
+            // Pinned: the latest System.CommandLine (3.0.0) ships only
+            // lib/net10.0, so the unpinned id drifted off this Library path.
+            "package", "System.CommandLine@2.0.0",
             "-S", "Source Files", "-n", "18", "--lines", "--markdown");
 
         Assert.Equal(0, exit);

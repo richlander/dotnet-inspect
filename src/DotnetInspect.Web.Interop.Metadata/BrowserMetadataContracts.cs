@@ -72,6 +72,7 @@ public sealed record BrowserTypeFindCandidateReference(
 
 public sealed record BrowserTypeFindCandidateActivation(
     BrowserTypeFindCandidateReference Candidate,
+    string? Identity,
     BrowserTypeFindActivationSource Source,
     BrowserTypeFindActivationStatus Status,
     string? Action,
@@ -666,6 +667,8 @@ public sealed record BrowserParameterSurface(
 [JsonSerializable(typeof(BrowserLibraryApiDiffRequest))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffResult))]
 [JsonSerializable(typeof(BrowserLibraryApiDiffCancellation))]
+[JsonSerializable(typeof(BrowserTypeFindingDiffAnyRequest))]
+[JsonSerializable(typeof(BrowserTypeFindingDiffAnyResult))]
 [JsonSerializable(typeof(BrowserLibraryFindingDiffAnyRequest))]
 [JsonSerializable(typeof(BrowserLibraryFindingDiffAnyResult))]
 [JsonSerializable(typeof(BrowserLibraryFindingDiffAnyCancellation))]

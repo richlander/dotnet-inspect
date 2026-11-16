@@ -59,7 +59,7 @@ public partial class CommandExecutionTests
     {
         var (exit, output, error) = await RunAppAsync(
             "member", "JsonSerializer", "--platform", "System.Text.Json",
-            "Serialize:1", "-S", "Source Locations", "--json", "--tips", "q");
+            "Serialize:1", "-S", "Source Locations", "--json");
 
         Assert.Equal(0, exit);
         Assert.Empty(error);

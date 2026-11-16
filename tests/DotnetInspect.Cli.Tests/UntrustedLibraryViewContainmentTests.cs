@@ -744,7 +744,7 @@ public class UntrustedPackageContainmentTests : IDisposable
     public UntrustedPackageContainmentTests()
     {
         Directory.CreateDirectory(_dir);
-        _path = Path.Combine(_dir, "Hostile.Pkg.1.0.0.nupkg");
+        _path = Path.Combine(_dir, "Pkg.INJECTEDPKGID.1.0.0.nupkg");
         WriteHostilePackage(_path);
     }
 
@@ -761,7 +761,7 @@ public class UntrustedPackageContainmentTests : IDisposable
             <?xml version="1.0" encoding="utf-8"?>
             <package xmlns="http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd">
               <metadata>
-                <id>Pkg{Bidi}INJECTEDPKGID</id>
+                <id>Pkg.INJECTEDPKGID</id>
                 <version>1.0.0</version>
                 <authors>Auth{Bidi}INJECTEDAUTHOR</authors>
                 <description>Desc{Bidi}INJECTEDDESC here.</description>
@@ -777,7 +777,7 @@ public class UntrustedPackageContainmentTests : IDisposable
         using var archive = new System.IO.Compression.ZipArchive(
             File.Create(path), System.IO.Compression.ZipArchiveMode.Create);
 
-        Write(archive, "Hostile.Pkg.nuspec", nuspec);
+        Write(archive, "Pkg.INJECTEDPKGID.nuspec", nuspec);
         Write(archive, "lib/net8.0/Good.dll", "MZ");
         // The TFM is a folder name, so it is attacker-chosen too.
         Write(archive, "lib/net9.0\u000BINJECTEDTFM/Good.dll", "MZ");
@@ -1353,15 +1353,23 @@ public class UntrustedErrorChannelContainmentTests
     [Theory]
     // A bare (undotted) name reaches the bare-type hint; a dotted `System.`
     // name reaches the namespace-prefix hint. Neither reaches the other.
-    [InlineData("depends", "Ty\u001BINJECTEDBARE", "INJECTEDBARE")]
-    [InlineData("depends", "System.Ty\u001BINJECTEDPREFIX", "INJECTEDPREFIX")]
+    [InlineData("depends", "Ty\u001BINJECTEDBARE", "INJECTEDBARE", false)]
+    [InlineData("depends", "System.Ty\u001BINJECTEDPREFIX", "INJECTEDPREFIX", false)]
     // `depends` resolves its own failure through the graph-result record, which
     // round 13 already contained, so it cannot gate the shared `Error:` writer.
     // `type` reaches that writer, and only that case fails when it is tampered.
-    [InlineData("type", "Ty\u001BINJECTEDERRLINE", "INJECTEDERRLINE")]
-    public async Task ErrorAndHintChannels_WithHostileSubject_RenderNoHazard(string command, string subject, string marker)
+    // A bare unresolved `type` subject is now source-only input rejected with
+    // generic missing-selector guidance (#10837), so the case names a local
+    // Library: the hostile subject is then a Type selector that is quoted in
+    // the not-found error.
+    [InlineData("type", "Ty\u001BINJECTEDERRLINE", "INJECTEDERRLINE", true)]
+    public async Task ErrorAndHintChannels_WithHostileSubject_RenderNoHazard(
+        string command, string subject, string marker, bool localLibrary)
     {
-        var (_, output, error) = await HostileCli.RunAsync(command, subject);
+        string[] args = localLibrary
+            ? [command, subject, "--library", typeof(UntrustedErrorChannelContainmentTests).Assembly.Location]
+            : [command, subject];
+        var (_, output, error) = await HostileCli.RunAsync(args);
 
         var combined = output + "\n" + error;
         HostileOutputAssert.MarkersRendered(combined, "stderr", marker);
@@ -1428,8 +1436,10 @@ public class LibraryViewShapeDerivedContainmentTests
     /// <item><description>
     /// <c>ApiSignature.PublicAccessorsSummary</c> and
     /// <c>TypeParameter.DisplayName</c> are computed from members the walk
-    /// already fills, while <c>LibraryInspection.MetadataOverview</c> projects
-    /// the available case of the typed metadata-image result. They carry text
+    /// already fills, <c>ApiSurfaceInspectionFailure.MechanismName</c> names
+    /// an enum value and so carries no untrusted text, while
+    /// <c>LibraryInspection.MetadataOverview</c> projects the available case of
+    /// the typed metadata-image result. They carry text
     /// transitively rather than being set.
     /// </description></item>
     /// </list>
@@ -1446,6 +1456,7 @@ public class LibraryViewShapeDerivedContainmentTests
         "ApiMember.DeclaringTypeDefinitionName (MetadataTypeDefinitionName): no public constructor",
         "ApiSignature.PublicAccessorsSummary (String): string with no setter",
         "ApiSignature.ReturnTypeShape (ApiTypeShape): no public constructor",
+        "ApiSurfaceInspectionFailure.MechanismName (String): string with no setter",
         "ApiSurfaceInspectionFailure.OwningTypeDefinition (MetadataTypeDefinitionName): no public constructor",
         "ApiType.DefinitionName (MetadataTypeDefinitionName): no public constructor",
         "ApiTypeReferenceIdentity.DefinitionName (MetadataTypeDefinitionName): no public constructor",
@@ -1477,6 +1488,8 @@ public class LibraryViewShapeDerivedContainmentTests
         "LibraryInspection.Switches (List`1): computed projection still null after the walk",
         "LibraryInspection.TypeForwarders (List`1): computed projection still null after the walk",
         "LibraryInspection.UnionTypes (List`1): computed projection still null after the walk",
+        "LibraryInspection.UnsafeCode (List`1): computed projection still null after the walk",
+        "LibraryInspection.UnsafeCodeLimitations (List`1): computed projection still null after the walk",
         "MemberRef.DeclaringType (TypeRef): no public constructor",
         "MemberRef.OpenReturnType (TypeRef): no public constructor",
         "MemberRef.OpenSignatureParameters (ImmutableArray`1): computed projection still empty after the walk",
