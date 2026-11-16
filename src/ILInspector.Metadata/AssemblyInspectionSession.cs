@@ -846,6 +846,24 @@ public sealed class AssemblyInspectionSession :
         => ApiTypeSelection.ExtensionDeclaringTypeNames(GetAdmittedMetadataReader());
 
     /// <summary>
+    /// The full names of this image's top-level Types that declare an
+    /// extension whose receiver is one of <paramref name="receiverFullNames"/>,
+    /// or null when they cannot be read. A comparison pairs a
+    /// <see cref="ApiTypeSelection.ForFullNames"/> selection with both
+    /// endpoints' names.
+    /// </summary>
+    public IReadOnlySet<string>? ExtensionDeclaringTypeNamesFor(
+        IReadOnlySet<string> receiverFullNames)
+    {
+        ArgumentNullException.ThrowIfNull(receiverFullNames);
+        MetadataReader reader = GetAdmittedMetadataReader();
+        return ApiTypeSelection.ExtensionDeclaringTypeNamesFor(
+            _image.PEReader,
+            reader,
+            receiverFullNames);
+    }
+
+    /// <summary>
     /// The temporary compatibility surface under hard retention bounds.
     /// </summary>
     /// <remarks>

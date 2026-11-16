@@ -385,8 +385,13 @@ gated by the admission test.
    Map Diff Exists remains unresolved until terminal-native pair evidence
    under [#11166](https://github.com/richlander/dotnet-inspect/issues/11166)
    can settle without first producing complete per-side contributions.
-6. Route the Type-scoped API diff of #10221 through a family contribution
-   request for the API shape-fact family at Type focus.
+6. Withdrawn. The Type-scoped API diff of #10221 loads its Types directly
+   through the
+   [exact Type load](library-api-diff-presentation.md#exact-type-load). The
+   API shape-fact family projects at the Finding Diff Any API scope without
+   extension pairing, and the diff needs the requested scope with pairing, so
+   routing it through a family contribution request would add a request
+   without serving the diff.
 
 Host exposure follows the map's own adoption: CLI output in its step 6 and
 Inspect Web Type Compare in its step 7 issue map requests through this

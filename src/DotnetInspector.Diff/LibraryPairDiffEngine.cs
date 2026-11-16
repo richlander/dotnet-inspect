@@ -55,8 +55,12 @@ internal static class LibraryPairDiffEngine
             comparison = CompareApi();
         }
 
+        // An exact Type load presents only the Types it loaded, not the Types
+        // its comparison paired with.
         LibraryApiDiffOutcome LibraryApi() =>
-            libraryApi ??= LibraryApiDiffPresentationAdapter.Create(comparison);
+            libraryApi ??= LibraryApiDiffPresentationAdapter.Create(
+                comparison,
+                request.TypeSelection?.FullNames);
 
         if (request.Selection is not { } selection)
         {
