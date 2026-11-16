@@ -57,11 +57,12 @@ public static partial class CallGraphExports
                 request.TraversalTargetFramework,
                 request.RuntimeIdentifier,
                 ParsePruning(request.PruningInventory));
-        BrowserCallGraph graph = ProjectGraph(
+        BrowserCallGraph graph = BrowserCallGraphWireProjection.Project(
             envelope,
             request.PackageId,
             request.Version,
-            request.TargetFramework);
+            request.TargetFramework,
+            request.MemberName);
         return JsonSerializer.Serialize(
             graph,
             BrowserCallGraphJsonContext.Default.BrowserCallGraph);
@@ -113,11 +114,14 @@ public static partial class CallGraphExports
                 PackageSupplyChainBaseline
                     .SelfAndRegisteredEcosystems,
                 ParsePruning(pruningInventory));
-        BrowserCallGraph graph = ProjectGraph(
+        BrowserCallGraph graph = BrowserCallGraphWireProjection.Project(
             envelope,
             packageId,
             version,
-            targetFramework);
+            targetFramework,
+            memberName);
+
+        // Keep JSON return provenance outside async cleanup for the generated typed facade.
         return JsonSerializer.Serialize(
             graph,
             BrowserCallGraphJsonContext.Default.BrowserCallGraph);
@@ -151,33 +155,6 @@ public static partial class CallGraphExports
         ArgumentException.ThrowIfNullOrWhiteSpace(request.SelectorKey);
         ArgumentException.ThrowIfNullOrWhiteSpace(
             request.TraversalTargetFramework);
-    }
-
-    static BrowserCallGraph ProjectGraph(
-        InspectionEnvelope<
-            PackageDependencyMemberCallGraphInspectionOutcome> envelope,
-        string packageId,
-        string version,
-        string targetFramework)
-    {
-        if (envelope.Content
-            is PackageDependencyMemberCallGraphInspectionOutcome
-                .Unavailable unavailable)
-        {
-            throw new InvalidOperationException(
-                $"The dependency-aware member call graph was unavailable ({unavailable.Reason}): {unavailable.Detail}");
-        }
-
-        var available =
-            (PackageDependencyMemberCallGraphInspectionOutcome.Available)
-                envelope.Content;
-        return BrowserCallGraphWireProjection.Project(
-            BrowserCallGraphProjection.Project(
-                available.Document,
-                packageId,
-                version,
-                targetFramework),
-            envelope.Diagnostics);
     }
 
     public static Task<string> QueryMemberCallGraph(

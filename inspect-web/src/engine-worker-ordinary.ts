@@ -196,7 +196,6 @@ type CatalogOperationName =
   | "explainResources"
   | "describeWorkspaceComponents"
   | "explainWorkspaceComponent"
-  | "findIndexedTypes"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
@@ -2218,14 +2217,6 @@ export const engineWorkerOrdinaryOperations = {
         }
       },
     ),
-    findIndexedTypes: valueOperation(
-      "ordinary-catalog-find-indexed-types",
-      5,
-      (
-        facades,
-        ...args: Parameters<CatalogFacade["findIndexedTypes"]>
-      ) => facades.catalog.findIndexedTypes(...args),
-    ),
     abandonRetainedWorkspaceNavigation: valueOperation(
       "ordinary-catalog-abandon-retained-workspace-navigation",
       6,
@@ -3142,9 +3133,6 @@ export function bindEngineWorkerOrdinaryClient(
     catalog: {
       selectProjectInspector: bind(
         engineWorkerOrdinaryOperations.catalog.selectProjectInspector,
-      ),
-      findIndexedTypes: bind(
-        engineWorkerOrdinaryOperations.catalog.findIndexedTypes,
       ),
       abandonRetainedWorkspaceNavigation: bind(
         engineWorkerOrdinaryOperations.catalog

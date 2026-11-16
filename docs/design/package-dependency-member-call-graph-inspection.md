@@ -197,6 +197,21 @@ Its unavailable case carries one typed reason and contained detail for:
 - exact focus unavailability; or
 - package-context cleanup failure.
 
+Definite absence of a managed IL body is preserved as the distinct
+`FocusMethodBodyUnavailable` reason. It is not evidence that member selection
+failed, and hosts may present it as an explanatory empty state. Other focus
+failures remain unavailable errors; hosts do not classify them from detail text.
+
+The motivating asset is `System.Text.Json@11.0.0`, `net11.0`, type
+`System.Text.Json.Serialization.JsonTypeClassifier`, shared member fingerprint
+`ccc3673e1a`. This delegate's runtime-provided methods have no managed IL body.
+Inspect Web previously converted that expected result into a query exception.
+Focused tests use a compiled delegate and the neighboring interface method,
+plus the pinned package through the Browser package acquisition path. They
+check the typed inspection reason and browser empty state while retaining
+errors for other unavailable reasons. The empty state makes no claim that a
+bodyless member has no callers.
+
 Cancellation and unexpected producer, acquisition, Workspace, analysis, or
 cleanup exceptions produce no envelope.
 

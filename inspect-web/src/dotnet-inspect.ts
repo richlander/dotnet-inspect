@@ -701,6 +701,7 @@ import {
   commitManagedSpotlightSelection,
   createSpotlightTypeFind,
   spotlightTypeCandidatesForScope,
+  type ManagedSpotlightTypeCandidate,
 } from "./spotlight-type-find.ts";
 import {
   createSpotlightCapabilitySearch,
@@ -5667,17 +5668,26 @@ const spotlightPackageSearch = createSpotlightPackageSearch({
   updateResults: () => spotlight.updateResults(),
 });
 const spotlightTypeFind = createSpotlightTypeFind({
+  createOperationId: () => crypto.randomUUID(),
   findTypes: (
+    operationId,
     retainedDefinitionId,
     realizationId,
     resultGeneration,
     text,
-  ) => engineClient.metadata.findTypes(
+    maximumRows,
+    eventSink,
+  ) => engineClient.catalog.findSpotlightTypes(
+    operationId,
     retainedDefinitionId,
     realizationId,
     resultGeneration,
     text,
+    maximumRows,
+    eventSink,
   ),
+  cancelTypes: (operationId, reason) =>
+    engineClient.catalog.cancelSpotlightTypeFind(operationId, reason),
   schedule: (callback, delay) => setTimeout(callback, delay),
   cancelScheduled: handle => clearTimeout(handle),
   updateResults: () => spotlight.updateResults(),
@@ -11283,6 +11293,7 @@ function maybeAutoLoadVisibleSource() {
 }
 
 function maybeAutoLoadTypeMetadata() {
+  if (scope() !== "type") return;
   if (state.lens !== "overview" && state.lens !== "metadata") return;
   const type = selectedType();
   if (!type) return;
@@ -15472,7 +15483,7 @@ function renderMember(type: AppTypeSurface, member: AppMemberGroup) {
     content = state.memberCallGraphLoading
       ? `<section class="document-section source-progress"><span class="loader"></span><h2>Building dependency-aware call graph…</h2><p>Resolving package dependencies under ${escapeHtml(state.callGraphTraversalFramework)} and scanning implementation IL.</p></section>`
       : active && active.noBody
-        ? `<section class="document-section empty-member-section"><h2>No call graph</h2><p>${escapeHtml(active.callees?.memberName || "This member")} is an abstract or interface method — it declares no IL body, so it has no in-assembly callers or callees to graph.</p></section>`
+        ? `<section class="document-section empty-member-section"><h2>No call graph</h2><p>${escapeHtml(active.callees?.memberName || "This member")} has no managed IL body to inspect. This can occur for abstract or interface methods, delegate methods, and other runtime-provided or external implementations.</p></section>`
         : active
         ? `<section class="document-section call-graph-section">
             <div class="section-title"><h2>Call graph</h2><span>${callGraphSummary(active)}</span></div>
@@ -18160,8 +18171,10 @@ function spotlightResults(): SpotlightResult[] {
     }
   }
   if (requestsTypes && activeRetainedWorkspacePosting !== null) {
+    const typeCandidates: readonly ManagedSpotlightTypeCandidate[] =
+      spotlightTypeFind.results();
     for (const candidate of spotlightTypeCandidatesForScope(
-      spotlightTypeFind.results(),
+      typeCandidates,
       all,
       allLimit(6),
     )) {
