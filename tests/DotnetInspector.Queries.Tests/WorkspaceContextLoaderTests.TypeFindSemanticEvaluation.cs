@@ -91,6 +91,65 @@ public sealed partial class WorkspaceContextLoaderTests
     }
 
     [Fact]
+    public async Task TypeFindSemanticEvaluation_TargetedLocatorRetainsCompleteMatches()
+    {
+        await using var workspace = new InspectionWorkspace();
+        WorkspaceDeclarationContext context =
+            await LocatorContext(
+                workspace,
+                LocatorImage(
+                    "Json",
+                    metadata =>
+                    {
+                        LocatorDefinition(
+                            metadata,
+                            "System.Text.Json",
+                            "JsonSerializerDefaults");
+                        LocatorDefinition(
+                            metadata,
+                            "System.Text.Json",
+                            "JsonSerializer");
+                        LocatorDefinition(
+                            metadata,
+                            "System.Text.Json",
+                            "JsonSerializerOptions");
+                        LocatorDefinition(
+                            metadata,
+                            "System.Text.Json",
+                            "Utf8JsonWriter");
+                    }));
+        WorkspaceDeclarationPopulation population =
+            CaptureDeclarations(workspace, context);
+        TypeFindQuestion question =
+            TypeFindQuestion.Create(
+                ["JsonSerializer"],
+                FindVisibility.Public);
+
+        TypeDeclarationLocatorResult.Evaluated census =
+            Locate(
+                population,
+                new TypeDeclarationLocatorRequest.Pattern("*"));
+        TypeDeclarationLocatorResult.Evaluated targeted =
+            Locate(
+                population,
+                new TypeDeclarationLocatorRequest.Semantic(question));
+        TypeFindBlock censusBlock =
+            SemanticBlock(question, census);
+        TypeFindBlock targetedBlock =
+            FindSemanticReducer.ReduceType(
+                question,
+                TypeFindSourceEvaluator.EvaluateLocatorMatches(
+                    question,
+                    targeted));
+
+        Assert.Equal(4, Assert.Single(census.Answers).Candidates.Length);
+        Assert.Equal(3, Assert.Single(targeted.Answers).Candidates.Length);
+        Assert.Equal(censusBlock.Matches, targetedBlock.Matches);
+        Assert.Equal(censusBlock.Settlements, targetedBlock.Settlements);
+        Assert.True(targetedBlock.IsSourceCoverageComplete);
+    }
+
+    [Fact]
     public async Task TypeFindSemanticEvaluation_ClassifiesGrammarAndCompleteMiss()
     {
         await using var workspace = new InspectionWorkspace();

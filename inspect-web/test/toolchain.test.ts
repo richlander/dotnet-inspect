@@ -179,11 +179,7 @@ test("TypeScript compiler contexts keep Node globals out of browser source", () 
   assert.deepEqual(browserTsconfig.compilerOptions.types, []);
   assert.deepEqual(browserTsconfig.include, [
     "src/**/*.ts",
-    "DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js",
   ]);
-  assert.match(readFileSync(new URL(
-    "../DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js", import.meta.url), "utf8"),
-  /^\/\/ @ts-check/);
   assert.equal(testTsconfig.extends, "../tsconfig.json");
   assert.deepEqual(testTsconfig.compilerOptions.types, ["node"]);
   assert.deepEqual(
@@ -483,7 +479,7 @@ test("no source file suppresses type checking", () => {
 // the compiler-derived engine facade, which is Wasm build output rather than authored source.
 //
 // The authored runtime loader is checked against the SDK declaration in the facade
-// compiler program. The ecosystem asset loader opts into checkJs in the browser
+// compiler program. The ecosystem asset loader is TypeScript checked in the browser
 // compiler program. Only compiler-derived facades receive lint exemptions.
 test("JavaScript is either compiler-derived or explicitly type-checked", () => {
   const root = fileURLToPath(new URL("../", import.meta.url));
@@ -498,7 +494,6 @@ test("JavaScript is either compiler-derived or explicitly type-checked", () => {
 
   assert.deepEqual(present, [
     ...publishedFacadeModules, runtimeLoaderSource,
-    "DotnetInspect.Web/wwwroot/ecosystem-find-index-assets.js",
   ].sort(),
     "authored JavaScript here would be checked by neither the compiler nor the "
       + "type-aware lint rules the rest of the project is held to");

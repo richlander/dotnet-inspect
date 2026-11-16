@@ -126,6 +126,11 @@ owns and consumes only the operation lease returned for the completed edge
 set. Hosts retain ownership of clients, stores, root content, and settlement
 roots.
 
+For a retained Browser Workspace, the capability comes from the exact admitted
+posting's source transport and per-package authorization. The host does not
+substitute its default gallery merely because the exact root has already been
+realized.
+
 ## Operation-local Workspace
 
 The inspection creates one fresh `InspectionWorkspace`, publishes only the
@@ -191,6 +196,21 @@ Its unavailable case carries one typed reason and contained detail for:
 - dependency Workspace publication refusal;
 - exact focus unavailability; or
 - package-context cleanup failure.
+
+Definite absence of a managed IL body is preserved as the distinct
+`FocusMethodBodyUnavailable` reason. It is not evidence that member selection
+failed, and hosts may present it as an explanatory empty state. Other focus
+failures remain unavailable errors; hosts do not classify them from detail text.
+
+The motivating asset is `System.Text.Json@11.0.0`, `net11.0`, type
+`System.Text.Json.Serialization.JsonTypeClassifier`, shared member fingerprint
+`ccc3673e1a`. This delegate's runtime-provided methods have no managed IL body.
+Inspect Web previously converted that expected result into a query exception.
+Focused tests use a compiled delegate and the neighboring interface method,
+plus the pinned package through the Browser package acquisition path. They
+check the typed inspection reason and browser empty state while retaining
+errors for other unavailable reasons. The empty state makes no claim that a
+bodyless member has no callers.
 
 Cancellation and unexpected producer, acquisition, Workspace, analysis, or
 cleanup exceptions produce no envelope.

@@ -328,9 +328,9 @@ public sealed class MetadataTypeDefinitionName : IEquatable<MetadataTypeDefiniti
             EscapeNamespace(value)
                 .Replace(".", "\\.", StringComparison.Ordinal);
 
-        string typeName = string.Join(
-            '+',
-            Segments.Select(EscapeSegment));
+        string typeName = Segments.Length == 1
+            ? EscapeSegment(Segments[0])
+            : string.Join('+', Segments.Select(EscapeSegment));
         return Namespace.Length == 0
             ? typeName
             : $"{EscapeNamespace(Namespace)}.{typeName}";

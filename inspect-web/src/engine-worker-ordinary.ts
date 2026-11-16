@@ -167,6 +167,7 @@ type SourceOperationName =
 
 type CallGraphOperationName =
   | "queryMemberCallGraph"
+  | "queryRetainedMemberCallGraph"
   | "queryDirectUseClusters"
   | "expandPlatformCallGraph";
 
@@ -195,7 +196,6 @@ type CatalogOperationName =
   | "explainResources"
   | "describeWorkspaceComponents"
   | "explainWorkspaceComponent"
-  | "findIndexedTypes"
   | "observeRetainedWorkspaceSettlement"
   | "prepareEcosystemWorkspaceDefinition"
   | "preparePackageQueryWorkspaceDefinition"
@@ -2171,6 +2171,16 @@ export const engineWorkerOrdinaryOperations = {
         ...args: Parameters<CallGraphFacade["queryMemberCallGraph"]>
       ) => facades.callGraph.queryMemberCallGraph(...args),
     ),
+    queryRetainedMemberCallGraph: valueOperation(
+      "ordinary-call-graph-query-retained-member",
+      4,
+      (
+        facades,
+        ...args: Parameters<
+          CallGraphFacade["queryRetainedMemberCallGraph"]
+        >
+      ) => facades.callGraph.queryRetainedMemberCallGraph(...args),
+    ),
     queryDirectUseClusters: valueOperation(
       "ordinary-call-graph-query-direct-use-clusters",
       9,
@@ -2206,14 +2216,6 @@ export const engineWorkerOrdinaryOperations = {
           throw new Error(`Project Navigation abandonment returned '${result}'.`);
         }
       },
-    ),
-    findIndexedTypes: valueOperation(
-      "ordinary-catalog-find-indexed-types",
-      5,
-      (
-        facades,
-        ...args: Parameters<CatalogFacade["findIndexedTypes"]>
-      ) => facades.catalog.findIndexedTypes(...args),
     ),
     abandonRetainedWorkspaceNavigation: valueOperation(
       "ordinary-catalog-abandon-retained-workspace-navigation",
@@ -3116,6 +3118,10 @@ export function bindEngineWorkerOrdinaryClient(
       queryMemberCallGraph: bind(
         engineWorkerOrdinaryOperations.callGraph.queryMemberCallGraph,
       ),
+      queryRetainedMemberCallGraph: bind(
+        engineWorkerOrdinaryOperations.callGraph
+          .queryRetainedMemberCallGraph,
+      ),
       queryDirectUseClusters: bind(
         engineWorkerOrdinaryOperations.callGraph.queryDirectUseClusters,
       ),
@@ -3127,9 +3133,6 @@ export function bindEngineWorkerOrdinaryClient(
     catalog: {
       selectProjectInspector: bind(
         engineWorkerOrdinaryOperations.catalog.selectProjectInspector,
-      ),
-      findIndexedTypes: bind(
-        engineWorkerOrdinaryOperations.catalog.findIndexedTypes,
       ),
       abandonRetainedWorkspaceNavigation: bind(
         engineWorkerOrdinaryOperations.catalog

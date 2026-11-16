@@ -403,6 +403,10 @@ public static class AssemblyTypeDeclarationInventoryReader
         var forwarders = ImmutableArray.CreateBuilder<MetadataTypeDefinitionName>();
         var declarations = ImmutableArray.CreateBuilder<AssemblyTypeDeclaration>();
         var names = new HashSet<MetadataTypeDefinitionName>();
+        // Handles and their spellings belong to this one immutable reader.
+        // Reuse decoding within the inventory; attribute values remain per row.
+        var constructorNames = new Dictionary<EntityHandle, string?>();
+        var baseTypeNames = new Dictionary<EntityHandle, string?>();
         int meaningfulPublicTypeCount = 0;
         long retainedTextCharacters = 0;
         MetadataVisibilityClassification visibility =
@@ -459,13 +463,13 @@ public static class AssemblyTypeDeclarationInventoryReader
             }
             declarations.Add(new AssemblyTypeDeclaration(
                 read.Name, AssemblyTypeDeclarationKind.Definition,
-                GetDefinitionKind(reader, definition),
+                GetDefinitionKind(reader, definition, baseTypeNames),
                 definition.IsPublic,
                 visibility.IsExternallyVisible(handle),
                 TypeDefinitionToken.FromHandle(reader, handle),
                 exportedTypeToken: null,
                 AttributeReader.ReadTypeDiscoveryAttributes(
-                    reader, definition.GetCustomAttributes())));
+                    reader, definition.GetCustomAttributes(), constructorNames)));
         }
 
         var referenceProjection = new AssemblyReferenceProjectionCache(reader);
@@ -557,14 +561,20 @@ public static class AssemblyTypeDeclarationInventoryReader
 
     static AssemblyTypeDefinitionKind GetDefinitionKind(
         MetadataReader reader,
-        TypeDefinition definition)
+        TypeDefinition definition,
+        Dictionary<EntityHandle, string?> baseTypeNames)
     {
         if ((definition.Attributes & TypeAttributes.Interface) != 0)
             return AssemblyTypeDefinitionKind.Interface;
 
-        string? baseType = definition.BaseType.IsNil
-            ? null
-            : TypeResolver.GetTypeName(reader, definition.BaseType);
+        string? baseType = null;
+        if (!definition.BaseType.IsNil
+            && !baseTypeNames.TryGetValue(definition.BaseType, out baseType))
+        {
+            baseType = TypeResolver.GetTypeName(reader, definition.BaseType);
+            if (baseTypeNames.Count < 128 && baseType?.Length is not > 256)
+                baseTypeNames.Add(definition.BaseType, baseType);
+        }
         return baseType switch
         {
             "System.Enum" => AssemblyTypeDefinitionKind.Enum,

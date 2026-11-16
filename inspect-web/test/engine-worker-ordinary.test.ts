@@ -29,13 +29,11 @@ import {
 import { WorkerOperationCatalog } from "../src/worker-runtime-realm.ts";
 import { dateTimeOffsetString } from "./date-time-offset-string-fixture.ts";
 import {
-  catalogInertStringFixture,
   inertStringFixture,
   packageInertStringFixture,
 } from "./inert-string-fixture.ts";
 import type {
   BrowserEcosystemPackageWorkspaceAdmissionResult,
-  BrowserIndexedTypeFindResult,
   BrowserRetainedWorkspaceActivationResult,
   BrowserRetainedWorkspaceDefinitionState,
   BrowserRetainedWorkspacePackageAdmissionResult,
@@ -301,13 +299,14 @@ const defaultFacades: EngineWorkerOrdinaryFacades = {
   },
   callGraph: {
     queryMemberCallGraph: () => unexpected("queryMemberCallGraph"),
+    queryRetainedMemberCallGraph: () =>
+      unexpected("queryRetainedMemberCallGraph"),
     queryDirectUseClusters: () => unexpected("queryDirectUseClusters"),
     expandPlatformCallGraph: () =>
       unexpected("expandPlatformCallGraph"),
   },
   catalog: {
     selectProjectInspector: () => unexpected("selectProjectInspector"),
-    findIndexedTypes: () => unexpected("findIndexedTypes"),
     abandonRetainedWorkspaceNavigation: () =>
       unexpected("abandonRetainedWorkspaceNavigation"),
     acknowledgeRetainedWorkspaceNavigation: () =>
@@ -1067,44 +1066,6 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     },
     reason: null,
   } satisfies BrowserTypeFindResult;
-  const indexedTypeFind = {
-    status: "Completed",
-    operation: {
-      find: {
-        content: {
-          matches: [{
-            source: {
-              packageId: "Aspire.Hosting",
-              version: "9.0.0",
-              targetFramework: "net8.0",
-              assemblyName: "Aspire.Hosting",
-            },
-            type: {
-              namespace: "Aspire.Hosting",
-              names: [{
-                name: "DistributedApplication",
-                arity: 0,
-              }],
-            },
-          }],
-          publishedSourceIdentities: [],
-          coverage: [],
-          completion: "Completed",
-        },
-        share: {
-          kind: "nonProjectable",
-          fullUrl: null,
-          packet: null,
-          path: "indexed-type-find",
-          reason: catalogInertStringFixture(
-            "Indexed Type Find is not projectable.",
-          ),
-        },
-        diagnostics: [],
-      },
-    },
-    reason: null,
-  } satisfies BrowserIndexedTypeFindResult;
   const spotlightActivation = {
     status: "navigation",
     navigation: posting.navigation,
@@ -1126,7 +1087,6 @@ test("retained Catalog transport preserves compact posting and bounded Package a
   const ecosystemPackageArguments: (readonly unknown[])[] = [];
   const packageArguments: (readonly unknown[])[] = [];
   const platformArguments: (readonly unknown[])[] = [];
-  const indexedTypeFindArguments: (readonly unknown[])[] = [];
   const typeFindArguments: (readonly unknown[])[] = [];
   const spotlightActivationArguments: (readonly unknown[])[] = [];
   const state = fixture({
@@ -1137,10 +1097,6 @@ test("retained Catalog transport preserves compact posting and bounded Package a
       },
     },
     catalog: {
-      findIndexedTypes: async (...args) => {
-        indexedTypeFindArguments.push(args);
-        return indexedTypeFind;
-      },
       activateRetainedWorkspaceDefinition: async () => activation,
       activateSpotlightDestination: async (...args) => {
         spotlightActivationArguments.push(args);
@@ -1183,19 +1139,11 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     11,
     "JsonSerializer",
   );
-  const indexedFindResult = state.client.catalog.findIndexedTypes(
-    "definition-exact",
-    "realization-exact",
-    12,
-    "DistributedApplication",
-    25,
-  );
   const spotlightResult = state.client.catalog.activateSpotlightDestination(
     "action-exact",
   );
   await state.environment.flushAsync();
   assert.deepEqual(await findResult, typeFind);
-  assert.deepEqual(await indexedFindResult, indexedTypeFind);
   assert.deepEqual(await spotlightResult, spotlightActivation);
 
   const packageResult =
@@ -1305,13 +1253,6 @@ test("retained Catalog transport preserves compact posting and bounded Package a
     "realization-exact",
     "oversized-navigation",
     0,
-  ]]);
-  assert.deepEqual(indexedTypeFindArguments, [[
-    "definition-exact",
-    "realization-exact",
-    12,
-    "DistributedApplication",
-    25,
   ]]);
   assert.deepEqual(typeFindArguments, [[
     "definition-exact",
@@ -2893,6 +2834,7 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "expandPlatformCallGraph",
       "queryDirectUseClusters",
       "queryMemberCallGraph",
+      "queryRetainedMemberCallGraph",
     ],
     catalog: [
       "abandonRetainedWorkspaceNavigation",
@@ -2915,7 +2857,6 @@ test("the page client and Worker catalog expose only the closed allow-list", () 
       "encodeWorkspaceShareState",
       "explainVocabularies",
       "explainResources",
-      "findIndexedTypes",
       "describeWorkspaceComponents",
       "explainWorkspaceComponent",
       "observeRetainedWorkspaceSettlement",

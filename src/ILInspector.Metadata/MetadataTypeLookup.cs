@@ -82,13 +82,24 @@ public static class MetadataTypeLookup
         ArgumentNullException.ThrowIfNull(candidates);
         ArgumentNullException.ThrowIfNull(definition);
         ArgumentException.ThrowIfNullOrWhiteSpace(definitionId);
+        return Definition(candidates,
+            candidate => definition(candidate).ToEscapedFullName(), definitionId);
+    }
+
+    /// <summary>
+    /// Ordinal binding for an already issued legacy spelling. Every coincident
+    /// projection survives; callers cannot infer structured segments from text.
+    /// </summary>
+    public static MetadataTypeLookupResult<TCandidate> Definition<TCandidate>(
+        IEnumerable<TCandidate> candidates,
+        Func<TCandidate, string> definition,
+        string definitionId)
+    {
+        ArgumentNullException.ThrowIfNull(candidates);
+        ArgumentNullException.ThrowIfNull(definition);
+        ArgumentException.ThrowIfNullOrWhiteSpace(definitionId);
         ImmutableArray<TCandidate> matches =
-        [
-            .. candidates.Where(candidate =>
-                definition(candidate).ToEscapedFullName().Equals(
-                    definitionId,
-                    StringComparison.Ordinal)),
-        ];
+            [.. candidates.Where(candidate => definition(candidate).Equals(definitionId, StringComparison.Ordinal))];
         return new(matches, matches.IsEmpty ? null : definitionId);
     }
 

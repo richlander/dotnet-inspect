@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Reflection.Metadata;
 using System.Text.RegularExpressions;
 using CSharpText;
 using ILInspector.MetadataPrimitives;
@@ -402,12 +403,26 @@ public static class TypeMatcher
 
     public static bool MatchesMemberName(string name, string pattern)
     {
-        if (pattern.Equals("this[]", StringComparison.OrdinalIgnoreCase))
-            return name.Equals("Item", StringComparison.OrdinalIgnoreCase)
-                || name.Equals("Chars", StringComparison.OrdinalIgnoreCase);
-
-        return string.Equals(name, pattern, StringComparison.OrdinalIgnoreCase);
+        var (primary, alternate) = MemberNameAlternatives(pattern);
+        if (alternate is not null)
+            return name.Equals(primary, StringComparison.OrdinalIgnoreCase)
+                || name.Equals(alternate, StringComparison.OrdinalIgnoreCase);
+        return string.Equals(name, primary, StringComparison.OrdinalIgnoreCase);
     }
+
+    internal static bool MatchesMemberName(
+        MetadataStringComparer comparer, StringHandle name, string pattern)
+    {
+        var (primary, alternate) = MemberNameAlternatives(pattern);
+        return comparer.Equals(name, primary, ignoreCase: true)
+            || alternate is not null
+                && comparer.Equals(name, alternate, ignoreCase: true);
+    }
+
+    static (string Primary, string? Alternate) MemberNameAlternatives(string pattern) =>
+        pattern.Equals("this[]", StringComparison.OrdinalIgnoreCase)
+            ? ("Item", "Chars")
+            : (pattern, null);
 
     /// <summary>
     /// Cascading type name lookup: exact → glob → fuzzy.

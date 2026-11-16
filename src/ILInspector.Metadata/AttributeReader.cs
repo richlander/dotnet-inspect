@@ -237,14 +237,24 @@ public static partial class AttributeReader
 
     internal static TypeDeclarationDiscoveryAttributes ReadTypeDiscoveryAttributes(
         MetadataReader reader,
-        CustomAttributeHandleCollection attributes)
+        CustomAttributeHandleCollection attributes,
+        Dictionary<EntityHandle, string?>? constructorNames = null)
     {
         bool editorBrowsableNever = false;
         bool obsolete = false;
         foreach (var handle in attributes)
         {
             var attribute = reader.GetCustomAttribute(handle);
-            var name = GetAttributeTypeName(reader, attribute.Constructor);
+            string? name;
+            if (constructorNames is null)
+                name = GetAttributeTypeName(reader, attribute.Constructor);
+            else if (!constructorNames.TryGetValue(attribute.Constructor, out name))
+            {
+                name = GetAttributeTypeName(reader, attribute.Constructor);
+                // Keep batch reuse small; saturation changes only decoding work.
+                if (constructorNames.Count < 128 && name?.Length is not > 256)
+                    constructorNames.Add(attribute.Constructor, name);
+            }
             if (name == EditorBrowsableAttributeName)
             {
                 editorBrowsableNever |= IsEditorBrowsableNever(

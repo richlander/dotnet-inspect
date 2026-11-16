@@ -350,6 +350,12 @@ interface HomeDemoFixture {
   catalog: readonly BrowserHomeDemoCatalogEntry[];
   resolutions?: Readonly<Record<string, BrowserHomeDemoResolved>>;
   results: Readonly<Record<string, BrowserHomeDemoRunResult>>;
+  managedTypeFind?: unknown;
+  managedSpotlightNavigationId?: string;
+  managedSpotlightSelection?: {
+    readonly definitionId: string;
+    readonly assemblyName: string;
+  };
   catalogPending?: boolean;
   resolutionPendingOrdinal?: number;
   resolutionFailureOrdinal?: number;
@@ -1760,6 +1766,15 @@ async function installFacades(
       }`,
     metadata: `
       ${surfaceLookup}
+      const managedTypeFind = ${JSON.stringify(
+        homeDemos?.managedTypeFind ?? null)};
+      export async function findTypes() {
+        return managedTypeFind ?? {
+          status: "Unavailable",
+          operation: null,
+          reason: "Managed Type Find is unavailable.",
+        };
+      }
       ${diagnostics.libraryApiDiffPilot ? `
       export async function queryLibraryApiDiff(operationId, request) {
         const endpoint = version => ({
@@ -3376,6 +3391,69 @@ async function installFacades(
         if (!selected) throw new Error("Unknown library: " + asset);
         return performanceFor(surface, selected, version, framework, asset);
       }
+      // Package Library Performance streams through the Worker (#9752): one
+      // JSON Item event per member, then a version-1 terminal result whose
+      // summary is the single-call result without its members. A query
+      // failure settles as Failed, as the managed operation reports it.
+      const libraryPerformanceOperations = new Map();
+      export async function queryPackagePerformanceStreaming(
+        operationId, id, version, framework, asset, eventSink
+      ) {
+        document.documentElement.dataset.analysisRequest = asset;
+        const surface = surfaceFor(id);
+        const selected = surface.assemblies.find(item => item.id === asset);
+        if (!selected) throw new Error("Unknown library: " + asset);
+        const terminal = fields => ({
+          version: 1,
+          summary: null,
+          failureKind: null,
+          error: null,
+          diagnostic: null,
+          reason: null,
+          ...fields,
+        });
+        libraryPerformanceOperations.set(operationId, null);
+        try {
+          let performance;
+          try {
+            performance = await performanceFor(
+              surface, selected, version, framework, asset);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            return terminal({
+              kind: "Failed",
+              failureKind: "Unexpected",
+              error: message,
+              diagnostic: message,
+            });
+          }
+          const canceled = libraryPerformanceOperations.get(operationId);
+          if (canceled) return terminal({ kind: "Canceled", reason: canceled });
+          const { members, ...summary } = performance;
+          for (const item of members) {
+            eventSink.event = JSON.stringify({ kind: "Item", item });
+          }
+          return terminal({
+            kind: "Succeeded",
+            summary: {
+              syncCallsInAsync: [],
+              syncCallsInAsyncCount: null,
+              ...summary,
+            },
+          });
+        } finally {
+          libraryPerformanceOperations.delete(operationId);
+        }
+      }
+      export function cancelLibraryPerformanceAnalysis(operationId, reason) {
+        if (!libraryPerformanceOperations.has(operationId)) {
+          return { kind: "NotActive", reason: null };
+        }
+        const requested = libraryPerformanceOperations.get(operationId);
+        if (requested) return { kind: "AlreadyRequested", reason: requested };
+        libraryPerformanceOperations.set(operationId, reason);
+        return { kind: "Requested", reason };
+      }
       export async function queryPlatformPerformance(framework, version, file, pack) {
         document.documentElement.dataset.platformAnalysisRequest = file + ":" + pack;
         const row = ${JSON.stringify(catalogTarget.rows)}.find(item => item.assembly + ".dll" === file && item.pack === pack);
@@ -3402,8 +3480,8 @@ async function installFacades(
           assemblies: [selected],
           types: [selectedType]
         };
-        return JSON.stringify(await performanceFor(
-          surface, selected, version, framework, selected.id));
+        return await performanceFor(
+          surface, selected, version, framework, selected.id);
       }`,
     source: `
       export async function queryMemberFindingCensus(...args) {
@@ -3486,6 +3564,22 @@ async function installFacades(
     "call-graph": `
       const callGraph = ${JSON.stringify(fixtureCallGraph)};
       export async function queryMemberCallGraph() {
+        document.documentElement.dataset.compatibilityCallGraph = "true";
+        return callGraph;
+      }
+      export async function queryRetainedMemberCallGraph(
+        retainedDefinitionId,
+        realizationId,
+        navigationId,
+        request,
+      ) {
+        document.documentElement.dataset.retainedCallGraphRequest =
+          JSON.stringify([
+            retainedDefinitionId,
+            realizationId,
+            navigationId,
+            request,
+          ]);
         return callGraph;
       }
       export async function expandPlatformCallGraph() {
@@ -3497,6 +3591,10 @@ async function installFacades(
       const ecosystemsCatalogPending =
         ${Boolean(packageLoading.deferEcosystemsCatalog)};
       const homeDemos = ${JSON.stringify(homeDemos?.catalog ?? [])};
+      const managedSpotlightNavigationId = ${JSON.stringify(
+        homeDemos?.managedSpotlightNavigationId ?? null)};
+      const managedSpotlightSelection = ${JSON.stringify(
+        homeDemos?.managedSpotlightSelection ?? null)};
       const ecosystemAdmissionOptions = ${JSON.stringify(ecosystemAdmission)};
       const productEcosystems = [{
         id: "ecosystem.fixture-platform",
@@ -4281,28 +4379,6 @@ async function installFacades(
         }
         return { ecosystems: productEcosystems };
       }
-      export function listPackageViewFacets() {
-        return {
-          facets: [
-            {
-              id: "package.libraries", kind: "Package", title: "Libraries",
-              summary: "", order: 50, role: "PackageLibraries",
-            },
-            {
-              id: "package.overview", kind: "Package", title: "Overview",
-              summary: "", order: 100, role: "PackageOverview",
-            },
-            {
-              id: "package.dependencies", kind: "Package", title: "Dependencies",
-              summary: "", order: 200, role: null,
-            },
-            {
-              id: "package.dependency-hierarchy", kind: "Package",
-              title: "Dependency Hierarchy", summary: "", order: 300, role: null,
-            },
-          ],
-        };
-      }
       export function listLibraryViewFacets() {
         return {
           facets: [
@@ -4433,6 +4509,48 @@ async function installFacades(
               title: "Compare",
               summary: "Detailed diff and clone results for the active Member.",
               order: 600,
+              role: null,
+            },
+          ],
+        };
+      }
+      export function listPackageViewFacets() {
+        return {
+          facets: [
+            {
+              id: "package.libraries",
+              kind: "Package",
+              title: "Libraries",
+              summary:
+                "Libraries of the selected target, or RID packages of a tool pointer package.",
+              order: 50,
+              role: "PackageLibraries",
+            },
+            {
+              id: "package.overview",
+              kind: "Package",
+              title: "Overview",
+              summary:
+                "Package identity, selected target, assets, and summary facts.",
+              order: 100,
+              role: "PackageOverview",
+            },
+            {
+              id: "package.dependencies",
+              kind: "Package",
+              title: "Dependencies",
+              summary:
+                "Declared package dependencies for the selected target framework.",
+              order: 200,
+              role: null,
+            },
+            {
+              id: "package.dependency-hierarchy",
+              kind: "Package",
+              title: "Dependency Hierarchy",
+              summary:
+                "Rooted transitive package dependencies for the selected target framework.",
+              order: 300,
               role: null,
             },
           ],
@@ -4621,6 +4739,15 @@ async function installFacades(
           }
         }
         return { succeeded: true, sources: workspaceSources, failure: null };
+      }
+      // The engine upgrades only a format-1 packet that pins one Runtime
+      // Library with the Overview lens (CompleteRestorationPreparation.
+      // UpgradeLegacyPlatformPacket). These fixtures' legacy Platform packets
+      // select no Library, so the real probe refuses them and restoration
+      // keeps its legacy path; package-adoption.spec.ts gates the upgrade
+      // against the real engine.
+      export function canUpgradeLegacyPlatformWorkspace() {
+        return false;
       }
       export async function prepareRetainedWorkspaceDefinition(
         retainedDefinitionId,
@@ -4937,6 +5064,68 @@ async function installFacades(
       }
       export function validateRetainedWorkspaceNavigationAuthority() {
         return true;
+      }
+      export function activateSpotlightDestination(action) {
+        if (action !== "managed-spotlight-type"
+          || managedSpotlightNavigationId === null
+          || managedSpotlightSelection === null
+          || preparedRetainedWorkspace === null) {
+          return {
+            status: "unavailable",
+            navigation: null,
+            surface: null,
+            selectedType: null,
+            selection: null,
+            activationStatus: null,
+            reason: "Managed Spotlight activation is unavailable.",
+          };
+        }
+        const inventory = preparedRetainedWorkspace.packages.find(
+          item => item.navigationId === managedSpotlightNavigationId);
+        const navigation = structuredClone(
+          preparedRetainedWorkspace.navigation);
+        const target = navigation.snapshot.packages.find(
+          item => item.subject.id === inventory?.consumerPackageSubjectId);
+        if (inventory === undefined || target === undefined) {
+          throw new Error(
+            "Managed Spotlight activation target is unavailable.");
+        }
+        navigation.operation = "Navigate";
+        navigation.request = "managed-spotlight-type";
+        navigation.snapshot.activePackage = target.subject.id;
+        navigation.snapshot.activeSubject = target.subject;
+        navigation.snapshot.packages = navigation.snapshot.packages.map(
+          item => ({
+            ...item,
+            state: item === target ? "Active" : "Available",
+            isCurrent: item === target,
+          }));
+        navigation.snapshot.hierarchy = navigation.snapshot.hierarchy.map(
+          item => item.kind === "Package"
+            ? {
+                ...item,
+                state: item.subject.id === target.subject.id
+                  ? "Active"
+                  : "Available",
+                isActive: item.subject.id === target.subject.id,
+              }
+            : item);
+        navigation.synchronization = "Current";
+        navigation.authority = {
+          session: "home-demo-session",
+          revision: "managed-spotlight-revision",
+          intent: "managed-spotlight-intent",
+          epoch: "managed-spotlight-epoch",
+        };
+        return {
+          status: "navigation",
+          navigation,
+          surface: null,
+          selectedType: null,
+          selection: managedSpotlightSelection,
+          activationStatus: null,
+          reason: null,
+        };
       }
       export async function recordRetainedWorkspaceNavigationPosting() {
         if (preparedRetainedWorkspace?.navigation.operation === "Scope"

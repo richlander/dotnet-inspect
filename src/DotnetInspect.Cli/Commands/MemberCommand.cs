@@ -36,12 +36,13 @@ public static partial class MemberCommand
 
     internal static Task<int> ExecuteAsync(
         MemberOptions options,
-        ResolvedMemberInspectionPlan plan)
+        ResolvedMemberInspectionPlan plan,
+        CancellationToken cancellationToken = default)
         => PackageReferenceAdmission.IsCandidate(options.PackagePath)
             ? ExecutePackageReferenceAsync(options, plan)
             : options.WorkspacePacket is not null
-            ? ExecuteWorkspaceAsync(options, plan, CreateWorkspaceLoadOptions(options))
-            : ExecuteWithShareAsync(options, plan);
+            ? ExecuteWorkspaceAsync(options, plan, CreateWorkspaceLoadOptions(options), cancellationToken)
+            : ExecuteWithShareAsync(options, plan, cancellationToken: cancellationToken);
 
     internal static Task<int> ExecuteAsync(
         MemberOptions options,
@@ -77,7 +78,8 @@ public static partial class MemberCommand
             issuePackageOperation = null,
         bool allowImplicitDocumentation = true,
         ApiType? preselectedType = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        WorkspaceExtensionCandidatePopulation? workspaceExtensionCandidates = null)
     {
         if (plan.Intent.Surface != InspectionSurface.Member)
             throw new ArgumentException(
@@ -1777,7 +1779,9 @@ public static partial class MemberCommand
                     sourcePortablePdb,
                 inspectionCompletion: inspectionCompletion,
                 memberCodeCancellationToken:
-                    cancellationToken);
+                    cancellationToken,
+                workspaceExtensionCandidates:
+                    workspaceExtensionCandidates);
             if (writeExitCode != 0)
                 return writeExitCode;
 
@@ -2445,14 +2449,16 @@ public static partial class MemberCommand
     // Returns a selector that limits API extraction to the requested Type, or
     // null when the request needs the complete surface. A same-image
     // extension method with the member's name would be projected onto its
-    // receiver Type only by the complete surface, so it keeps that route; so
-    // does a Type the metadata owner cannot find by full name.
+    // receiver Type only by the complete surface, so it keeps that route.
+    // Shared exact Type selection issues the coordinate used by extraction;
+    // non-success keeps the complete route and its diagnostics.
     static Func<string, Func<TypeDefinitionHandle, bool>?>?
         SingleTypeSurfaceSelector(
             string? typeName,
             MemberOptions options)
     {
         if (string.IsNullOrWhiteSpace(typeName)
+            || TypeMatcher.IsTypeGlobPattern(typeName)
             || options.RouterDeferredTypeOrMember
             || options.EffectiveDiscovery
             || options.HasCallerScope
@@ -2475,12 +2481,16 @@ public static partial class MemberCommand
             {
                 using AssemblyInspectionSession session =
                     AssemblyInspectionSession.Open(assemblyPath);
-                if (session.MethodBodies.FindUniqueLookupTypeToken(typeName) is not { } token
+                ExactTypeDefinitionSelection selection = ExactTypeInspectionOperation.SelectDeclarations(
+                    session.TypeDeclarations(), typeName,
+                    options.IncludeAll ? ApiSurfaceScope.IncludeAll : ApiSurfaceScope.Public).Content;
+                if (selection.Outcome != ExactTypeInspectionOutcome.Available
+                    || selection.DefinitionToken is not { } token
                     || session.MethodBodies.DeclaresExtensionMethod(memberName))
                 {
                     return null;
                 }
-                return handle => MetadataTokens.GetToken(handle) == token;
+                return handle => MetadataTokens.GetToken(handle) == token.Value;
             }
             catch (BadImageFormatException)
             {

@@ -166,7 +166,8 @@ internal sealed record BrowserRetainedWorkspacePackagePresentation(
     int ContextIndex,
     string ConsumerPackageSubjectId,
     CompleteRestorationPackageInventory Inventory,
-    BrowserPackageSurfaceInfo Surface);
+    BrowserPackageSurfaceInfo Surface,
+    PackageRootBinding? ScopeBinding = null);
 
 internal sealed record BrowserRetainedWorkspacePlatformPresentation(
     string NavigationId,
@@ -179,14 +180,22 @@ internal sealed record BrowserRetainedWorkspacePlatformPresentation(
 [SupportedOSPlatform("browser")]
 internal sealed class BrowserRetainedNavigationPreparation
 {
+    readonly object _gate = new();
+    readonly Dictionary<
+        WorkspacePackageOccurrence,
+        NavigationPackageEvaluation> _packageScopeEvaluations =
+            new(ReferenceEqualityComparer.Instance);
     readonly NavigationFacetAvailabilityProvider _availability;
+    readonly BrowserPackageSourceCapabilities _packageSources;
     readonly ApiSurfaceProjectionLimits _surfaceLimits;
 
     BrowserRetainedNavigationPreparation(
         NavigationFacetAvailabilityProvider availability,
+        BrowserPackageSourceCapabilities packageSources,
         ApiSurfaceProjectionLimits surfaceLimits)
     {
         _availability = availability;
+        _packageSources = packageSources;
         _surfaceLimits = surfaceLimits;
     }
 
@@ -196,10 +205,35 @@ internal sealed class BrowserRetainedNavigationPreparation
         ArgumentNullException.ThrowIfNull(options);
         return new(
             options.FacetAvailability,
+            new(
+                options.ContextLoad.HttpClient,
+                options.ContextLoad.SourceAuthorization),
             options.PackageSurfaceLimits);
     }
 
+    internal BrowserPackageSourceCapabilities PackageSources =>
+        _packageSources;
+
     internal ApiSurfaceProjectionLimits SurfaceLimits => _surfaceLimits;
+
+    internal void RetainPackageScopeEvaluation(
+        WorkspacePackageOccurrence occurrence,
+        NavigationPackageEvaluation evaluation)
+    {
+        ArgumentNullException.ThrowIfNull(occurrence);
+        ArgumentNullException.ThrowIfNull(evaluation);
+        if (!ReferenceEquals(
+                evaluation.Occurrence.Occurrence,
+                occurrence))
+        {
+            throw new ArgumentException(
+                "The retained Package evaluation must belong to the exact occurrence.",
+                nameof(evaluation));
+        }
+
+        lock (_gate)
+            _packageScopeEvaluations[occurrence] = evaluation;
+    }
 
     internal ValueTask<NavigationPreparation> PrepareAsync(
         WorkspaceRealizationOperationLease operation,
@@ -225,6 +259,27 @@ internal sealed class BrowserRetainedNavigationPreparation
         }
 
         cancellationToken.ThrowIfCancellationRequested();
+        NavigationPackageEvaluation? retainedPackage;
+        lock (_gate)
+        {
+            _packageScopeEvaluations.TryGetValue(
+                request.Occurrence,
+                out retainedPackage);
+        }
+        if (retainedPackage is not null
+            && operation.Scope.Packages.Any(package =>
+                ReferenceEquals(
+                    package.Occurrence,
+                    request.Occurrence)))
+        {
+            return ValueTask.FromResult<NavigationPreparation>(
+                new NavigationPreparation.Ready(
+                    new(
+                        operation.Scope,
+                        retainedPackage,
+                        _availability)));
+        }
+
         var sources = ImmutableArray.CreateBuilder<Source>();
         foreach (WorkspaceDeclarationContext context
             in operation.Workspace.GetDeclarationContextsSnapshot())
@@ -420,7 +475,10 @@ internal abstract record BrowserRetainedWorkspacePackageOperationAdmission
 
     internal sealed record Admitted(
         WorkspaceRealizationOperationLease Operation,
-        BrowserRetainedWorkspacePackagePresentation Presentation)
+        BrowserRetainedWorkspacePackagePresentation Presentation,
+        PackageRootBinding Binding,
+        AssemblyContextGroup Group,
+        BrowserPackageSourceCapabilities PackageSources)
         : BrowserRetainedWorkspacePackageOperationAdmission;
 
     internal sealed record Superseded
@@ -1841,6 +1899,9 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                 navigationPosting,
                 completed.Result);
         }
+        navigationPosting.NavigationPreparation.RetainPackageScopeEvaluation(
+            occurrence.Occurrence,
+            available.Value);
 
         string navigationId = consumerPackages[0].Subject.Id;
         int contextIndex = navigationPosting.Packages
@@ -1863,7 +1924,8 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
             BrowserPackageSurfaceProjection.Project(
                 inventory,
                 BrowserPackage.ProjectIcon(
-                    PackageIconQuery.Execute(binding.Root))));
+                    PackageIconQuery.Execute(binding.Root))),
+            binding);
         BrowserRetainedWorkspacePosting finalPosting;
         lock (_gate)
         {
@@ -1987,6 +2049,8 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                 .Superseded();
         }
 
+        BrowserRetainedWorkspacePosting expected;
+        BrowserRetainedWorkspacePackagePresentation presentation;
         lock (_gate)
         {
             if (_active is not { } active
@@ -2001,10 +2065,10 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                     .Superseded();
             }
 
-            BrowserRetainedWorkspacePackagePresentation? presentation =
+            BrowserRetainedWorkspacePackagePresentation? selected =
                 active.Packages.FirstOrDefault(
                     candidate => candidate.NavigationId == navigationId);
-            if (presentation is null)
+            if (selected is null)
             {
                 admitted.Lease.Dispose();
                 return new BrowserRetainedWorkspacePackageOperationAdmission
@@ -2012,10 +2076,143 @@ internal sealed partial class BrowserRetainedWorkspaceActivationOwner :
                         $"Navigation row '{navigationId}' is not a Package "
                             + "in the active Workspace.");
             }
-
-            return new BrowserRetainedWorkspacePackageOperationAdmission
-                .Admitted(admitted.Lease, presentation);
+            expected = active;
+            presentation = selected;
         }
+
+        PackageRootBinding binding;
+        AssemblyContextGroup group;
+        if (presentation.ScopeBinding is { } scopeBinding)
+        {
+            WorkspacePackageOccurrenceDescriptor? occurrence =
+                admitted.Lease.Scope.FindExactPackageOccurrence(scopeBinding);
+            if (occurrence is null
+                || !ReferenceEquals(
+                    occurrence.Occurrence.Package,
+                    presentation.Inventory.Package))
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePackageOperationAdmission
+                    .Unavailable(
+                        "The admitted Workspace Package occurrence is unavailable.");
+            }
+
+            WorkspacePackageDeclarationAdmissionResult declaration;
+            try
+            {
+                declaration = await admitted.Lease.Workspace
+                    .AdmitPackageScopeDeclarationAsync(
+                        occurrence,
+                        cancellationToken).ConfigureAwait(false);
+            }
+            catch
+            {
+                admitted.Lease.Dispose();
+                throw;
+            }
+            if (declaration
+                is not WorkspacePackageDeclarationAdmissionResult.Admitted
+                    admittedDeclaration)
+            {
+                var rejected =
+                    (WorkspacePackageDeclarationAdmissionResult.Rejected)
+                        declaration;
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePackageOperationAdmission
+                    .Unavailable(
+                        "The admitted Workspace Package declaration is "
+                            + $"unavailable ({rejected.Failure.Kind}).");
+            }
+
+            WorkspacePackageDeclarationAdmission scopeAdmission =
+                admittedDeclaration.Admission;
+            WorkspaceDeclarationContext context = scopeAdmission.Context;
+            if (!ReferenceEquals(scopeAdmission.Occurrence, occurrence)
+                || occurrence.Realization.Status
+                    is not ArtifactRootRealizationStatus.Ready ready
+                || !ReferenceEquals(
+                    scopeAdmission.Generation,
+                    ready.Generation)
+                || !ReferenceEquals(
+                    context.Receipt.Workspace,
+                    admitted.Lease.Realization)
+                || context.Receipt.Request
+                    is not WorkspaceDeclarationRequest.PackageScope request
+                || !ReferenceEquals(request.Occurrence, occurrence)
+                || context.Group is not { } scopeGroup)
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePackageOperationAdmission
+                    .Unavailable(
+                        "The admitted Workspace Package declaration is unavailable.");
+            }
+
+            binding = scopeBinding;
+            group = scopeGroup;
+        }
+        else
+        {
+            WorkspaceDeclarationContext[] contexts =
+            [
+                .. admitted.Lease.Workspace
+                    .GetDeclarationContextsSnapshot()
+                    .Where(candidate =>
+                        ReferenceEquals(
+                            candidate.Receipt.Workspace,
+                            admitted.Lease.Realization)
+                        && candidate.Receipt.Order
+                            == presentation.ContextIndex),
+            ];
+            if (contexts.Length != 1
+                || contexts[0].Group is not { } loadedGroup
+                || contexts[0].ContextLoadOutcome
+                    is not WorkspaceContextLoadOutcome.Loaded loaded)
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePackageOperationAdmission
+                    .Unavailable(
+                        "The admitted Workspace Package context is unavailable.");
+            }
+
+            PackageRootBinding[] bindings =
+            [
+                .. loaded.PackageRoots.Where(candidate =>
+                    ReferenceEquals(
+                        admitted.Lease.Scope
+                            .FindExactPackageOccurrence(candidate)
+                            ?.Occurrence.Package,
+                        presentation.Inventory.Package)),
+            ];
+            if (bindings.Length != 1)
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePackageOperationAdmission
+                    .Unavailable(
+                        bindings.Length == 0
+                            ? "The admitted Workspace Package Root is unavailable."
+                            : "The admitted Workspace Package Root is ambiguous.");
+            }
+
+            binding = bindings[0];
+            group = loadedGroup;
+        }
+
+        lock (_gate)
+        {
+            if (!ReferenceEquals(_active, expected))
+            {
+                admitted.Lease.Dispose();
+                return new BrowserRetainedWorkspacePackageOperationAdmission
+                    .Superseded();
+            }
+        }
+
+        return new BrowserRetainedWorkspacePackageOperationAdmission.Admitted(
+            admitted.Lease,
+            presentation,
+            binding,
+            group,
+            expected.NavigationPreparation.PackageSources);
     }
 
     internal Task<BrowserRetainedWorkspaceAdmissionResult<BrowserRetainedWorkspacePlatformPresentation>>

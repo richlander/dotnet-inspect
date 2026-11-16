@@ -834,14 +834,14 @@ public static class ApiCommandDefinitions
                 return 1;
             }
 
-            if (parseResult.GetValue(matchOption)
-                && parseResult.GetValue(workspaceOption) is not null)
-            {
-                CommandError.Write("--workspace cannot be combined with --match.");
-                return 1;
-            }
             if (parseResult.GetValue(matchOption))
             {
+                if (parseResult.GetValue(workspaceOption) is not null)
+                {
+                    CommandError.Write(
+                        "--workspace cannot be combined with --match.");
+                    return 1;
+                }
                 return ApiCoordinateMatchOptionsParser.ParseMember(
                     parseResult,
                     opts,
@@ -995,7 +995,8 @@ public static class ApiCommandDefinitions
                 case MemberOptionsParser.Success success:
                     return await MemberCommand.ExecuteAsync(
                         success.Options,
-                        success.Plan);
+                        success.Plan,
+                        ct);
 
                 default:
                     return 1;

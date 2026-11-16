@@ -19,6 +19,9 @@ public sealed record ExactTypeDefinitionSelection(
     /// Null unless requested after a conclusive query miss.
     /// </summary>
     public bool? HasPrefixCandidates { get; init; }
+
+    /// <summary>The selected TypeDef coordinate in the supplying inventory image.</summary>
+    public TypeDefinitionToken? DefinitionToken { get; init; }
 }
 
 internal static partial class ExactTypeInspectionQuery
@@ -70,14 +73,37 @@ internal static partial class ExactTypeInspectionQuery
             });
         }
 
-        ImmutableArray<AssemblyTypeDeclaration> declarations =
-            completed.Correspondence.Inventory.Declarations;
+        return SelectDeclarations(completed.Correspondence.Inventory, type, scope,
+            selectionKind, includePrefixDiscovery, cancellationToken, bounds);
+
+        ExactTypeDefinitionSelection Unavailable(string detail) =>
+            new(ExactTypeInspectionOutcome.Unavailable, type, null, [], detail);
+    }
+
+    internal static ExactTypeDefinitionSelection SelectDeclarations(
+        AssemblyTypeDeclarationInventory inventory,
+        string type,
+        ApiSurfaceScope scope,
+        ExactTypeSelectionKind selectionKind,
+        bool includePrefixDiscovery = false,
+        CancellationToken cancellationToken = default,
+        ApiSurfaceExtractionBounds? bounds = null)
+    {
+        ArgumentNullException.ThrowIfNull(inventory);
+        ArgumentException.ThrowIfNullOrWhiteSpace(type);
+        if (scope is not (ApiSurfaceScope.Public or ApiSurfaceScope.IncludeAll
+            or ApiSurfaceScope.PublicWithNonPublicTypes))
+            throw new ArgumentOutOfRangeException(nameof(scope));
+        if (!Enum.IsDefined(selectionKind))
+            throw new ArgumentOutOfRangeException(nameof(selectionKind));
+        var declarations = inventory.Declarations;
         if (declarations.Any(item => item.Kind == AssemblyTypeDeclarationKind.ModuleExport))
             return Unavailable("The Library has exported Types whose defining module is unavailable.");
         AssemblyTypeDeclaration[] admitted =
             [.. declarations.Where(item => AdmitsDeclaration(item, scope))];
-        if (admitted.Count(item => item.Kind == AssemblyTypeDeclarationKind.Definition) > bounds.MaxTypes
-            || admitted.Count(item => item.Kind == AssemblyTypeDeclarationKind.Forwarder) > bounds.MaxTypeForwarders)
+        if (bounds is not null
+            && (admitted.Count(item => item.Kind == AssemblyTypeDeclarationKind.Definition) > bounds.MaxTypes
+                || admitted.Count(item => item.Kind == AssemblyTypeDeclarationKind.Forwarder) > bounds.MaxTypeForwarders))
             return Unavailable("The exact Type inventory exceeded its declaration bounds.");
         cancellationToken.ThrowIfCancellationRequested();
         MetadataTypeLookupResult<AssemblyTypeDeclaration> selection =
@@ -91,7 +117,10 @@ internal static partial class ExactTypeInspectionQuery
                 [.. selection.Matches.Select(item => item.Name.ToEscapedFullName())],
                 $"Type '{type}' resolved to more than one exact Metadata definition.");
         if (selection.Matches.Length == 1)
-            return new(ExactTypeInspectionOutcome.Available, type, selection.Matches[0].Name, [], null);
+            return new(ExactTypeInspectionOutcome.Available, type, selection.Matches[0].Name, [], null)
+            {
+                DefinitionToken = selection.Matches[0].DefinitionToken,
+            };
         bool? hasPrefixCandidates = null;
         if (includePrefixDiscovery && selectionKind == ExactTypeSelectionKind.Query)
         {
