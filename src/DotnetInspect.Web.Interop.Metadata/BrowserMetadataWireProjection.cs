@@ -9,6 +9,19 @@ namespace DotnetInspect.Web.Interop.Metadata;
 [SupportedOSPlatform("browser")]
 internal static class BrowserMetadataWireProjection
 {
+    internal static Wire.TypeSignaturePresentation Project(
+        DotnetInspector.Presentation.TypeSignaturePresentation presentation) =>
+        new(
+            presentation.Type,
+            presentation.Kind,
+            presentation.Modifiers,
+            presentation.Accessibility,
+            presentation.Namespace,
+            presentation.BaseType,
+            presentation.TypeParameters,
+            presentation.InterfaceCount,
+            presentation.NestedTypeCount);
+
     internal static BrowserCompileLibraryAvailability Project(
         BrowserCompileLibraryInfo compileLibrary)
     {

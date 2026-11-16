@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Text.Json.Serialization.Metadata;
 using DotnetInspector.Queries;
-using DotnetInspector.Presentation;
 using DotnetInspector.Sections;
 using Wire = DotnetInspect.Web.Interop.Metadata.Wire;
 
@@ -100,7 +99,7 @@ public sealed record BrowserTypeMetadata(
     string[] InspectionFailures)
 {
     public InspectionEnvelope<JsonElement>? TypeSignatureInspection { get; init; }
-    public TypeSignaturePresentation? TypeSignaturePresentation { get; init; }
+    public Wire.TypeSignaturePresentation? TypeSignaturePresentation { get; init; }
     public InspectionEnvelope<BrowserTypeMetadataProjection>?
         TypeProjectionInspection
     { get; init; }
