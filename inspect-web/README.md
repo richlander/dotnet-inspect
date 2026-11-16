@@ -683,7 +683,7 @@ The surface answers what a developer compiles against. It owns:
 - Type and member declarations and documents;
 - catalog counts;
 - Opportunities;
-- explicit memory-safety contracts;
+- the memory-safety contracts of the members it declares;
 - the navigation identity of Analysis rows.
 
 The implementation answers what runs. It owns:
@@ -691,7 +691,8 @@ The implementation answers what runs. It owns:
 - Metadata images;
 - Integrations and Performance;
 - implementation profiles, heat, and leverage;
-- body evidence for Unsafe;
+- body evidence for Unsafe, and the memory-safety contracts of members the
+  surface omits;
 - Resource Triage;
 - Library metrics and structure;
 - call graphs.
@@ -699,19 +700,38 @@ The implementation answers what runs. It owns:
 A view reads one role for each fact it shows, so a count always describes the
 same assembly as the list beside it.
 
-Memory-safety contracts show why the surface is not interchangeable with the
-implementation. Platform reference assemblies are compiled under the updated
-memory-safety rules: they carry `MemorySafetyRulesAttribute` and
-`RequiresUnsafeAttribute`. The .NET 11 runtime-pack assemblies, including
-`System.Private.CoreLib`, carry neither. Two consequences follow:
-- A Platform member's caller-unsafe contract is a surface fact. A view that
-  shows it reads the reference assembly and never infers it from the
-  implementation's metadata.
-- An Unsafe finding combines body evidence from the implementation with
-  explicit contracts from the surface.
+Memory-safety information shows why the surface is not interchangeable with
+the implementation. A member's safety contract has two parts:
+
+- **The caller-unsafe marker.** A member declared `unsafe` compiles to
+  `RequiresUnsafeAttribute` under the updated memory-safety rules, which an
+  assembly opts into with `MemorySafetyRulesAttribute`.
+- **The safety prose.** This is the member's `<safety>` documentation, which
+  ships in the reference pack's XML documentation beside the rest of its
+  docs.
+
+The published .NET 11 reference assemblies carry the markers. The .NET 11
+runtime-pack assemblies, including `System.Private.CoreLib`, do not.
+dotnet/runtime has begun enrolling implementation projects in the updated
+rules, for example
+[dotnet/runtime#136657](https://github.com/dotnet/runtime/pull/136657). Later
+runtime packs may therefore carry markers on their own members, including
+non-public members the reference assembly omits. The `<safety>` prose is not
+yet written.
+
+The role that declares a member supplies its safety contract:
+- **Surface-declared members.** For a member the reference assembly declares,
+  the surface is authoritative. A view that shows its marker or prose reads the
+  reference assembly and its documentation, and never infers either from the
+  implementation.
+- **Members the surface omits.** For a non-public member, or any member the
+  reference assembly omits, the implementation's own marker is the only
+  contract.
+- **Unsafe findings.** A finding combines body evidence from the
+  implementation with the contract from the declaring role.
 
 [Platform caller-unsafe contracts](../docs/design/platform-caller-unsafe-contracts.md)
-owns contract consumption. These roles only fix which assembly supplies it.
+owns marker consumption. These roles only fix which assembly supplies it.
 
 Surface and implementation pair by assembly name within one family and
 version, as a package pairs a `ref/` asset with its matching `lib/` asset. The
