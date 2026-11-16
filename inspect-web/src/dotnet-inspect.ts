@@ -6168,7 +6168,8 @@ function filteredTypes() {
       && (!state.typeTraitFilter
         || item.traitFacetIds.includes(state.typeTraitFilter))
       && (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
-      && state.accessibilityFilter.has(item.accessibilityId);
+      && state.accessibilityFilter.has(item.accessibilityId)
+      && !isListedAsForwarder(item);
   });
 }
 
@@ -6382,6 +6383,22 @@ function currentPlatformForwarderView() {
 function selectedForwarder() {
   return currentPlatformForwarderView()?.forwarders.find(
     row => row.id === state.selectedTypeId) ?? null;
+}
+
+const forwarderRowIds = new WeakMap<object, ReadonlySet<string>>();
+
+// A facade's reference surface declares the Types its runtime assembly
+// forwards, under the same id as their forwarder rows. Such a Type lists and
+// counts once, as its forwarder, which keeps the forwarder's Overview.
+function isListedAsForwarder(item: AppTypeSurface) {
+  const view = currentPlatformForwarderView();
+  if (!view) return false;
+  let ids = forwarderRowIds.get(view);
+  if (!ids) {
+    ids = new Set(view.forwarders.map(row => row.id));
+    forwarderRowIds.set(view, ids);
+  }
+  return ids.has(item.id);
 }
 
 function filteredTypeRows(): Array<AppTypeSurface | BrowserPlatformForwarderRow> {
@@ -7482,7 +7499,8 @@ function typeFilterSummary() {
 
 function typeSelectorDefinitions() {
   const definitions = state.package?.types.filter(item =>
-    !state.libraryScope || state.libraryScope.has(libraryKey(item))) ?? [];
+    (!state.libraryScope || state.libraryScope.has(libraryKey(item)))
+    && !isListedAsForwarder(item)) ?? [];
   const forwarders = currentPlatformForwarderView()?.forwarders ?? [];
   return { definitions, forwarders };
 }
@@ -14713,7 +14731,8 @@ function renderLibraryCompositionOverview(
   const nsCounts = new Map<string, number>();
   for (const type of pkg.types) {
     if (!isDefaultAccessibility(type)
-      || (library && libraryKey(type) !== library.id)) {
+      || (library && libraryKey(type) !== library.id)
+      || isListedAsForwarder(type)) {
       continue;
     }
     kinds.set(
@@ -14819,7 +14838,12 @@ function libraryNavigateTypeCount(
   const presentation = platformForwarderPresentation;
   if (!presentation?.ready
     || presentation.key !== selectedPlatformForwarderKey()) return null;
-  return definitions + (presentation.view?.forwarders.length ?? 0);
+  // A forwarder of a Type the reference surface counts is counted already.
+  const declared = new Set(pkg.types
+    .filter(type => isDefaultAccessibility(type))
+    .map(type => type.id));
+  return definitions + (presentation.view?.forwarders
+    .filter(row => !declared.has(row.id)).length ?? 0);
 }
 
 function renderLibraryOverview() {

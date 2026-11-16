@@ -42,9 +42,13 @@ public sealed partial class BrowserEngineBoundaryTests
 
     // The runtime assembly carries no markers, as .NET 11 runtime packs do,
     // and declares members and Types the reference omits. Its assembly
-    // version differs from the reference's, because roles pair by name.
+    // version differs from the reference's, because roles pair by name. It
+    // forwards the reference's ReferenceOnly, and a Type the reference does
+    // not declare, to the private assembly.
     const string PlatformRoleImplementation = """
         [assembly: System.Reflection.AssemblyVersion("11.0.0.1")]
+        [assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(Contoso.PlatformRoles.ReferenceOnly))]
+        [assembly: System.Runtime.CompilerServices.TypeForwardedTo(typeof(Contoso.PlatformRoles.ForwardedOnly))]
         namespace Contoso.PlatformRoles
         {
             public static class Shared
@@ -63,6 +67,11 @@ public sealed partial class BrowserEngineBoundaryTests
             internal sealed class PrivateDetail { }
             public static class Helper { public static int Value() => 1; }
         }
+        namespace Contoso.PlatformRoles
+        {
+            public sealed class ReferenceOnly { }
+            public sealed class ForwardedOnly { }
+        }
         """;
 
     [Fact]
@@ -73,18 +82,19 @@ public sealed partial class BrowserEngineBoundaryTests
         const string pack = "netcore.app";
         string assemblyFile = PlatformRoleAssembly + ".dll";
         string privateFile = PlatformRolePrivateAssembly + ".dll";
+        byte[] privateImplementation = CompilePlatformRoleFixture(
+            PlatformRolePrivateAssembly,
+            PlatformRolePrivate);
         byte[] implementation = CompilePlatformRoleFixture(
             PlatformRoleAssembly,
-            PlatformRoleImplementation);
+            PlatformRoleImplementation,
+            references: [privateImplementation]);
         using var referenceDocumentation = new MemoryStream();
         byte[] reference = CompilePlatformRoleFixture(
             PlatformRoleAssembly,
             PlatformRoleReference,
             updatedMemorySafetyRules: true,
             documentation: referenceDocumentation);
-        byte[] privateImplementation = CompilePlatformRoleFixture(
-            PlatformRolePrivateAssembly,
-            PlatformRolePrivate);
         var handler = new ExactPlatformRangeHandler(
             version,
             new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
@@ -131,6 +141,44 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Contains("ReferenceOnly", listed);
             Assert.Contains("Shared", listed);
             Assert.DoesNotContain("ImplementationOnly", listed);
+
+            // The runtime forwarder of a Type the reference declares has that
+            // Type's id, so a host lists the Type once, as its forwarder; a
+            // forwarder the reference omits has an id no listed Type has.
+            using (var navigation = new BrowserPlatformForwarderNavigation(
+                client, packageClient, authorization, TimeSpan.FromSeconds(30)))
+            {
+                BrowserPlatformForwarderNavigationResult opened = await navigation.OpenAsync(
+                    framework, version, assemblyFile, pack,
+                    TestContext.Current.CancellationToken);
+                BrowserPlatformForwarderView view = Assert.IsType<BrowserPlatformForwarderView>(
+                    PackageExports.ProjectForwarderResult(opened).View);
+                HashSet<string> listedIds = [.. surface.Types.Select(type => type.Id)];
+                Assert.Equal(
+                    [
+                        $"{PlatformRoleAssembly}:Contoso.PlatformRoles.ForwardedOnly",
+                        $"{PlatformRoleAssembly}:Contoso.PlatformRoles.ReferenceOnly",
+                    ],
+                    view.Forwarders.Select(row => row.Id).Order(StringComparer.Ordinal));
+                Assert.Equal(
+                    [$"{PlatformRoleAssembly}:Contoso.PlatformRoles.ReferenceOnly"],
+                    view.Forwarders.Select(row => row.Id).Where(listedIds.Contains));
+                BrowserPlatformForwarderRow forwarded = Assert.Single(
+                    view.Forwarders,
+                    row => row.Id == $"{PlatformRoleAssembly}:Contoso.PlatformRoles.ReferenceOnly");
+                Assert.Equal(PlatformRolePrivateAssembly, forwarded.TargetAssembly);
+                Assert.NotNull(forwarded.Action);
+
+                // Activation still follows the runtime ExportedType evidence
+                // to the defining Type.
+                BrowserPlatformForwarderView destination = Assert.IsType<BrowserPlatformForwarderView>(
+                    PackageExports.ProjectForwarderResult(
+                        await navigation.ActivateAsync(
+                            forwarded.Action!, TestContext.Current.CancellationToken)).View);
+                Assert.Equal(
+                    $"{PlatformRolePrivateAssembly}:Contoso.PlatformRoles.ReferenceOnly",
+                    destination.SelectedTypeId);
+            }
 
             // A surface-declared member renders its reference caller-unsafe
             // contract; a member the surface omits renders from the
@@ -257,7 +305,8 @@ public sealed partial class BrowserEngineBoundaryTests
         string assemblyName,
         string source,
         bool updatedMemorySafetyRules = false,
-        Stream? documentation = null)
+        Stream? documentation = null,
+        IEnumerable<byte[]>? references = null)
     {
         CSharpParseOptions parse = new CSharpParseOptions(
                 LanguageVersion.Preview,
@@ -270,7 +319,10 @@ public sealed partial class BrowserEngineBoundaryTests
         CSharpCompilation compilation = CSharpCompilation.Create(
             assemblyName,
             [CSharpSyntaxTree.ParseText(source, parse)],
-            [MetadataReference.CreateFromFile(typeof(object).Assembly.Location)],
+            [
+                MetadataReference.CreateFromFile(typeof(object).Assembly.Location),
+                .. (references ?? []).Select(image => MetadataReference.CreateFromImage(image)),
+            ],
             new CSharpCompilationOptions(
                 OutputKind.DynamicallyLinkedLibrary,
                 nullableContextOptions: NullableContextOptions.Enable,
@@ -304,7 +356,10 @@ public sealed partial class BrowserEngineBoundaryTests
                 ["microsoft.netcore.app.runtime.linux-x64"] = PlatformPackage(
                     (assemblyFile, CompilePlatformRoleFixture(
                         PlatformRoleAssembly,
-                        PlatformRoleImplementation))),
+                        PlatformRoleImplementation,
+                        references: [CompilePlatformRoleFixture(
+                            PlatformRolePrivateAssembly,
+                            PlatformRolePrivate)]))),
                 ["microsoft.netcore.app.ref"] = PackageEntries(
                     ($"ref/{framework}/{assemblyFile}", CompilePlatformRoleFixture(
                         PlatformRoleAssembly,

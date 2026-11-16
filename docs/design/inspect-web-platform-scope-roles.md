@@ -94,9 +94,11 @@ apply:
 - **Facades.** A facade keeps its reference surface even when its runtime
   assembly forwards every Type elsewhere. For example, the reference
   `System.Runtime` lists the Types developers compile against.
-  - A Library-scoped implementation view of a facade reads the facade's own
-    runtime assembly. It discloses that the Library forwards rather than
-    presenting an empty result as complete.
+  - A Type that the reference declares and the runtime assembly forwards has
+    the same identity as its forwarder. It lists and counts once, as its
+    forwarder, so it keeps the forwarder's Overview-only inspector: a Type
+    forwarder has no members, Source, or analysis of its own to show. A
+    forwarder that the reference omits lists the same way.
   - A forwarded Type reaches its defining assembly only through
     [Platform forwarded-Type activation](inspect-web-platform-forwarded-type-activation.md).
     That route stays on runtime-pack `ExportedType` evidence, because the
@@ -137,13 +139,12 @@ selection uses, acquires both roles.
 - **Implementation views.** These accept surface Type and member identities.
   Member metadata tokens are hints that the selector key validates, so a
   reference token never selects a different runtime member.
+- **Facade Types.** The Type list, its filters and counts, and the Library's
+  Navigate count show each forwarded reference Type once, as its forwarder.
 
 Remaining adoption:
 - Performance and Unsafe row naming and navigation through the surface,
   including transient Types for members the surface omits.
-- Forwarding disclosure on facade implementation views. Until it lands, an
-  implementation view of a surface Type that the runtime facade does not
-  declare fails visibly with the selection error.
 - The Library document's Type names.
 - The Platform Playwright fixtures and specs.
 

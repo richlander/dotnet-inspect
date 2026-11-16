@@ -265,3 +265,38 @@ test("leaving and returning does not revive a superseded forwarding action", asy
   await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
   await expect(page.locator("[data-platform-forwarder]")).toBeEnabled();
 });
+
+// A facade's reference surface declares the Types its runtime assembly
+// forwards, under the forwarders' ids: each lists and counts once, as its
+// forwarder, and keeps the Overview-only forwarder experience.
+test("a reference-declared forwarded Type lists once as its forwarder", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "ready", {
+    forwarders: true, forwarderReferenceSurface: true,
+  });
+  await openInstalledPlatform(page);
+  await page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Xml", { exact: true }),
+  }).click();
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Xml");
+  await expect(page.locator("[data-library-types]")).toHaveText("2 types");
+  const reader = page.locator('[data-type="System.Xml:System.Xml.XmlReader"]');
+  await expect(reader).toHaveCount(1);
+  await expect(reader).toContainText("Forwarded");
+  await expect(page.locator('[data-type="System.Xml:System.Xml.XmlConvert"]'))
+    .toContainText("Forwarded");
+  await expect(page.locator("#type-list [data-type]")).toHaveCount(2);
+  await page.locator("[data-type-filter-disclosure] > summary").click();
+  await expect(page.getByRole("combobox", { name: "Filter by namespace" })
+    .locator('option[value="System.Xml"]')).toHaveText("System.Xml · 2");
+  await expect(page.getByRole("combobox", { name: "Type kind" })
+    .locator('option[value="forwarded"]')).toHaveText("forwarded · 2");
+
+  await reader.click();
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+  await expect(page.locator('[data-inspector-tab][data-lens="overview"]'))
+    .toHaveAttribute("aria-selected", "true");
+  await expect(page.locator('[data-lens="api"]')).toHaveCount(0);
+  await expect(page.locator('[data-inspector-tab][data-lens="source"]')).toHaveCount(0);
+  await page.locator("[data-platform-forwarder]").click();
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
+});
