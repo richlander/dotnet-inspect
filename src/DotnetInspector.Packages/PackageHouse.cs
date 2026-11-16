@@ -2478,12 +2478,18 @@ public sealed partial class PackageHouse
         PackagePayloadAcquisitionPlan payloadAcquisition)
     {
         bool semantic = request.ContentQuery is not null;
-        if (semantic != payloadAcquisition.HouseOwnsAccess)
+        if (semantic && !payloadAcquisition.HouseOwnsAccess)
         {
             throw new InvalidOperationException(
-                semantic
-                    ? "A semantic content query requires a House-planned payload acquisition capability."
-                    : "A House-planned payload acquisition capability requires a semantic content query.");
+                "A semantic content query requires a House-planned payload acquisition capability.");
+        }
+
+        if (!semantic
+            && payloadAcquisition.HouseOwnsAccess
+            && !request.IsCompileSelection)
+        {
+            throw new InvalidOperationException(
+                "A House-planned payload acquisition capability requires a semantic content query or compile Surface selection.");
         }
     }
 
@@ -2493,6 +2499,9 @@ public sealed partial class PackageHouse
     {
         if (!payloadAcquisition.HouseOwnsAccess)
             return payloadAcquisition.Access;
+
+        if (request.IsCompileSelection)
+            return PackagePayloadAccess.Ranged;
 
         return request.ContentQuery is
             {

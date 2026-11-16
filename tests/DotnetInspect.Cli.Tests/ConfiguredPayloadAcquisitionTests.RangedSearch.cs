@@ -453,6 +453,54 @@ public sealed partial class ConfiguredPayloadAcquisitionTests
     }
 
     /// <summary>
+    /// Exact Package Member Signature reads the archive directory and selected
+    /// compile folder without transferring an unrelated large entry.
+    /// </summary>
+    [Fact]
+    public async Task MemberCommand_SignatureRangedRead_TransfersOnlyTheSelectedCompileFolder()
+    {
+        string id = $"Member.Signature.Ranged.{Guid.NewGuid():N}";
+        byte[] assembly = await File.ReadAllBytesAsync(
+            typeof(ConfiguredPayloadAcquisitionTests).Assembly.Location,
+            TestContext.Current.CancellationToken);
+        byte[] filler = RandomNumberGenerator.GetBytes(4 * 1024 * 1024);
+        byte[] package = CreatePackage(
+            id,
+            "ranged member signature package",
+            library: assembly,
+            libraryName: "Member.Signature.Ranged.dll",
+            extraEntries: [("content/filler.bin", filler)]);
+        var feed = new RangeHonoringFeedHandler(FirstFeed, id, package);
+        UseFeed(feed);
+
+        string[] member =
+        [
+            "member",
+            typeof(MemberSearchServiceTests).FullName!,
+            "-m", $"{MemberSearchServiceTests.SearchTargetMemberName}:1",
+            "--package", $"{id}@{Version}",
+            "--tfm", "net11.0",
+            "--source", FirstFeed,
+            "-S", "Signature",
+        ];
+        var result = await RunCommandAsync(member);
+
+        Assert.True(result.Exit == 0, result.Error);
+        Assert.StartsWith("signature\t", result.Output);
+        Assert.Contains(
+            MemberSearchServiceTests.SearchTargetMemberName,
+            result.Output,
+            StringComparison.Ordinal);
+        Assert.Equal(0, feed.FullPackageResponses);
+        Assert.True(
+            feed.RangedResponses >= 2,
+            $"ranged responses: {feed.RangedResponses}");
+        Assert.True(
+            feed.PackageBytesServed < assembly.Length + (1024 * 1024),
+            $"served {feed.PackageBytesServed} of {package.Length} package bytes");
+    }
+
+    /// <summary>
     /// The real Avalonia 12.1.2 archive (10.1 MB: net8.0 and net10.0 reference
     /// and implementation assemblies, XML docs, analyzers, designer tools)
     /// searched for net10.0 transfers the directory and the ref/net10.0

@@ -195,7 +195,7 @@ public static partial class MemberCommand
                 SectionNames.Signature);
         PackageHouse house =
             selectedSignature
-                ? composition.CreateDependencySettlementHouse(
+                ? composition.CreateDependencyContentQueryHouse(
                     stores.GetLegacyCompatibleStore,
                     options.SourceOptions,
                     options.Verbose ? logger.Log : null)
