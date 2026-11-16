@@ -203,71 +203,39 @@ internal static class BrowserRetainedCallGraphOperations
         string memberName,
         string selectorKey,
         int metadataToken)
-    {
-        if (!realization.HasAssemblyContexts
-            || realization.ImplementationGroup
-                is not { } implementationGroup)
-        {
-            throw new InvalidOperationException(
-                "ContextUnavailable: the admitted Workspace Package "
-                    + "implementation context is unavailable.");
-        }
-
-        PackageAssemblyRoleParticipant[] surfaceParticipants =
-        [
-            .. realization.SurfaceParticipants.Where(
-                candidate =>
-                    candidate.Asset == library.Asset
-                    && AssemblyReferenceIdentity.EquivalentComparer.Equals(
-                        candidate.Participant.Assembly.Identity,
-                        library.Subject.Identity)),
-        ];
-        if (surfaceParticipants.Length != 1)
-        {
-            throw new InvalidOperationException(
-                surfaceParticipants.Length == 0
-                    ? "ContextUnavailable: the admitted Workspace Package "
-                        + "surface participant is unavailable."
-                    : "ContextUnavailable: the admitted Workspace Package "
-                        + "surface participant is ambiguous.");
-        }
-
-        PackageAssemblyRoleParticipant? implementation =
-            realization.ImplementationParticipant(surfaceParticipants[0]);
-        if (implementation is null)
-        {
-            throw new InvalidOperationException(
-                "ContextUnavailable: the admitted Workspace Package "
-                    + "implementation participant is unavailable.");
-        }
-        AssemblyContextMemberBody member =
-            BrowserMemberResolution.ResolveImplementationMember(
-                implementationGroup,
-                implementation.Participant,
-                typeIdentity,
-                memberName,
-                selectorKey,
-                metadataToken);
-        return AssemblyContextMethodAddressQuery.ExecuteParticipant(
-            implementationGroup,
-            implementation.Participant,
-            member.BodyToken) switch
-        {
-            AssemblyContextEntry<ProjectedMethodAddress>.Available available =>
-                available.Value,
-            AssemblyContextEntry<ProjectedMethodAddress>.Rejected rejected =>
-                throw new InvalidOperationException(
-                    "ContextUnavailable: the admitted Call Graph "
-                        + "implementation could not be opened: "
-                        + rejected.Failure),
-            AssemblyContextEntry<ProjectedMethodAddress>.Failed failed =>
-                throw new InvalidOperationException(
-                    "ContextUnavailable: the admitted Call Graph "
-                        + "implementation could not be inspected.",
-                    failed.Error),
-            _ => throw new InvalidOperationException(
-                "ContextUnavailable: the admitted Call Graph "
-                    + "implementation address is unavailable."),
-        };
-    }
+        => BrowserPackageImplementationParticipantQuery.Execute(
+            realization,
+            library,
+            (implementationGroup, implementation) =>
+            {
+                AssemblyContextMemberBody member =
+                    BrowserMemberResolution.ResolveImplementationMember(
+                        implementationGroup,
+                        implementation,
+                        typeIdentity,
+                        memberName,
+                        selectorKey,
+                        metadataToken);
+                return AssemblyContextMethodAddressQuery.ExecuteParticipant(
+                    implementationGroup,
+                    implementation,
+                    member.BodyToken) switch
+                {
+                    AssemblyContextEntry<ProjectedMethodAddress>.Available
+                        available => available.Value,
+                    AssemblyContextEntry<ProjectedMethodAddress>.Rejected
+                        rejected => throw new InvalidOperationException(
+                            "ContextUnavailable: the admitted Call Graph "
+                                + "implementation could not be opened: "
+                                + rejected.Failure),
+                    AssemblyContextEntry<ProjectedMethodAddress>.Failed
+                        failed => throw new InvalidOperationException(
+                            "ContextUnavailable: the admitted Call Graph "
+                                + "implementation could not be inspected.",
+                            failed.Error),
+                    _ => throw new InvalidOperationException(
+                        "ContextUnavailable: the admitted Call Graph "
+                            + "implementation address is unavailable."),
+                };
+            });
 }

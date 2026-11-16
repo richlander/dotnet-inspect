@@ -531,7 +531,7 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
 
     [Fact]
     public async Task
-        EcosystemScopeRetainedCallGraph_MapsReferenceMemberToImplementation()
+        EcosystemScopeRetainedOperations_MapReferenceMemberToImplementation()
     {
         const string packageId = "Aspire.Hosting";
         const string version = "9.0.0";
@@ -669,6 +669,35 @@ public sealed partial class BrowserRetainedWorkspaceActivationTests
                         .BrowserCallGraph)!;
             Assert.Equal(body.MemberName, callGraph.Callees.MemberName);
             Assert.True(callGraph.Scope.Packages >= 1);
+
+            Source.BrowserMethodBodyTargetsResult targets =
+                JsonSerializer.Deserialize(
+                    await Source.SourceExports
+                        .QueryRetainedMethodBodyComparisonTargets(
+                            Guid.NewGuid().ToString(),
+                            admission.Posting.RetainedDefinitionId,
+                            admission.Posting.RealizationId,
+                            presentation.NavigationId,
+                            presentation.Surface.Package,
+                            presentation.Surface.Version,
+                            presentation.Surface.ActiveFramework,
+                            type.AssemblyId,
+                            type.DefinitionId,
+                            body.MemberName,
+                            body.SelectorKey,
+                            body.Token),
+                    Source.BrowserSourceJsonContext.Default
+                        .BrowserMethodBodyTargetsResult)!;
+            Assert.Equal(
+                Source.BrowserMethodBodyResultKind.Succeeded,
+                targets.Kind);
+            Source.BrowserMethodBodyTargets inventory =
+                Assert.IsType<Source.BrowserMethodBodyTargets>(
+                    targets.Value);
+            Assert.Equal(
+                "d896dcee-1628-4e74-b10a-baf1f406fc92",
+                inventory.ModuleVersionId);
+            Assert.Equal(0x06000088, inventory.Before.MetadataToken);
         }
         finally
         {
