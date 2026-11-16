@@ -562,6 +562,14 @@ public sealed class PackageHouseRequest
                 nameof(targetContext));
         }
         if (contentQuery?.Narrowing
+                is PackageHouseContentNarrowing.FindLibraries
+            && targetContext is not null)
+        {
+            throw new ArgumentException(
+                "Find-library narrowing owns its target selection and has no separate target context.",
+                nameof(targetContext));
+        }
+        if (contentQuery?.Narrowing
                 is PackageHouseContentNarrowing.TfmWide tfmWide
             && !ReferenceEquals(tfmWide.Target, targetContext))
         {

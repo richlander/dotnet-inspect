@@ -1253,8 +1253,16 @@ public sealed class AssemblyInspectionSession :
         int maximumRetainedTextCharacters = int.MaxValue)
     {
         _image.EnsureAlive();
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumRetainedDeclarations);
+        ArgumentOutOfRangeException.ThrowIfNegative(maximumRetainedTextCharacters);
+        if (!_image.TryGetMetadataReader(out MetadataReader? reader))
+        {
+            return new AssemblyTypeDeclarationInventoryOutcome.Rejected(
+                new CandidateOpenFailure(CandidateOpenFailureKind.InvalidImage,
+                    "The selected image has no managed metadata."));
+        }
         return AssemblyTypeDeclarationInventoryReader.Read(
-            _image.PEReader,
+            reader,
             maximumRetainedDeclarations,
             maximumRetainedTextCharacters);
     }

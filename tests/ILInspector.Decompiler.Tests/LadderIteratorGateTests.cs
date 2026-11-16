@@ -159,8 +159,7 @@ public class LadderIteratorGateTests
         Assert.Contains("yield return 2;", Body("IteratorSamples::Linear"));
 
         var counting = Body("IteratorSamples::Counting");
-        Assert.Contains("int i = 0;", counting);
-        Assert.Contains("while (i < n)", counting);
+        Assert.Contains("for (int i = 0; i < n; i++)", counting);
         Assert.Contains("yield return i;", counting);
 
         var conditional = Body("IteratorSamples::Conditional");
@@ -169,7 +168,7 @@ public class LadderIteratorGateTests
         Assert.Contains("yield return 2;", conditional);
 
         var multi = Body("IteratorSamples::MultiYieldLoop");
-        Assert.Contains("while (i < n)", multi);
+        Assert.Contains("for (int i = 0; i < n; i++)", multi);
         Assert.Contains("yield return i;", multi);
         Assert.Contains("yield return -i;", multi);
 
