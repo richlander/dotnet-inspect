@@ -771,10 +771,15 @@ public static class RouterCommandDefinition
                 if (namespaceRoute.Content is PlatformNamespaceDiscoveryOutcome.Found found)
                 {
                     PlatformNamespaceDiscoveryHit hit = found.Hits[0];
-                    return new RouterRewrite([
-                        "library", hit.Library, "--namespace", hit.Namespace,
-                        "--framework", PlatformFrameworkSpec(hit.Target), .. tail,
-                    ]);
+                    // The namesake Library is the same completed selection as a
+                    // whole-name Library: exact realized version, selected sources.
+                    return new RouterRewrite(
+                        [
+                            "library", hit.Library, "--namespace", hit.Namespace,
+                            "--framework", PlatformFrameworkSpec(hit.Target), .. tail,
+                        ],
+                        ResolvedLibrary: new RouterResolvedLibrary(
+                            hit.Library, hit.Target.Family, hit.Target.Version));
                 }
             }
 

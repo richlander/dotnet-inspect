@@ -149,6 +149,84 @@ public sealed class PlatformTypeLocatorRoutingTests
         }
     }
 
+    [Fact]
+    public async Task
+        RouterNamespaceHandoffUsesExactVersionThroughSelectedLocalFeed()
+    {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - the namespace
+        // route's namesake Library crosses as the same typed exact selection.
+        // The only installed runtime is a 10.0.10 preview whose System.Text.Json
+        // is an 11.x assembly without System.Text.Json.Nodes, so a prefix match
+        // cannot produce the listing; only the exact 10.0.10 reference pack
+        // (System.Text.Json 10.0.0.0) in the local feed can.
+        const string version = "10.0.10";
+        string nupkg = RestoredReferencePack(version);
+        NuGetCache.Initialize("dotnet-inspect");
+        using var root = new TemporaryTestDirectory("inspect-cli-preview-only-root");
+        string preview = Path.Combine(
+            root.FullName, "shared", "Microsoft.NETCore.App", "10.0.10-preview.1");
+        Directory.CreateDirectory(preview);
+        string planted = Path.Combine(preview, "System.Text.Json.dll");
+        File.Copy(
+            Path.Combine(
+                Path.GetDirectoryName(typeof(object).Assembly.Location)!,
+                "System.Runtime.dll"),
+            planted);
+        Assert.Equal(
+            11,
+            System.Reflection.AssemblyName.GetAssemblyName(planted).Version!.Major);
+        using var feed = new TemporaryTestDirectory("inspect-cli-platform-ref-feed");
+        File.Copy(nupkg, Path.Combine(feed.FullName, Path.GetFileName(nupkg)));
+        string[] args =
+        [
+            "library", "System.Text.Json",
+            "--namespace", "System.Text.Json.Nodes",
+            "--framework", $"runtime@{version}",
+            "--source", feed.FullName,
+        ];
+
+        string? originalRoot = Environment.GetEnvironmentVariable("DOTNET_ROOT");
+        try
+        {
+            Environment.SetEnvironmentVariable("DOTNET_ROOT", root.FullName);
+            Assert.Equal(
+                planted,
+                PlatformResolver.ResolveAssembly(
+                    "System.Text.Json",
+                    $"runtime@{version}",
+                    useRuntimeAssemblies: true).AssemblyPath);
+
+            var (exit, output, error) = await ConsoleCapture.RunAsync(() =>
+            {
+                var command = CommandLineBuilder.CreateRootCommand();
+                string[] tokens = CommandLineBuilder.PreprocessArgs(args, command);
+                return CommandLineBuilder.InvokeWithLineWindowAsync(
+                    command.Parse(tokens),
+                    tokens,
+                    resolvedTarget: null,
+                    new RouterResolvedLibrary(
+                        "System.Text.Json",
+                        PlatformFamily.DotNetRuntime,
+                        version));
+            });
+
+            Assert.True(exit == 0, error);
+            Assert.StartsWith("# System.Text.Json", output, StringComparison.Ordinal);
+            Assert.Contains(
+                "| `System.Text.Json.Nodes.JsonNode` |",
+                output,
+                StringComparison.Ordinal);
+            Assert.Contains(
+                "| `System.Text.Json.Nodes.JsonObject` |",
+                output,
+                StringComparison.Ordinal);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("DOTNET_ROOT", originalRoot);
+        }
+    }
+
     private static string RestoredReferencePack(string version)
     {
         string globalPackages =
