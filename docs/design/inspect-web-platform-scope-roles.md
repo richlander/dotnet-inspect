@@ -129,7 +129,9 @@ selection uses, acquires both roles.
   - member groups, member documents, and member declarations;
   - API declarations.
 - **Declarations.** A member declaration reads the surface when the reference
-  assembly declares the member, and the implementation otherwise.
+  assembly declares the member, and the implementation only when the reference
+  omits it. A surface projection that exceeds its bounds fails visibly rather
+  than falling back.
 - **Implementation views.** These accept surface Type and member identities.
   Member metadata tokens are hints that the selector key validates, so a
   reference token never selects a different runtime member.

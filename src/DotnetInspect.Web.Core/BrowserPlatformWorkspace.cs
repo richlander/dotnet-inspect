@@ -2539,11 +2539,14 @@ internal static class BrowserPlatformWorkspace
                 PackageReferenceRealization>.NotSucceeded)result;
             // No counterpart: the reference pack lacks the member, or the
             // configured source does not publish the reference pack. Either
-            // way the implementation is its own surface. Transport, timeout,
-            // and content failures stay visible.
-            return terminal.Diagnostic.Kind
-                is PackagePlatformSourceDiagnosticKind.MemberUnavailable
-                or PackagePlatformSourceDiagnosticKind.PackageUnavailable
+            // way the implementation is its own surface. Only an Unavailable
+            // contribution means absence: the source also reports timeouts
+            // (Incomplete) and transport failures (Failed) with the
+            // PackageUnavailable diagnostic, and those stay visible.
+            return terminal.Contribution is PlatformSourceContribution.Unavailable
+                && terminal.Diagnostic.Kind
+                    is PackagePlatformSourceDiagnosticKind.MemberUnavailable
+                    or PackagePlatformSourceDiagnosticKind.PackageUnavailable
                 ? null
                 : throw new InvalidOperationException(
                     "Package-backed Platform reference realization "

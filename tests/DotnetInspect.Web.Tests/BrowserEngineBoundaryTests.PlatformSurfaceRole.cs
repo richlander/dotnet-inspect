@@ -257,4 +257,90 @@ public sealed partial class BrowserEngineBoundaryTests
                     diagnostic.Severity == DiagnosticSeverity.Error)));
         return image.ToArray();
     }
+
+    // A failed reference acquisition is not an absent reference pack: the
+    // Library open fails visibly instead of silently reading the runtime
+    // assembly as its surface.
+    [Fact]
+    public async Task PlatformWorkspace_ReferenceTransportFailureStaysVisible()
+    {
+        const string framework = "net11.0";
+        const string version = "11.0.7413";
+        string assemblyFile = PlatformRoleAssembly + ".dll";
+        var inner = new ExactPlatformRangeHandler(
+            version,
+            new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["microsoft.netcore.app.runtime.linux-x64"] = PlatformPackage(
+                    (assemblyFile, CompilePlatformRoleFixture(
+                        PlatformRoleAssembly,
+                        PlatformRoleImplementation))),
+                ["microsoft.netcore.app.ref"] = PackageEntries(
+                    ($"ref/{framework}/{assemblyFile}", CompilePlatformRoleFixture(
+                        PlatformRoleAssembly,
+                        PlatformRoleReference,
+                        updatedMemorySafetyRules: true))),
+            });
+        using var handler = new ReferencePackTransportFailureHandler(inner);
+        using IPackageSourceClient packageClient =
+            BrowserPackageWorkspace.CreateGallerySource(
+                handler,
+                new NuGetFetchOptions
+                {
+                    RequestTimeout = TimeSpan.FromSeconds(30),
+                    OperationTimeout = TimeSpan.FromSeconds(30),
+                });
+        using var client = new HttpClient(handler, disposeHandler: false);
+
+        Exception failure = await Assert.ThrowsAnyAsync<Exception>(
+            () => BrowserPlatformWorkspace.OpenAssemblyAsync(
+                framework, version, assemblyFile, "netcore.app",
+                client, packageClient,
+                BrowserPackageWorkspace.SourceAuthorizationFor(packageClient),
+                acquireCompletePopulation: false,
+                TimeSpan.FromSeconds(30),
+                TestContext.Current.CancellationToken));
+
+        Assert.True(handler.ReferenceRequests > 0);
+        Assert.Contains(
+            "reference realization",
+            failure.ToString(),
+            StringComparison.Ordinal);
+    }
+
+    sealed class ReferencePackTransportFailureHandler(HttpMessageHandler inner)
+        : DelegatingHandler(inner)
+    {
+        int _referenceRequests;
+
+        internal int ReferenceRequests => Volatile.Read(ref _referenceRequests);
+
+        protected override Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            FailReference(request);
+            return base.SendAsync(request, cancellationToken);
+        }
+
+        protected override HttpResponseMessage Send(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken)
+        {
+            FailReference(request);
+            return base.Send(request, cancellationToken);
+        }
+
+        void FailReference(HttpRequestMessage request)
+        {
+            if (request.RequestUri!.AbsoluteUri.Contains(
+                    "microsoft.netcore.app.ref.",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                Interlocked.Increment(ref _referenceRequests);
+                throw new HttpRequestException(
+                    "Simulated reference-pack transport failure.");
+            }
+        }
+    }
 }
