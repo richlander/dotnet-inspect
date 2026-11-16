@@ -901,6 +901,7 @@ invocations' complete envelopes instead of timing.
 | `LoadRuntimePack`, `LoadRuntimePackAssembly` | selected platform assemblies accumulated per target framework | `AssemblyContextApiSurfaceQuery.ExecuteBounded(group, scope, limits, participants)` |
 | `QueryPlatformIntegrations` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationsQuery.ExecuteParticipant(...)` |
 | `QueryPlatformOpportunities` | one selected participant in the cumulative platform group | `AssemblyContextIntegrationOpportunitiesQuery.ExecuteParticipant(...)` |
+| `QueryPlatformPerformance` | one selected participant in the cumulative platform group | `AssemblyContextOptimizationOpportunitiesQuery.ExecuteParticipant(...)` |
 | `ExpandPlatformCallGraph` | lazily acquired target in the cumulative runtime and ASP.NET Core platform group | `MemberCallGraphSession` |
 
 <!-- markdownlint-enable MD013 -->
@@ -1183,6 +1184,13 @@ is aggregated under its owning property or event with every body token retained.
 Rows open the supported member Overview. Non-public opportunities remain visible
 in the aggregate count.
 
+`QueryPlatformPerformance` runs the same participant-scoped query and Browser
+projection for one selected platform participant. A platform scope holds only
+the runtime pack's implementation assemblies and has no separate compile role,
+so the analyzed assembly is also its own surface, as for a package without
+`ref/` assets: rows carry its bare assembly identity and platform pack, exactly
+as the Platform Type list names its Types.
+
 `QueryMemberFacts` resolves the selected reference-preferred member to its exact
 implementation body through the product's opaque member correspondence, then
 invokes `AssemblyContextMethodAnalysisQuery` for that participant and physical
@@ -1375,18 +1383,10 @@ delivery; the bridge is absent from ordinary sessions.
 
 ## Unsupported
 
-Each remaining gap is a missing public query that owns its own group session.
-Each export keeps the signature the browser bridge binds and throws a
-`NotSupportedException` naming the gap, so the site reports the engine's refusal
-rather than fixture results or success-shaped empty output.
-
-<!-- markdownlint-disable MD013 -->
-
-| Unsupported export | Missing product query |
-| --- | --- |
-| `QueryPlatformPerformance` | assembly-wide Analysis ranking over a platform group |
-
-<!-- markdownlint-enable MD013 -->
+No export is currently unsupported. A future gap is a missing public query that
+owns its own group session: its export keeps the signature the browser bridge
+binds and throws a `NotSupportedException` naming the gap, so the site reports
+the engine's refusal rather than fixture results or success-shaped empty output.
 
 Package and Platform Metadata use root-aware
 `AssemblyContextMetadataImageQuery`, `AssemblyContextMetadataTableQuery`, and

@@ -12674,20 +12674,17 @@ const packageInspection = createPackageInspectionCoordinator({
       packageModel.version,
       packageModel.activeFramework,
       library),
-  queryPlatformPerformance: async (
+  queryPlatformPerformance: (
     framework,
     platformVersion,
     assemblyFileName,
     pack,
-  ) => {
-    await inspectPlatformPerformance(
+  ) =>
+    inspectPlatformPerformance(
       framework,
       platformVersion,
       assemblyFileName,
-      pack);
-    throw new Error(
-      "The unsupported platform performance operation returned unexpectedly.");
-  },
+      pack),
   queryPlatformResourceTriage: async (
     framework,
     platformVersion,

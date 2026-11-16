@@ -3440,8 +3440,8 @@ async function installFacades(
           assemblies: [selected],
           types: [selectedType]
         };
-        return JSON.stringify(await performanceFor(
-          surface, selected, version, framework, selected.id));
+        return await performanceFor(
+          surface, selected, version, framework, selected.id);
       }`,
     source: `
       export async function queryMemberFindingCensus(...args) {
