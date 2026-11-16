@@ -81,6 +81,16 @@ internal static class RouterTargetAnalysis
         EcosystemPackCatalog.FindPlatformSearchPopulation(target)
             ?? new PlatformLibraryPopulationDeclaration(PlatformFamily.DotNetRuntime);
 
+    // The framework family spelling of the selected Platform population, for
+    // lookups that take a framework family rather than a population.
+    internal static string SelectPlatformFrameworkFamily(string target) =>
+        SelectPlatformPopulation(target).Family switch
+        {
+            PlatformFamily.DotNetRuntime => "runtime",
+            PlatformFamily.AspNetCore => "aspnetcore",
+            _ => throw new InvalidOperationException("Unknown Platform family."),
+        };
+
     internal static void Bind(ParseResult parseResult, RouterResolvedTarget target) =>
         ResolvedTargets.Add(parseResult, target);
 

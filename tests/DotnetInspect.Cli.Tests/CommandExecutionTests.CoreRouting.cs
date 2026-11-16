@@ -390,6 +390,52 @@ public partial class CommandExecutionTests
     }
 
     [Fact]
+    public async Task BareName_LibraryOutsideSelectedRuntimeFamily_IsNotFoundDespiteInstalledAspNetCore()
+    {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - one selected Platform family; never add another family.
+        // Microsoft.Extensions.Logging ships only in the ASP.NET Core shared
+        // framework. Its Microsoft.Extensions claimant declares no Platform
+        // population, so Runtime is selected; installed ASP.NET Core must not
+        // widen the whole-name Library lookup.
+        SkipUnlessAspNetCoreAvailable();
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.Extensions.Logging", "--markdown");
+
+        Assert.Equal(1, exit);
+        Assert.Empty(output);
+        Assert.Equal(
+            "Error: Type or member 'Microsoft.Extensions.Logging' was not found in the selected Platform domain.",
+            error.Trim());
+        AssertNoOtherDomainDecision(decisions);
+    }
+
+    [Fact]
+    public async Task BareName_AspNetCoreClaimedLibrary_ResolvesInAspNetCoreFamily()
+    {
+        // Owner: docs/cli-architecture.md#bare-target-domain-selection - the claim selects Platform and its family; no Package fallback.
+        SkipUnlessAspNetCoreAvailable();
+        using RouterDecisionLog.Capture decisions = RouterDecisionLog.Begin();
+        var (exit, output, error) = await RunAppAsync(
+            "Microsoft.AspNetCore.Http.Abstractions");
+
+        Assert.Equal(0, exit);
+        Assert.Equal(
+            "Note: Routing to platform library 'Microsoft.AspNetCore.Http.Abstractions' · ASP.NET Core.",
+            error.Trim());
+        Assert.StartsWith(
+            "Microsoft.AspNetCore.Http.Abstractions.dll (Platform)",
+            output,
+            StringComparison.Ordinal);
+        Assert.Contains(
+            decisions.Decisions,
+            static decision => decision.Stage == "router-rewrite"
+                && decision.Detail.EndsWith(
+                    "-> library Microsoft.AspNetCore.Http.Abstractions --framework aspnetcore",
+                    StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task BareName_PlatformNamespacePrefix_FailsInSelectedPlatformWithoutPrefixBrowse()
     {
         // Owner: docs/cli-architecture.md#bare-target-domain-selection - no prefix/fuzzy discovery for an alternative subject.

@@ -707,13 +707,14 @@ public static class RouterCommandDefinition
                 return null;
             }
 
-            var context = new CommandContext(verbose: false);
+            // One selected Platform family for every lookup on this path: the
+            // whole-name Library probe, the child Library command and the Type
+            // locator all use the same SelectPlatformPopulation decision. The
+            // probe is local-only, as before; it never searches another family.
+            string selectedFamily =
+                RouterTargetAnalysis.SelectPlatformFrameworkFamily(target);
             var (resolvedPath, resolvedFramework, _, assemblyError) =
-                await PlatformResolver.ResolveAssemblyAsync(
-                    target,
-                    context.HttpClient,
-                    context.Logger.Log,
-                    sourceOptions: sourceOptions);
+                PlatformResolver.ResolveAssembly(target, selectedFamily);
             if (resolvedPath is not null && assemblyError is null)
             {
                 AssemblySurfaceClassificationOutcome classification =
@@ -726,7 +727,7 @@ public static class RouterCommandDefinition
                 }
 
                 return new RouterRewrite(
-                    ["library", target, .. tail],
+                    ["library", target, "--framework", selectedFamily, .. tail],
                     SelectedPlatformFramework: resolvedFramework);
             }
 
