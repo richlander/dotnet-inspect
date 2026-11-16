@@ -269,17 +269,32 @@ internal static class BrowserMemberResolution
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
+            // The role that declares the member supplies its declaration and
+            // caller-unsafe contract: the reference surface when it declares
+            // the member, otherwise the implementation. Only omission falls
+            // back; a surface projection or selection failure stays visible.
             AssemblyContextMemberDeclaration member =
-                resolution.Scope.UseParticipant(
-                resolution.Participant,
-                (group, selected) => ResolveDeclaration(
-                    group,
-                    selected,
-                    typeId,
-                    memberName,
-                    selectorKey,
-                    metadataToken,
-                    "Platform declaration"));
+                (resolution.Scope.HasReferenceSurface(resolution.Participant)
+                    ? resolution.Scope.UseSurfaceParticipant(
+                        resolution.SurfaceParticipant,
+                        (group, selected) => DeclaredBySurface(
+                            group,
+                            selected,
+                            typeId,
+                            memberName,
+                            selectorKey,
+                            metadataToken))
+                    : null)
+                ?? resolution.Scope.UseParticipant(
+                    resolution.Participant,
+                    (group, selected) => ResolveDeclaration(
+                        group,
+                        selected,
+                        typeId,
+                        memberName,
+                        selectorKey,
+                        metadataToken,
+                        "Platform declaration"));
             return new ScopedPlatformDeclarationResolution(
                 resolution,
                 member);
@@ -512,6 +527,30 @@ internal static class BrowserMemberResolution
                     metadataToken == 0 ? null : metadataToken),
                 BrowserApiSurfacePolicy.Limits),
             operation);
+
+    /// <summary>
+    /// Selects a member's declaration from a reference surface, or returns
+    /// null when the reference omits the member. A truncated projection or an
+    /// ambiguous selection throws rather than falling back.
+    /// </summary>
+    static AssemblyContextMemberDeclaration? DeclaredBySurface(
+        AssemblyContextGroup group,
+        AssemblyContextParticipant participant,
+        string typeIdentity,
+        string memberName,
+        string selectorKey,
+        int metadataToken) =>
+        RequireSelection(
+            AssemblyContextMemberSelectionQuery.ExecuteOptionalDeclaration(
+                group,
+                participant,
+                new(
+                    typeIdentity,
+                    memberName,
+                    selectorKey,
+                    metadataToken == 0 ? null : metadataToken),
+                BrowserApiSurfacePolicy.Limits),
+            "Reference surface declaration");
 
     internal static AssemblyContextMemberBody ResolveImplementationMember(
         AssemblyContextGroup group,

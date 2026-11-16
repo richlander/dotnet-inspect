@@ -136,15 +136,10 @@ public static partial class MetadataExports
                 pack,
                 CancellationToken.None).ConfigureAwait(false);
         return SerializeOverview(await ExecuteOverviewAsync(
-            resolution.Scope.UseParticipant(
+            resolution.Scope.MaterializeSurfaceAsync(
                 resolution.Participant,
-                (group, member) =>
-                    AssemblyContextLibraryAdapter.MaterializeAsync(
-                        group,
-                        member,
-                        AssemblyContextLibraryRole.Implementation,
-                        BrowserExactMemberPolicy.MaterializationLimits,
-                        CancellationToken.None)),
+                BrowserExactMemberPolicy.MaterializationLimits,
+                CancellationToken.None),
             typeIdentity,
             spelling,
             accessibility).ConfigureAwait(false));
