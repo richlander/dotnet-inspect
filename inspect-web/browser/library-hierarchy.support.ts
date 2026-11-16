@@ -908,6 +908,7 @@ async function installFacades(
             definitionId: "System.Xml.XmlReader",
             name: "XmlReader", displayName: "XmlReader", namespace: "System.Xml",
             assembly: file, assemblyName: assembly.name, assemblyId: assembly.id, platformPack: pack,
+            forwarded: true,
           });
           assembly.publicTypes = 1;
         }

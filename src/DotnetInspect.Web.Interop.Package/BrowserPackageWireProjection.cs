@@ -555,7 +555,8 @@ internal static class BrowserPackageWireProjection
             type.Members,
             type.Signature,
             [.. type.Api.Select(Project)],
-            type.PlatformPack);
+            type.PlatformPack,
+            type.Forwarded);
 
     internal static BrowserMemberSurface Project(BrowserMemberSurfaceInfo member) =>
         new(

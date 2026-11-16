@@ -40,13 +40,21 @@ export function bindPlatformForwarders(
 export function renderForwardedTypeOverview(
   row: BrowserPlatformForwarderRow,
   assembly: string,
-  status: { pending: boolean; error: string; available?: boolean },
+  status: {
+    pending: boolean;
+    error: string;
+    available?: boolean;
+    // Shown in place of a destination the forwarder inventory has not supplied.
+    destination?: string | undefined;
+  },
   escapeHtml: (value: unknown) => string,
 ): string {
   const e = escapeHtml;
-  const destination = row.action && status.available !== false
-    ? `<button type="button" class="forwarder-destination" data-platform-forwarder="${e(row.id)}" aria-label="${e(`Open ${row.name} in ${row.targetAssembly}`)}"${status.pending ? ' disabled aria-busy="true"' : ""}>${e(row.targetAssembly)}</button>`
-    : `<code>${e(row.targetAssembly)}</code>`;
+  const destination = status.destination !== undefined
+    ? `<span class="forwarder-destination-status">${e(status.destination)}</span>`
+    : row.action && status.available !== false
+      ? `<button type="button" class="forwarder-destination" data-platform-forwarder="${e(row.id)}" aria-label="${e(`Open ${row.name} in ${row.targetAssembly}`)}"${status.pending ? ' disabled aria-busy="true"' : ""}>${e(row.targetAssembly)}</button>`
+      : `<code>${e(row.targetAssembly)}</code>`;
   return `<section class="metadata-surface forwarded-type-overview" aria-labelledby="forwarded-type-title">
     <header class="metadata-surface-head">
       <h1 id="forwarded-type-title">Type forwarder</h1>

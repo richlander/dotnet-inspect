@@ -6380,17 +6380,37 @@ function currentPlatformForwarderView() {
     : null;
 }
 
-function selectedForwarder() {
-  return currentPlatformForwarderView()?.forwarders.find(
-    row => row.id === state.selectedTypeId) ?? null;
+function selectedForwarder(): BrowserPlatformForwarderRow | null {
+  const row = currentPlatformForwarderView()?.forwarders.find(
+    candidate => candidate.id === state.selectedTypeId);
+  if (row) return row;
+  // Until the forwarder inventory supplies its row and action, a forwarded
+  // reference Type is still a forwarder, never an ordinary Type.
+  const type = state.package?.types.find(
+    candidate => candidate.id === state.selectedTypeId);
+  return type && isForwardedDefinition(type)
+    ? {
+        id: type.id,
+        name: type.namespace ? `${type.namespace}.${type.displayName}` : type.displayName,
+        namespace: type.namespace,
+        targetAssembly: "",
+        action: "",
+      }
+    : null;
+}
+
+function isForwardedDefinition(item: AppTypeSurface) {
+  return "forwarded" in item && item.forwarded === true;
 }
 
 const forwarderRowIds = new WeakMap<object, ReadonlySet<string>>();
 
 // A facade's reference surface declares the Types its runtime assembly
-// forwards, under the same id as their forwarder rows. Such a Type lists and
-// counts once, as its forwarder, which keeps the forwarder's Overview.
+// forwards; the server marks them, and their forwarder rows share their ids.
+// Such a Type lists and counts only as its forwarder row, which keeps the
+// forwarder's Overview, so it never appears as an ordinary Type.
 function isListedAsForwarder(item: AppTypeSurface) {
+  if (isForwardedDefinition(item)) return true;
   const view = currentPlatformForwarderView();
   if (!view) return false;
   let ids = forwarderRowIds.get(view);
@@ -15014,15 +15034,29 @@ function renderLens(item: AppTypeSurface | null | undefined) {
   if (state.atPackageRoot) return renderPackageView();
   if (state.atLibraryRoot) return renderLibraryView();
   const forwarder = selectedForwarder();
-  if (forwarder) return platformForwarderInventoryStatus() + renderForwardedTypeOverview(
-    forwarder,
-    currentPlatformForwarderView()!.assembly,
-    {
-      pending: platformForwarderPresentation!.activating,
-      error: platformForwarderPresentation!.ready ? platformForwarderPresentation!.error : "",
-      available: platformForwarderPresentation!.ready,
-    },
-    escapeHtml);
+  if (forwarder) {
+    // A forwarded reference Type selected before its inventory row exists
+    // renders from its own row; its destination follows the inventory.
+    const presentation = platformForwarderPresentation?.key === selectedPlatformForwarderKey()
+      ? platformForwarderPresentation
+      : null;
+    return platformForwarderInventoryStatus() + renderForwardedTypeOverview(
+      forwarder,
+      currentPlatformForwarderView()?.assembly
+        ?? state.package?.types.find(type => type.id === forwarder.id)?.assemblyName
+        ?? "",
+      {
+        pending: presentation?.activating ?? false,
+        error: presentation?.ready ? presentation.error : "",
+        available: presentation?.ready ?? false,
+        destination: forwarder.targetAssembly
+          ? undefined
+          : presentation?.loading
+            ? "Loading…"
+            : presentation?.error ? "Unavailable" : "Not loaded",
+      },
+      escapeHtml);
+  }
   if (!item) return "";
   switch (state.lens) {
     case "source":

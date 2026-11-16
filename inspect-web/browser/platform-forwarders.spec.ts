@@ -300,3 +300,42 @@ test("a reference-declared forwarded Type lists once as its forwarder", async ({
   await page.locator("[data-platform-forwarder]").click();
   await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Private.Xml");
 });
+
+// The server marks a forwarded reference Type, so it never lists or opens as
+// an ordinary Type while its Library's forwarder inventory is unresolved.
+test("a forwarded reference Type stays a forwarder while its inventory loads", async ({ page }) => {
+  await installFacades(page, surface, [], "ready", "ready", {
+    forwarders: true, forwarderReferenceSurface: true, forwarderViewPendingAfterFirst: true,
+  });
+  await openInstalledPlatform(page);
+  const xml = page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Xml", { exact: true }),
+  });
+  await xml.click();
+  const reader = page.locator('[data-type="System.Xml:System.Xml.XmlReader"]');
+  await reader.click();
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+
+  await chooseSubject(page, "platform", "Platform");
+  await page.locator('[data-platform-library]').filter({
+    has: page.getByText("System.Text.Json", { exact: true }),
+  }).click();
+  await releaseFacade(page, "finish-forwarder-view");
+  await expect(page.locator("#library-overview-title")).toHaveText("System.Text.Json");
+  await page.keyboard.press("Control+k");
+  await page.locator("#spotlight-input").fill("type XmlReader");
+  await expect(page.locator("#spotlight-results")).toContainText("type XmlReader");
+  await page.keyboard.press("Enter");
+  await expect(page.locator("#spotlight-input")).toHaveCount(0);
+  await expect(page.locator(".inspected-target")).toContainText("XmlReader");
+  // While the inventory is held, the retained reference Type never opens or
+  // lists as an ordinary Type.
+  await expect(page.locator('[data-inspector-tab][data-lens="api"]')).toHaveCount(0);
+  await expect(page.locator('[data-inspector-tab][data-lens="source"]')).toHaveCount(0);
+  await expect(reader).toHaveCount(0);
+
+  await releaseFacade(page, "finish-forwarder-view");
+  await expect(page.locator("#forwarded-type-title")).toHaveText("Type forwarder");
+  await expect(page.locator("[data-platform-forwarder]")).toHaveText("System.Xml.ReaderWriter");
+  await expect(reader).toHaveCount(1);
+});

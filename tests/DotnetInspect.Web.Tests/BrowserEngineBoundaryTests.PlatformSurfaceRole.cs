@@ -141,6 +141,11 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Contains("ReferenceOnly", listed);
             Assert.Contains("Shared", listed);
             Assert.DoesNotContain("ImplementationOnly", listed);
+            // The row of a reference Type the runtime forwards says so from
+            // the first projection, before any forwarder inventory exists.
+            Assert.Equal(
+                ["ReferenceOnly"],
+                surface.Types.Where(type => type.Forwarded).Select(type => type.Name));
 
             // The runtime forwarder of a Type the reference declares has that
             // Type's id, so a host lists the Type once, as its forwarder; a

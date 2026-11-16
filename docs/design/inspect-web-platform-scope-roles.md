@@ -139,8 +139,12 @@ selection uses, acquires both roles.
 - **Implementation views.** These accept surface Type and member identities.
   Member metadata tokens are hints that the selector key validates, so a
   reference token never selects a different runtime member.
-- **Facade Types.** The Type list, its filters and counts, and the Library's
-  Navigate count show each forwarded reference Type once, as its forwarder.
+- **Facade Types.** The Type list projection marks each reference Type that
+  the runtime assembly forwards, read from the runtime `ExportedType` table.
+  A marked Type lists, counts, and selects only as its forwarder, including
+  before the forwarder inventory that supplies its activation has loaded. The
+  Type list, its filters and counts, and the Library's Navigate count show it
+  once.
 
 Remaining adoption:
 - Performance and Unsafe row naming and navigation through the surface,
