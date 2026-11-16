@@ -664,6 +664,82 @@ reference-only package has one group and uses that role budget undivided;
 performance analysis falls back to that surface group when no implementation
 participant exists.
 
+### Platform scope roles
+
+**Status: contract; adoption in progress.** This section owns the roles of a
+Platform Library. Adoption is tracked by
+[#11231](https://github.com/richlander/dotnet-inspect/issues/11231), whose
+[census](https://github.com/richlander/dotnet-inspect/issues/11231#issuecomment-6906698786)
+records which pack each Platform view reads today.
+
+A Platform Library has the same two roles as a package Library.
+- **Surface:** the matching assembly in its family's reference pack
+  (`Microsoft.NETCore.App.Ref` or `Microsoft.AspNetCore.App.Ref`) for the
+  selected platform version and target framework.
+- **Implementation:** the same-named assembly in that family's runtime pack.
+
+The surface answers what a developer compiles against. It owns:
+- the Type list;
+- Type and member declarations and documents;
+- catalog counts;
+- Opportunities;
+- explicit memory-safety contracts;
+- the navigation identity of Analysis rows.
+
+The implementation answers what runs. It owns:
+- method bodies and Source;
+- Metadata images;
+- Integrations and Performance;
+- implementation profiles, heat, and leverage;
+- body evidence for Unsafe;
+- Resource Triage;
+- Library metrics and structure;
+- call graphs.
+
+A view reads one role for each fact it shows, so a count always describes the
+same assembly as the list beside it.
+
+Memory-safety contracts show why the surface is not interchangeable with the
+implementation. Platform reference assemblies are compiled under the updated
+memory-safety rules: they carry `MemorySafetyRulesAttribute` and
+`RequiresUnsafeAttribute`. The .NET 11 runtime-pack assemblies, including
+`System.Private.CoreLib`, carry neither. Two consequences follow:
+- A Platform member's caller-unsafe contract is a surface fact. A view that
+  shows it reads the reference assembly and never infers it from the
+  implementation's metadata.
+- An Unsafe finding combines body evidence from the implementation with
+  explicit contracts from the surface.
+
+[Platform caller-unsafe contracts](../docs/design/platform-caller-unsafe-contracts.md)
+owns contract consumption. These roles only fix which assembly supplies it.
+
+Surface and implementation pair by assembly name within one family and
+version, as a package pairs a `ref/` asset with its matching `lib/` asset. The
+package rules carry over:
+
+- **No reference counterpart.** An implementation assembly such as
+  `System.Private.CoreLib` is its own surface, as for a package without `ref/`
+  assets.
+- **No runtime counterpart.** A reference assembly has a surface only.
+  Implementation views report it unavailable rather than empty.
+- **Facades.** A facade keeps its reference surface even when its runtime
+  assembly forwards every Type elsewhere. For example, the reference
+  `System.Runtime` lists the Types developers compile against.
+  - A Library-scoped implementation view of a facade reads the facade's own
+    runtime assembly. It discloses that the Library forwards rather than
+    presenting an empty result as complete.
+  - A forwarded Type reaches its defining assembly only through
+    [Platform forwarded-Type activation](../docs/design/inspect-web-platform-forwarded-type-activation.md).
+    That route stays on runtime-pack `ExportedType` evidence, because the
+    defining assembly, such as `System.Private.Xml`, often has no reference
+    counterpart.
+
+Analysis rows computed from implementation evidence, such as Performance and
+Unsafe, navigate through the surface.
+- A member the reference assembly declares opens its listed Type.
+- A non-public member, or one the reference assembly omits, opens as a
+  transient Type, as Package rows do.
+
 ### Artifact-backed package scope adoption
 
 **Status: implemented.** This section owns the Browser registry
@@ -1185,11 +1261,11 @@ Rows open the supported member Overview. Non-public opportunities remain visible
 in the aggregate count.
 
 `QueryPlatformPerformance` runs the same participant-scoped query and Browser
-projection for one selected platform participant. A platform scope holds only
-the runtime pack's implementation assemblies and has no separate compile role,
-so the analyzed assembly is also its own surface, as for a package without
-`ref/` assets: rows carry its bare assembly identity and platform pack, exactly
-as the Platform Type list names its Types.
+projection for one selected platform participant. Until the Platform surface
+role in [Platform scope roles](#platform-scope-roles) is adopted, a platform
+scope holds only the runtime pack's implementation assemblies, so the analyzed
+assembly is also its own surface: rows carry its bare assembly identity and
+platform pack, exactly as the Platform Type list names its Types.
 
 `QueryMemberFacts` resolves the selected reference-preferred member to its exact
 implementation body through the product's opaque member correspondence, then
