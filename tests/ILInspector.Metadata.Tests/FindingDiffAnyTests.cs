@@ -42,6 +42,11 @@ public sealed class FindingDiffAnyTests
     [InlineData("FindingDiffAnyFixture.OverloadDefaultChanged", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ITypeAttributeOnly", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.TypeAttributeChanged", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.MemberAttributeChanged", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.PropertyAttributeChanged", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    [InlineData("FindingDiffAnyFixture.FieldAttributeChanged", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
+    // An attribute the API surface does not render is not an API difference.
+    [InlineData("FindingDiffAnyFixture.ITypeUnrenderedAttributeOnly", FindingDiffAnyState.Unchanged, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.ParameterName", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.PublicAttribute", FindingDiffAnyState.Changed, FindingDiffAnyState.Unchanged)]
     [InlineData("FindingDiffAnyFixture.InterfaceAdded", FindingDiffAnyState.Changed, FindingDiffAnyState.Changed)]

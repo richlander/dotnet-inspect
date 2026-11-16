@@ -358,6 +358,19 @@ A complete comparison is projected only for the selected Type when no
 presented difference settles the census. Equal censuses project no model.
 The receipt reports API surfaces built and the time constructing them.
 
+Before projecting, an uncertain attribute row is presented through its
+owner's **rendered attribute list**: the list the API axis surface carries and
+the complete comparison compares as a set. When the owner is the Type, or a
+method, property, or field each side declares, and that list differs between
+the sides, the Type is API `Changed` without a projection. The lists come from
+the surface's own renderers, so the rows the surface leaves out stay
+uncertain: a compiler-emitted attribute, an argument the renderer cannot
+show, a re-encoding of one value, and a Member's `Obsolete`, which the API
+status analysis owns. An accessor's, parameter's, generic parameter's, or
+event's attributes are not in such a list and stay uncertain too. This is the
+census order's first step, renderable attributes, under the [uncertain fact
+kinds](diff-capabilities.md#uncertain-fact-kinds) rule.
+
 That projection covers only what the uncertain differences can change. Each
 uncertain fact has an owner: the Member row it describes, or the Member row
 owning its parameter or generic parameter. The projection holds the Type row
@@ -366,7 +379,8 @@ accessors raised into their property or event, owns such a row on either side,
 so an accessor's fact selects its property or event, and an overload that owns
 no uncertain fact is not projected. A row no declared Member owns, such as
 generated code, is outside the API surface and selects nothing. A Type-owned
-uncertain fact, such as a Type attribute or nullable context, can change how
+uncertain fact, such as a Type attribute the surface does not render or the
+nullable context, can change how
 every Member is presented, so it selects every Member key of both censuses
 explicitly; with no Member on either side, it selects the Type row alone. The
 projection is the complete comparison's input with only the facts that

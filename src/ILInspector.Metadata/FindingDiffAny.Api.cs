@@ -15,7 +15,8 @@ public static partial class FindingDiffAny
         if (CensusesEqual(a, before, b, after))
             return FindingDiffAnyState.Unchanged;
         var owners = new UncertainOwners();
-        if (HasPresentedApiDifference(a, before, b, after, owners))
+        if (HasPresentedApiDifference(a, before, b, after, owners)
+            || HasPresentedAttributeDifference(a, unitA, b, unitB, owners))
             return FindingDiffAnyState.Changed;
 
         // Settle with the complete API comparison over only what the
@@ -100,14 +101,52 @@ public static partial class FindingDiffAny
 
         public bool TypeWide { get; private set; }
 
+        /// <summary>
+        /// Whether an uncertain attribute row is owned by the Type, or by a
+        /// subject the census does not key as a Member, parameter, or generic
+        /// parameter, such as a module attribute recorded on the Type.
+        /// </summary>
+        public bool TypeAttribute { get; private set; }
+
+        /// <summary>
+        /// The census keys of the methods, properties, and fields that own an
+        /// uncertain attribute row: the subjects whose rendered attribute
+        /// lists the API comparison compares.
+        /// </summary>
+        public HashSet<SymbolKey<FindingDiffAnyPart>> AttributeMembers { get; } = [];
+
         public void Add(StagedSymbolKey<FindingDiffAnyPart> fact)
         {
-            if (TypeWide)
-                return;
             var parts = fact.Parts;
             parts.Read();
             parts.Read();
+            if (fact.Kind == FindingDiffAnyPart.Attribute)
+                AddAttributeOwner(parts);
+            if (TypeWide)
+                return;
             AddSubject(parts);
+        }
+
+        void AddAttributeOwner(SymbolKeyPartReader<FindingDiffAnyPart> part)
+        {
+            if (part.Kind != SymbolKeyPartKind.Key)
+            {
+                TypeAttribute = true;
+                return;
+            }
+            var key = part.NestedParts;
+            key.Read();
+            if (key.Marker is FindingDiffAnyPart.Method or FindingDiffAnyPart.Field or FindingDiffAnyPart.Property)
+            {
+                if (OrdinarySubject(part))
+                    AttributeMembers.Add(new SymbolKey<FindingDiffAnyPart>(OpaqueByteRange.Copy(part.CopyPayload())));
+                return;
+            }
+            // A parameter's, generic parameter's, or event's attributes are not
+            // in a rendered attribute list the API comparison compares.
+            if (key.Marker is not (FindingDiffAnyPart.Parameter or FindingDiffAnyPart.GenericParameter
+                or FindingDiffAnyPart.Event))
+                TypeAttribute = true;
         }
 
         /// <summary>
@@ -166,6 +205,65 @@ public static partial class FindingDiffAny
             _rows.Add(new SymbolKey<FindingDiffAnyPart>(OpaqueByteRange.Copy(part.CopyPayload())));
         }
     }
+
+    // An attribute row the census cannot classify is presented when its
+    // owner's rendered attribute list, the one the API surface carries and the
+    // API comparison compares as a set, differs between the sides: the Type's,
+    // or a method's, property's, or field's that each side declares. Rendering
+    // applies the surface's own filters, so a compiler-emitted attribute, an
+    // argument the renderer cannot show, a re-encoding of one value, or a
+    // Member's Obsolete leaves the lists equal and the row uncertain.
+    static bool HasPresentedAttributeDifference(Side a, Unit unitA, Side b, Unit unitB, UncertainOwners owners)
+    {
+        if (owners.TypeAttribute
+            && !SameAttributes(
+                ApiSurfaceExtractor.RenderTypeAttributes(a.Md, a.Md.GetTypeDefinition(unitA.Owner).GetCustomAttributes()),
+                ApiSurfaceExtractor.RenderTypeAttributes(b.Md, b.Md.GetTypeDefinition(unitB.Owner).GetCustomAttributes())))
+        {
+            return true;
+        }
+        if (owners.AttributeMembers.Count == 0)
+            return false;
+        Dictionary<SymbolKey<FindingDiffAnyPart>, EntityHandle> before = AttributeDeclarations(a, unitA.Owner, owners.AttributeMembers);
+        Dictionary<SymbolKey<FindingDiffAnyPart>, EntityHandle> after = AttributeDeclarations(b, unitB.Owner, owners.AttributeMembers);
+        foreach ((SymbolKey<FindingDiffAnyPart> key, EntityHandle declaration) in before)
+        {
+            if (after.TryGetValue(key, out EntityHandle other)
+                && !SameAttributes(MemberAttributes(a.Md, declaration), MemberAttributes(b.Md, other)))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // The declared methods, properties, and fields named by the selected keys.
+    // An accessor is not a declaration, so its attributes are not selected.
+    static Dictionary<SymbolKey<FindingDiffAnyPart>, EntityHandle> AttributeDeclarations(
+        Side side, TypeDefinitionHandle type, HashSet<SymbolKey<FindingDiffAnyPart>> selected)
+    {
+        var declarations = new Dictionary<SymbolKey<FindingDiffAnyPart>, EntityHandle>();
+        foreach ((EntityHandle declaration, SymbolKey<FindingDiffAnyPart> key) in FindingDiffAnyApiShapes.DeclaredMembers(side, type))
+        {
+            if (declaration.Kind is HandleKind.MethodDefinition or HandleKind.PropertyDefinition or HandleKind.FieldDefinition
+                && selected.Contains(key))
+            {
+                declarations[key] = declaration;
+            }
+        }
+        return declarations;
+    }
+
+    static List<string> MemberAttributes(MetadataReader md, EntityHandle declaration)
+        => ApiSurfaceExtractor.RenderMemberAttributes(md, declaration.Kind switch
+        {
+            HandleKind.MethodDefinition => md.GetMethodDefinition((MethodDefinitionHandle)declaration).GetCustomAttributes(),
+            HandleKind.PropertyDefinition => md.GetPropertyDefinition((PropertyDefinitionHandle)declaration).GetCustomAttributes(),
+            _ => md.GetFieldDefinition((FieldDefinitionHandle)declaration).GetCustomAttributes(),
+        });
+
+    static bool SameAttributes(List<string> before, List<string> after)
+        => new HashSet<string>(before, StringComparer.Ordinal).SetEquals(after);
 
     static bool HasPresentedApiDifference(
         Side a, List<SymbolKeySlot> before, Side b, List<SymbolKeySlot> after, UncertainOwners owners)

@@ -544,17 +544,49 @@ public class OverloadDefaultChanged
     public int Value(string s) => s.Length;
 }
 
-// A Type-owned uncertain difference on a Type with no Members on either side.
+// A rendered Type attribute changes on a Type with no Members on either side.
 [Description("after")]
 public interface ITypeAttributeOnly
 {
 }
 
-// A Type-owned uncertain difference on a Type that declares Members.
+// A rendered Type attribute changes on a Type that declares Members.
 [Description("after")]
 public class TypeAttributeChanged
 {
     public void Value() { }
+}
+
+// A rendered Member attribute changes: on a method, a property, and a field.
+public class MemberAttributeChanged
+{
+    [Description("after")]
+    public void Value() { }
+}
+
+public class PropertyAttributeChanged
+{
+    [Description("after")]
+    public int Value { get; set; }
+}
+
+public class FieldAttributeChanged
+{
+    [Description("after")]
+    public int Value;
+}
+
+// A Type-owned uncertain difference on a Type with no Members on either side:
+// an attribute whose array argument the API surface does not render.
+[Values(2)]
+public interface ITypeUnrenderedAttributeOnly
+{
+}
+
+[AttributeUsage(AttributeTargets.All)]
+public sealed class ValuesAttribute(params int[] values) : Attribute
+{
+    public int[] Values { get; } = values;
 }
 
 // Packing is uncertain to the census but absent from the complete API diff.
