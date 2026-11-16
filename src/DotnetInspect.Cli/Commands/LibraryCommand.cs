@@ -1323,6 +1323,23 @@ public partial class LibraryCommand
                     useRuntimeAssemblies: true,
                     platformVersion: options.PlatformVersion,
                     sourceOptions: options.SourceOptions);
+                // Installed shared runtime first. Only when the named family (at
+                // the named version, if any) has no installed runtime does the
+                // Library come from that family's reference pack: the same
+                // Platform pack authority as Type and Member --platform,
+                // acquired only in that case.
+                if (error != null
+                    && options.PlatformFramework is { Length: > 0 } selectedFramework
+                    && options.PlatformVersion is null
+                    && !PlatformResolver.HasInstalledRuntimeFramework(selectedFramework))
+                {
+                    (resolvedPath, framework, version, error) = await PlatformResolver.ResolveAssemblyAsync(
+                        platform.Name,
+                        context.HttpClient,
+                        logger.Log,
+                        selectedFramework,
+                        sourceOptions: options.SourceOptions);
+                }
 
                 if (error != null)
                 {

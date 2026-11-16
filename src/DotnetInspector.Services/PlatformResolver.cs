@@ -160,6 +160,33 @@ public static class PlatformResolver
     }
 
     /// <summary>
+    /// Whether the named framework family's shared runtime is installed, for
+    /// example <c>runtime</c> (any version) or <c>aspnetcore@11.0.0</c> (that
+    /// version). Unknown families are not installed.
+    /// </summary>
+    public static bool HasInstalledRuntimeFramework(string frameworkSpec)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(frameworkSpec);
+        int at = frameworkSpec.LastIndexOf('@');
+        string name = at > 0 ? frameworkSpec[..at] : frameworkSpec;
+        string? version = at > 0 ? frameworkSpec[(at + 1)..] : null;
+        if (!SharedFrameworkMappings.TryGetValue(name, out string? sharedName)
+            || GetSharedDirectory() is not { } shared)
+        {
+            return false;
+        }
+
+        string frameworkPath = Path.Combine(shared, sharedName);
+        if (!Directory.Exists(frameworkPath))
+            return false;
+        return string.IsNullOrEmpty(version)
+            ? Directory.EnumerateDirectories(frameworkPath)
+                .Select(Path.GetFileName)
+                .Any(installed => installed is { Length: > 0 } && char.IsDigit(installed[0]))
+            : Directory.Exists(Path.Combine(frameworkPath, version));
+    }
+
+    /// <summary>
     /// Discovers the .NET shared runtime directory.
     /// </summary>
     public static string? GetSharedDirectory()

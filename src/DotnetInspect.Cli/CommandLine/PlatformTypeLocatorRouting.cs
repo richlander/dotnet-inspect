@@ -353,6 +353,27 @@ internal static class PlatformTypeLocatorRouting
                 completed.Target));
     }
 
+    // Whether the realized selected population names this whole Library as a
+    // focus member. The population was realized by the same installed or
+    // package-backed Platform authority as Type routing; no other family or
+    // source is consulted.
+    internal static bool ContainsFocusLibrary(
+        CliPlatformTypeLocatorOutcome.Completed completed,
+        string library)
+    {
+        ArgumentNullException.ThrowIfNull(completed);
+        ArgumentException.ThrowIfNullOrWhiteSpace(library);
+        string name = library.Trim();
+        return AssertEvaluated(completed.Envelope).Members.Any(member =>
+            member.Observation.Realization
+                is TypeDeclarationLocatorRealization.PlatformRealization
+                {
+                    Role: WorkspacePlatformPopulationMemberRole.Focus,
+                }
+            && member.Observation.AssemblyIdentity.Name.Equals(
+                name, StringComparison.OrdinalIgnoreCase));
+    }
+
     internal static InspectionEnvelope<PlatformNamespaceDiscoveryOutcome>
         ResolveNamespace(
             CliPlatformTypeLocatorOutcome.Completed completed,

@@ -710,7 +710,8 @@ public static class RouterCommandDefinition
             // One selected Platform family for every lookup on this path: the
             // whole-name Library probe, the child Library command and the Type
             // locator all use the same SelectPlatformPopulation decision. The
-            // probe is local-only, as before; it never searches another family.
+            // installed reference-pack probe is local-only and never searches
+            // another family; when it misses, the realized population answers.
             string selectedFamily =
                 RouterTargetAnalysis.SelectPlatformFrameworkFamily(target);
             var (resolvedPath, resolvedFramework, _, assemblyError) =
@@ -735,6 +736,21 @@ public static class RouterCommandDefinition
                 target,
                 sourceOptions,
                 cancellationToken);
+            // Without an installed reference pack for the selected family, the
+            // whole-name Library answer comes from the same realized population
+            // (installed or package-backed) as Type routing, before any Type
+            // interpretation of the same spelling.
+            if (locator is CliPlatformTypeLocatorOutcome.Completed realized
+                && PlatformTypeLocatorRouting.ContainsFocusLibrary(realized, target))
+            {
+                return new RouterRewrite(
+                    [
+                        "library", target,
+                        "--framework", PlatformFrameworkSpec(realized.Target),
+                        .. tail,
+                    ],
+                    SelectedPlatformFramework: selectedFamily);
+            }
             if (route?.Content is PlatformTypeCatalogRouteOutcome.Resolved resolved)
                 return RewriteResolved(RouterResolvedTarget.From(resolved), target, tail);
 
