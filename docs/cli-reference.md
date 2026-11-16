@@ -119,7 +119,11 @@ of whether a NuGet package exists or the selected Platform target can be
 found. `System.CommandLine` therefore defaults to Platform even when a
 same-named package is published. Use `package System.CommandLine` or
 `System.CommandLine --package` to select Package instead. A coordinate such as
-`System.Text.Json@10.0.0` selects Package. Bare `List<T>` and `string.ctor`
+`System.Text.Json@10.0.0` selects Package. Microsoft.Extensions names such
+as `Microsoft.Extensions.Logging` default to Package, because that Ecosystem
+declares no Platform population. Use `--platform` for a copy shipped in the
+Runtime shared framework, or `--framework aspnetcore` for one shipped in ASP.NET
+Core. Bare `List<T>` and `string.ctor`
 need `--platform` to select Platform; direct `type` and `member` commands
 retain their own explicit source options (for example,
 `type JsonSerializer --package System.Text.Json`). A miss, failure, or

@@ -2207,7 +2207,8 @@ public class CommandLineTests
     [InlineData("Microsoft.Authentication.WebAssembly", true)]
     [InlineData("Aspire.Hosting", true)]
     [InlineData("Newtonsoft.Json", true)]
-    [InlineData("Microsoft.Extensions.Logging", false)]
+    [InlineData("Microsoft.Extensions.Logging", true)]
+    [InlineData("Microsoft.Extensions.Logging.Abstractions", true)]
     [InlineData("System.Text.Json.JsonSerializer", false)]
     [InlineData("JsonSerializer", false)]
     public void CommandlessDottedNonPlatformName_UsesAcquisitionFreePackageRoute(

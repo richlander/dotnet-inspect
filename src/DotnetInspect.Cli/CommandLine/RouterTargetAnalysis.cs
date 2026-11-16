@@ -96,15 +96,18 @@ internal static class RouterTargetAnalysis
     private static readonly ConditionalWeakTable<ParseResult, RouterResolvedTarget>
         ResolvedTargets = new();
 
+    // Platform is the default only for a Platform-search-eligible claimant
+    // that declares its own Platform population. An eligible claimant without
+    // one (Microsoft.Extensions) defaults to Package, like an unclaimed name.
     internal static RouterTargetDomain Classify(string target) =>
-        EcosystemPackCatalog.ShouldSearchPlatform(target)
+        EcosystemPackCatalog.FindPlatformSearchPopulation(target) is not null
             ? RouterTargetDomain.Platform
             : RouterTargetDomain.Package;
 
     // The selected Platform family is the Ecosystem claimant's own declared
     // Platform population. Without one (an explicit --platform override of an
-    // unclaimed name, or an eligible claimant that declares no population),
-    // the Runtime default applies. Only that one family is realized.
+    // unclaimed or Package-default name), the Runtime default applies. Only
+    // that one family is realized.
     internal static PlatformLibraryPopulationDeclaration SelectPlatformPopulation(
         string target) =>
         EcosystemPackCatalog.FindPlatformSearchPopulation(target)

@@ -782,10 +782,13 @@ admission paths.
 
 Without explicit intent, consume the resource-free
 [Ecosystem assembly-name claim](design/ecosystem-dependency-recognition.md#direct-assembly-name-claims)
-and its Platform-search eligibility. An eligible claim selects Platform;
-otherwise the default is Package. Ecosystems own claim precedence and
-associations. Router must not duplicate that policy with its own `System.*` or
-`Microsoft.*` rules.
+and its bare-target Platform default. A claim selects Platform only when its
+Ecosystem is Platform-search eligible and declares its own Platform
+population; resolution then stays in that one family. Otherwise the default is
+Package. Microsoft.Extensions is eligible but declares no Platform population,
+so its names default to Package. Ecosystems own claim precedence, associations
+and populations. Router must not duplicate that policy with its own `System.*`
+or `Microsoft.*` rules.
 
 A claim is a routing default, not proof that the selected source supplies the
 subject. Runtime may claim `System.*` even when a particular name is available
@@ -800,6 +803,10 @@ the domain.
 | `System.String.ctor` | Platform | The same default, followed by Platform member resolution |
 | `newtonsoft.Json` | Package | No Platform-eligible claim |
 | `System.CommandLine` | Platform | Runtime's default applies even though a NuGet package exists |
+| `Microsoft.Extensions.Logging` | Package | Microsoft.Extensions declares no Platform population |
+| `Microsoft.Extensions.Logging.Abstractions` | Package | The same default applies even though Runtime ships it |
+| `Microsoft.Extensions.Logging.Abstractions --platform` | Platform | Explicit domain override, resolved in Runtime |
+| `Microsoft.AspNetCore.Http.Abstractions` | Platform | ASP.NET Core's claim and population |
 | `package System.CommandLine` | Package | Explicit subject command |
 | `System.CommandLine --package` | Package | Explicit domain override |
 | `System.Text.Json@10.0.0` | Package | Explicit package coordinate |
@@ -851,9 +858,13 @@ never carries a live Workspace authority into command execution.
 The motivating published assets are `System.Text.Json@10.0.0`,
 `Newtonsoft.Json@13.0.4` and `System.CommandLine@2.0.3`. Their overlapping
 Platform and Package spellings motivate an explicit policy rather than
-existence-sensitive routing. `System.Text.Json.JsonSerializer.DeserializeAsync`
-also exercises the completed Type/member handoff: a selected Platform Type
-prefix must not be rescanned by Member. Durable CLI integration tests use
+existence-sensitive routing. `Microsoft.Extensions.Logging@10.0.0` and
+`Microsoft.Extensions.Logging.Abstractions@10.0.0` motivate the Package
+default for an eligible claimant without a Platform population: both are
+NuGet packages that also ship in a shared framework.
+`System.Text.Json.JsonSerializer.DeserializeAsync` also exercises the completed
+Type/member handoff: a selected Platform Type prefix must not be rescanned by
+Member. Durable CLI integration tests use
 the selected installed Platform references and these pinned Package identities;
 focused syntactic controls cover generic, nested, and special selectors. An
 absent local asset may be obtained through the normal product acquisition path,

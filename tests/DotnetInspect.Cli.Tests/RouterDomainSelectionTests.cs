@@ -16,6 +16,12 @@ public sealed class RouterDomainSelectionTests
     [InlineData("System.Text.Json.JsonSerializer", "Platform")]
     [InlineData("System.CommandLine", "Platform")]
     [InlineData("Newtonsoft.Json", "Package")]
+    [InlineData("Microsoft.AspNetCore.Http.Abstractions", "Platform")]
+    [InlineData("Microsoft.Extensions.Logging", "Package")]
+    [InlineData("Microsoft.Extensions.Hosting", "Package")]
+    [InlineData("Microsoft.Extensions.Logging.Abstractions", "Package")]
+    [InlineData("Microsoft.Extensions.Logging.ILogger", "Package")]
+    [InlineData("Microsoft.Extensions.AI", "Package")]
     [InlineData("List<T>", "Package")]
     [InlineData("string.ctor", "Package")]
     [InlineData("not/a/nuget/id", "Package")]
@@ -31,6 +37,7 @@ public sealed class RouterDomainSelectionTests
     [InlineData("Microsoft.AspNetCore.Components.Endpoints.FormMapping.ArrayPoolBufferAdapter<T1,T2,T3>.PooledBuffer", "AspNetCore")]
     [InlineData("Microsoft.JSInterop.IJSRuntime", "AspNetCore")]
     [InlineData("List<T>", "DotNetRuntime")]
+    [InlineData("Microsoft.Extensions.Logging.Abstractions", "DotNetRuntime")]
     public void PlatformFamilyIsTheClaimantsDeclaredPopulation(
         string target, string family)
     {
