@@ -1,0 +1,1 @@
+[{"signature":"void .ctor(System.Buffers.IBufferWriter<byte> bufferWriter, System.Text.Json.JsonWriterOptions options = default)","attributes":[]},{"signature":"void .ctor(System.IO.Stream utf8Json, System.Text.Json.JsonWriterOptions options = default)","attributes":[]}]

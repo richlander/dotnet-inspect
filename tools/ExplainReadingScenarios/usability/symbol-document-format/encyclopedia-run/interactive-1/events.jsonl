@@ -1,0 +1,134 @@
+{"kind": "view", "file": "view-01.txt", "source": "interactive guide", "time_ns": 45516250}
+{"kind": "request-start", "id": 1, "time_ns": 18268791}
+{"kind": "request-start", "id": 2, "time_ns": 18347958}
+{"kind": "request", "id": 2, "time_ns": 159879458}
+{"kind": "request", "id": 1, "time_ns": 318480500}
+{"kind": "view", "file": "view-02.txt", "source": "response-02.out", "time_ns": 20620458}
+{"kind": "view", "file": "view-03.txt", "source": "response-01.out", "time_ns": 19728291}
+{"kind": "request-start", "id": 3, "time_ns": 22265958}
+{"kind": "request-start", "id": 4, "time_ns": 21548250}
+{"kind": "request-start", "id": 5, "time_ns": 20162458}
+{"kind": "request-start", "id": 6, "time_ns": 20666125}
+{"kind": "request", "id": 4, "time_ns": 61896666}
+{"kind": "request", "id": 5, "time_ns": 63938583}
+{"kind": "request", "id": 6, "time_ns": 90140750}
+{"kind": "request", "id": 3, "time_ns": 109119708}
+{"kind": "view", "file": "view-04.txt", "source": "response-06.out", "time_ns": 24872833}
+{"kind": "view", "file": "view-05.txt", "source": "response-03.out", "time_ns": 23960458}
+{"kind": "view", "file": "view-06.txt", "source": "response-04.out", "time_ns": 23221041}
+{"kind": "view", "file": "view-07.txt", "source": "response-05.out", "time_ns": 21388166}
+{"kind": "request-start", "id": 7, "time_ns": 24124500}
+{"kind": "request-start", "id": 8, "time_ns": 21344250}
+{"kind": "request-start", "id": 9, "time_ns": 20232916}
+{"kind": "request", "id": 9, "time_ns": 56427208}
+{"kind": "request", "id": 8, "time_ns": 604744583}
+{"kind": "request", "id": 7, "time_ns": 653054208}
+{"kind": "view", "file": "view-08.txt", "source": "response-08.out", "time_ns": 24844916}
+{"kind": "view", "file": "view-09.txt", "source": "response-07.out", "time_ns": 22989500}
+{"kind": "view", "file": "view-10.txt", "source": "response-09.err", "time_ns": 22654791}
+{"kind": "request-start", "id": 10, "time_ns": 25620208}
+{"kind": "request-start", "id": 11, "time_ns": 24277541}
+{"kind": "request", "id": 11, "time_ns": 155386625}
+{"kind": "request", "id": 10, "time_ns": 552660375}
+{"kind": "view", "file": "view-11.txt", "source": "response-11.out", "time_ns": 31523000}
+{"kind": "view", "file": "view-12.txt", "source": "response-10.out", "time_ns": 32645958}
+{"kind": "view", "file": "view-13.txt", "source": "response-11.out", "time_ns": 31376375}
+{"kind": "view", "file": "view-14.txt", "source": "response-10.out", "time_ns": 35508041}
+{"kind": "request-start", "id": 12, "time_ns": 21339958}
+{"kind": "request-start", "id": 13, "time_ns": 20191125}
+{"kind": "request-start", "id": 14, "time_ns": 19121791}
+{"kind": "request", "id": 13, "time_ns": 587851583}
+{"kind": "request", "id": 12, "time_ns": 598634750}
+{"kind": "request", "id": 14, "time_ns": 593527291}
+{"kind": "view", "file": "view-15.txt", "source": "response-13.out", "time_ns": 27056083}
+{"kind": "view", "file": "view-16.txt", "source": "response-14.out", "time_ns": 27436666}
+{"kind": "view", "file": "view-17.txt", "source": "response-12.out", "time_ns": 30537083}
+{"kind": "request-start", "id": 15, "time_ns": 20650291}
+{"kind": "request-start", "id": 16, "time_ns": 19539458}
+{"kind": "request-start", "id": 17, "time_ns": 20191541}
+{"kind": "request", "id": 15, "time_ns": 64275333}
+{"kind": "request", "id": 16, "time_ns": 148219083}
+{"kind": "request", "id": 17, "time_ns": 537753750}
+{"kind": "view", "file": "view-18.txt", "source": "response-17.out", "time_ns": 29636875}
+{"kind": "view", "file": "view-19.txt", "source": "response-15.err", "time_ns": 22053500}
+{"kind": "request-start", "id": 18, "time_ns": 25664791}
+{"kind": "request", "id": 18, "time_ns": 490565916}
+{"kind": "view", "file": "view-20.txt", "source": "response-18.out", "time_ns": 56171708}
+{"kind": "view", "file": "view-21.txt", "source": "response-18.out", "time_ns": 53003625}
+{"kind": "view", "file": "view-22.txt", "source": "response-18.out", "time_ns": 55668500}
+{"kind": "view", "file": "view-23.txt", "source": "response-18.out", "time_ns": 56460708}
+{"kind": "view", "file": "view-24.txt", "source": "response-18.out", "time_ns": 59126458}
+{"kind": "view", "file": "view-25.txt", "source": "response-18.out", "time_ns": 58799000}
+{"kind": "view", "file": "view-26.txt", "source": "response-18.out", "time_ns": 61706916}
+{"kind": "view", "file": "view-27.txt", "source": "response-13.out", "time_ns": 30091375}
+{"kind": "view", "file": "view-28.txt", "source": "response-18.out", "time_ns": 56100000}
+{"kind": "view", "file": "view-29.txt", "source": "response-18.out", "time_ns": 56251791}
+{"kind": "request-start", "id": 19, "time_ns": 24150500}
+{"kind": "request-start", "id": 20, "time_ns": 21925291}
+{"kind": "request-start", "id": 21, "time_ns": 19998833}
+{"kind": "request-start", "id": 22, "time_ns": 23675666}
+{"kind": "request", "id": 19, "time_ns": 1190947291}
+{"kind": "request", "id": 21, "time_ns": 1180869666}
+{"kind": "request", "id": 20, "time_ns": 1191037333}
+{"kind": "request", "id": 22, "time_ns": 1173374791}
+{"kind": "view", "file": "view-30.txt", "source": "response-20.out", "time_ns": 26045291}
+{"kind": "view", "file": "view-31.txt", "source": "response-19.out", "time_ns": 27216875}
+{"kind": "view", "file": "view-32.txt", "source": "response-21.out", "time_ns": 25639333}
+{"kind": "view", "file": "view-33.txt", "source": "response-22.out", "time_ns": 26323833}
+{"kind": "request-start", "id": 23, "time_ns": 20718125}
+{"kind": "request-start", "id": 24, "time_ns": 20236791}
+{"kind": "request", "id": 23, "time_ns": 617232583}
+{"kind": "request", "id": 24, "time_ns": 621763291}
+{"kind": "view", "file": "view-34.txt", "source": "response-24.out", "time_ns": 29468250}
+{"kind": "view", "file": "view-35.txt", "source": "response-23.out", "time_ns": 27484583}
+{"kind": "request-start", "id": 25, "time_ns": 25099916}
+{"kind": "request", "id": 25, "time_ns": 546136375}
+{"kind": "view", "file": "view-36.txt", "source": "response-25.out", "time_ns": 23938500}
+{"kind": "request-start", "id": 26, "time_ns": 23618791}
+{"kind": "request", "id": 26, "time_ns": 1089939000}
+{"kind": "view", "file": "view-37.txt", "source": "response-26.err", "time_ns": 24750166}
+{"kind": "view", "file": "view-38.txt", "source": "response-26.out", "time_ns": 21456250}
+{"kind": "request-start", "id": 27, "time_ns": 24370708}
+{"kind": "request", "id": 27, "time_ns": 542201708}
+{"kind": "view", "file": "view-39.txt", "source": "response-27.err", "time_ns": 25584083}
+{"kind": "request-start", "id": 28, "time_ns": 23683375}
+{"kind": "request", "id": 28, "time_ns": 151285458}
+{"kind": "view", "file": "view-40.txt", "source": "response-28.out", "time_ns": 30837500}
+{"kind": "view", "file": "view-41.txt", "source": "response-28.out", "time_ns": 29740958}
+{"kind": "request-start", "id": 29, "time_ns": 23739416}
+{"kind": "request", "id": 29, "time_ns": 520929791}
+{"kind": "view", "file": "view-42.txt", "source": "response-29.out", "time_ns": 31944791}
+{"kind": "request-start", "id": 30, "time_ns": 23910833}
+{"kind": "request", "id": 30, "time_ns": 785942500}
+{"kind": "request-start", "id": 31, "time_ns": 24175541}
+{"kind": "request", "id": 31, "time_ns": 742750541}
+{"kind": "view", "file": "view-43.txt", "source": "response-31.out", "time_ns": 34164375}
+{"kind": "view", "file": "view-44.txt", "source": "response-29.out", "time_ns": 34670333}
+{"kind": "request-start", "id": 32, "time_ns": 25670375}
+{"kind": "request", "id": 32, "time_ns": 63980833}
+{"kind": "view", "file": "view-45.txt", "source": "response-32.err", "time_ns": 29932208}
+{"kind": "request-start", "id": 33, "time_ns": 24916666}
+{"kind": "request", "id": 33, "time_ns": 527554375}
+{"kind": "view", "file": "view-46.txt", "source": "response-33.out", "time_ns": 27185375}
+{"kind": "request-start", "id": 34, "time_ns": 24648291}
+{"kind": "request-start", "id": 35, "time_ns": 21729041}
+{"kind": "request-start", "id": 36, "time_ns": 21745541}
+{"kind": "request-start", "id": 37, "time_ns": 20676166}
+{"kind": "request-start", "id": 38, "time_ns": 20952875}
+{"kind": "request", "id": 36, "time_ns": 898953625}
+{"kind": "request", "id": 35, "time_ns": 903486083}
+{"kind": "request", "id": 34, "time_ns": 909906458}
+{"kind": "request", "id": 37, "time_ns": 896667416}
+{"kind": "request", "id": 38, "time_ns": 890848750}
+{"kind": "view", "file": "view-47.txt", "source": "response-37.out", "time_ns": 30903500}
+{"kind": "view", "file": "view-48.txt", "source": "response-38.out", "time_ns": 26472833}
+{"kind": "view", "file": "view-49.txt", "source": "response-34.out", "time_ns": 26732291}
+{"kind": "view", "file": "view-50.txt", "source": "response-36.out", "time_ns": 29270875}
+{"kind": "view", "file": "view-51.txt", "source": "response-35.out", "time_ns": 25542958}
+{"kind": "request-start", "id": 39, "time_ns": 21937375}
+{"kind": "request", "id": 39, "time_ns": 864985875}
+{"kind": "view", "file": "view-52.txt", "source": "response-39.out", "time_ns": 132692500}
+{"kind": "view", "file": "view-53.txt", "source": "response-39.out", "time_ns": 134966916}
+{"kind": "view", "file": "view-54.txt", "source": "response-39.out", "time_ns": 131890583}
+{"kind": "view", "file": "view-55.txt", "source": "response-39.out", "time_ns": 131918291}
+{"kind": "view", "file": "view-56.txt", "source": "response-13.out", "time_ns": 30116208}

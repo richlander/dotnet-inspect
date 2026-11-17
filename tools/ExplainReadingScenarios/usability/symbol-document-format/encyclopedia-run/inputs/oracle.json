@@ -1,0 +1,463 @@
+{
+  "document_sha256": "f2bc17ce8ab7ebcdf8852a69504af46c3c0bcc85add04b74bc834d32ca6d69a6",
+  "q1_stream_parameters": [
+    "M:System.Text.Json.JsonDocument.Parse(System.IO.Stream,System.Text.Json.JsonDocumentOptions)",
+    "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.DeserializeAsync``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions)",
+    "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Stream,System.Type,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.JsonSerializerOptions)",
+    "M:System.Text.Json.JsonSerializer.DeserializeAsync``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+    "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+    "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Stream,System.Type,System.Text.Json.Serialization.JsonSerializerContext,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+    "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Boolean,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Boolean,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.SerializeAsync``1(System.IO.Stream,``0,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.Serialize``1(System.IO.Stream,``0,System.Text.Json.JsonSerializerOptions)",
+    "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Stream,System.Object,System.Type,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.Serialize(System.IO.Stream,System.Object,System.Type,System.Text.Json.JsonSerializerOptions)",
+    "M:System.Text.Json.JsonSerializer.SerializeAsync``1(System.IO.Stream,``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.Serialize``1(System.IO.Stream,``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+    "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Stream,System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.Serialize(System.IO.Stream,System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+    "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Stream,System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonSerializer.Serialize(System.IO.Stream,System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+    "M:System.Text.Json.Nodes.JsonNode.Parse(System.IO.Stream,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions},System.Text.Json.JsonDocumentOptions)",
+    "M:System.Text.Json.Nodes.JsonNode.ParseAsync(System.IO.Stream,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions},System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)",
+    "M:System.Text.Json.Utf8JsonWriter.#ctor(System.IO.Stream,System.Text.Json.JsonWriterOptions)",
+    "M:System.Text.Json.Utf8JsonWriter.Reset(System.IO.Stream)"
+  ],
+  "q2_jsondocument_producers": [
+    "M:System.Text.Json.JsonDocument.Parse(System.Buffers.ReadOnlySequence{System.Byte},System.Text.Json.JsonDocumentOptions)",
+    "M:System.Text.Json.JsonDocument.Parse(System.IO.Stream,System.Text.Json.JsonDocumentOptions)",
+    "M:System.Text.Json.JsonDocument.Parse(System.ReadOnlyMemory{System.Byte},System.Text.Json.JsonDocumentOptions)",
+    "M:System.Text.Json.JsonDocument.Parse(System.ReadOnlyMemory{System.Char},System.Text.Json.JsonDocumentOptions)",
+    "M:System.Text.Json.JsonDocument.Parse(System.String,System.Text.Json.JsonDocumentOptions)",
+    "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)",
+    "M:System.Text.Json.JsonDocument.ParseValue(System.Text.Json.Utf8JsonReader@)",
+    "M:System.Text.Json.JsonDocument.TryParseValue(System.Text.Json.Utf8JsonReader@,System.Text.Json.JsonDocument@)",
+    "M:System.Text.Json.JsonSerializer.SerializeToDocument(System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+    "M:System.Text.Json.JsonSerializer.SerializeToDocument(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)",
+    "M:System.Text.Json.JsonSerializer.SerializeToDocument(System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+    "M:System.Text.Json.JsonSerializer.SerializeToDocument``1(``0,System.Text.Json.JsonSerializerOptions)",
+    "M:System.Text.Json.JsonSerializer.SerializeToDocument``1(``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})"
+  ],
+  "q3_unreferenced_code_groups": [
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializer",
+      "name": "Deserialize",
+      "marked": [
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonDocument,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonDocument,System.Type,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonElement,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonElement,System.Type,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.Nodes.JsonNode,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.Nodes.JsonNode,System.Type,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.ReadOnlySpan{System.Byte},System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan{System.Byte},System.Type,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.String,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.ReadOnlySpan{System.Char},System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.String,System.Type,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan{System.Char},System.Type,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.Utf8JsonReader@,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.Utf8JsonReader@,System.Type,System.Text.Json.JsonSerializerOptions)"
+      ],
+      "unmarked_same_name": [
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonDocument,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonDocument,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonDocument,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.JsonElement,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonElement,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.JsonElement,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.Nodes.JsonNode,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.Nodes.JsonNode,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.Nodes.JsonNode,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.ReadOnlySpan{System.Byte},System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan{System.Byte},System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan{System.Byte},System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.String,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.ReadOnlySpan{System.Char},System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.String,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan{System.Char},System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.String,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.ReadOnlySpan{System.Char},System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+        "M:System.Text.Json.JsonSerializer.Deserialize``1(System.Text.Json.Utf8JsonReader@,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.Utf8JsonReader@,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.Deserialize(System.Text.Json.Utf8JsonReader@,System.Type,System.Text.Json.Serialization.JsonSerializerContext)"
+      ]
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializer",
+      "name": "DeserializeAsync",
+      "marked": [
+        "M:System.Text.Json.JsonSerializer.DeserializeAsync``1(System.IO.Pipelines.PipeReader,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Pipelines.PipeReader,System.Type,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsync``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Stream,System.Type,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+      ],
+      "unmarked_same_name": [
+        "M:System.Text.Json.JsonSerializer.DeserializeAsync``1(System.IO.Pipelines.PipeReader,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Pipelines.PipeReader,System.Text.Json.Serialization.Metadata.JsonTypeInfo,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Pipelines.PipeReader,System.Type,System.Text.Json.Serialization.JsonSerializerContext,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsync``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsync(System.IO.Stream,System.Type,System.Text.Json.Serialization.JsonSerializerContext,System.Threading.CancellationToken)"
+      ]
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializer",
+      "name": "DeserializeAsyncEnumerable",
+      "marked": [
+        "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Pipelines.PipeReader,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Pipelines.PipeReader,System.Boolean,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Boolean,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+      ],
+      "unmarked_same_name": [
+        "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Pipelines.PipeReader,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Pipelines.PipeReader,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Boolean,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.DeserializeAsyncEnumerable``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Boolean,System.Threading.CancellationToken)"
+      ]
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializer",
+      "name": "Serialize",
+      "marked": [
+        "M:System.Text.Json.JsonSerializer.Serialize``1(System.IO.Stream,``0,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Serialize(System.IO.Stream,System.Object,System.Type,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Serialize``1(``0,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Serialize(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Serialize``1(System.Text.Json.Utf8JsonWriter,``0,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.Serialize(System.Text.Json.Utf8JsonWriter,System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+      ],
+      "unmarked_same_name": [
+        "M:System.Text.Json.JsonSerializer.Serialize``1(System.IO.Stream,``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.Serialize(System.IO.Stream,System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.Serialize(System.IO.Stream,System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+        "M:System.Text.Json.JsonSerializer.Serialize``1(``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.Serialize(System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.Serialize(System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+        "M:System.Text.Json.JsonSerializer.Serialize``1(System.Text.Json.Utf8JsonWriter,``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.Serialize(System.Text.Json.Utf8JsonWriter,System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.Serialize(System.Text.Json.Utf8JsonWriter,System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext)"
+      ]
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializer",
+      "name": "SerializeAsync",
+      "marked": [
+        "M:System.Text.Json.JsonSerializer.SerializeAsync``1(System.IO.Stream,``0,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Stream,System.Object,System.Type,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.SerializeAsync``1(System.IO.Pipelines.PipeWriter,``0,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Pipelines.PipeWriter,System.Object,System.Type,System.Text.Json.JsonSerializerOptions,System.Threading.CancellationToken)"
+      ],
+      "unmarked_same_name": [
+        "M:System.Text.Json.JsonSerializer.SerializeAsync``1(System.IO.Stream,``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Stream,System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Stream,System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.SerializeAsync``1(System.IO.Pipelines.PipeWriter,``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Pipelines.PipeWriter,System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo,System.Threading.CancellationToken)",
+        "M:System.Text.Json.JsonSerializer.SerializeAsync(System.IO.Pipelines.PipeWriter,System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext,System.Threading.CancellationToken)"
+      ]
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializer",
+      "name": "SerializeToDocument",
+      "marked": [
+        "M:System.Text.Json.JsonSerializer.SerializeToDocument``1(``0,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.SerializeToDocument(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+      ],
+      "unmarked_same_name": [
+        "M:System.Text.Json.JsonSerializer.SerializeToDocument``1(``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.SerializeToDocument(System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.SerializeToDocument(System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext)"
+      ]
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializer",
+      "name": "SerializeToElement",
+      "marked": [
+        "M:System.Text.Json.JsonSerializer.SerializeToElement``1(``0,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.SerializeToElement(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+      ],
+      "unmarked_same_name": [
+        "M:System.Text.Json.JsonSerializer.SerializeToElement``1(``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.SerializeToElement(System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.SerializeToElement(System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext)"
+      ]
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializer",
+      "name": "SerializeToNode",
+      "marked": [
+        "M:System.Text.Json.JsonSerializer.SerializeToNode``1(``0,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.SerializeToNode(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+      ],
+      "unmarked_same_name": [
+        "M:System.Text.Json.JsonSerializer.SerializeToNode``1(``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.SerializeToNode(System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.SerializeToNode(System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext)"
+      ]
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializer",
+      "name": "SerializeToUtf8Bytes",
+      "marked": [
+        "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes``1(``0,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(System.Object,System.Type,System.Text.Json.JsonSerializerOptions)"
+      ],
+      "unmarked_same_name": [
+        "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes``1(``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+        "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(System.Object,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+        "M:System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(System.Object,System.Type,System.Text.Json.Serialization.JsonSerializerContext)"
+      ]
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializerOptions",
+      "name": "Default",
+      "marked": [
+        "P:System.Text.Json.JsonSerializerOptions.Default"
+      ],
+      "unmarked_same_name": []
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializerOptions",
+      "name": "GetConverter",
+      "marked": [
+        "M:System.Text.Json.JsonSerializerOptions.GetConverter(System.Type)"
+      ],
+      "unmarked_same_name": []
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializerOptions",
+      "name": "MakeReadOnly",
+      "marked": [
+        "M:System.Text.Json.JsonSerializerOptions.MakeReadOnly(System.Boolean)"
+      ],
+      "unmarked_same_name": [
+        "M:System.Text.Json.JsonSerializerOptions.MakeReadOnly"
+      ]
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializerOptions",
+      "name": "Strict",
+      "marked": [
+        "P:System.Text.Json.JsonSerializerOptions.Strict"
+      ],
+      "unmarked_same_name": []
+    },
+    {
+      "declaring_type": "T:System.Text.Json.JsonSerializerOptions",
+      "name": "Web",
+      "marked": [
+        "P:System.Text.Json.JsonSerializerOptions.Web"
+      ],
+      "unmarked_same_name": []
+    },
+    {
+      "declaring_type": "T:System.Text.Json.Nodes.JsonArray",
+      "name": "Add",
+      "marked": [
+        "M:System.Text.Json.Nodes.JsonArray.Add``1(``0)"
+      ],
+      "unmarked_same_name": [
+        "M:System.Text.Json.Nodes.JsonArray.Add(System.Text.Json.Nodes.JsonNode)"
+      ]
+    },
+    {
+      "declaring_type": "T:System.Text.Json.Nodes.JsonNode",
+      "name": "ReplaceWith",
+      "marked": [
+        "M:System.Text.Json.Nodes.JsonNode.ReplaceWith``1(``0)"
+      ],
+      "unmarked_same_name": []
+    },
+    {
+      "declaring_type": "T:System.Text.Json.Nodes.JsonValue",
+      "name": "Create",
+      "marked": [
+        "M:System.Text.Json.Nodes.JsonValue.Create``1(``0,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})"
+      ],
+      "unmarked_same_name": [
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Boolean,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.Boolean},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Byte,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.Byte},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Char,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.Char},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.DateTime,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.DateTime},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.DateTimeOffset,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.DateTimeOffset},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Decimal,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.Decimal},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Double,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.Double},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Guid,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.Guid},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Int16,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.Int16},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Int32,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.Int32},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Int64,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.Int64},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.SByte,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.SByte},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Single,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.Single},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.String,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.UInt16,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.UInt16},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.UInt32,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.UInt32},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.UInt64,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.UInt64},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Text.Json.JsonElement,System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create(System.Nullable{System.Text.Json.JsonElement},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})",
+        "M:System.Text.Json.Nodes.JsonValue.Create``1(``0,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0},System.Nullable{System.Text.Json.Nodes.JsonNodeOptions})"
+      ]
+    },
+    {
+      "declaring_type": "T:System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver",
+      "name": "#ctor",
+      "marked": [
+        "M:System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver.#ctor"
+      ],
+      "unmarked_same_name": []
+    },
+    {
+      "declaring_type": "T:System.Text.Json.Serialization.Metadata.JsonTypeInfo",
+      "name": "CreateJsonPropertyInfo",
+      "marked": [
+        "M:System.Text.Json.Serialization.Metadata.JsonTypeInfo.CreateJsonPropertyInfo(System.Type,System.String)"
+      ],
+      "unmarked_same_name": []
+    },
+    {
+      "declaring_type": "T:System.Text.Json.Serialization.Metadata.JsonTypeInfo",
+      "name": "CreateJsonTypeInfo",
+      "marked": [
+        "M:System.Text.Json.Serialization.Metadata.JsonTypeInfo.CreateJsonTypeInfo``1(System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.Serialization.Metadata.JsonTypeInfo.CreateJsonTypeInfo(System.Type,System.Text.Json.JsonSerializerOptions)"
+      ],
+      "unmarked_same_name": []
+    }
+  ],
+  "q4_parseasync": [
+    {
+      "documentation_id": "M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)",
+      "display_signature": "System.Threading.Tasks.Task<System.Text.Json.JsonDocument> ParseAsync(System.IO.Stream utf8Json, System.Text.Json.JsonDocumentOptions options = default, System.Threading.CancellationToken cancellationToken = default)",
+      "summary": "Parses a Stream as UTF-8-encoded data representing a single JSON value into a JsonDocument. The stream is read to completion."
+    }
+  ],
+  "q5_converter_types": [
+    {
+      "type": "T:System.Text.Json.Serialization.JsonConverter",
+      "is_sealed": false,
+      "accessible_constructors": [],
+      "externally_derivable": false,
+      "must_override": []
+    },
+    {
+      "type": "T:System.Text.Json.Serialization.JsonConverterAttribute",
+      "is_sealed": false,
+      "accessible_constructors": [
+        "public",
+        "protected"
+      ],
+      "externally_derivable": true,
+      "must_override": []
+    },
+    {
+      "type": "T:System.Text.Json.Serialization.JsonConverterFactory",
+      "is_sealed": false,
+      "accessible_constructors": [
+        "protected"
+      ],
+      "externally_derivable": true,
+      "must_override": [
+        "M:System.Text.Json.Serialization.JsonConverter.CanConvert(System.Type)",
+        "M:System.Text.Json.Serialization.JsonConverterFactory.CreateConverter(System.Type,System.Text.Json.JsonSerializerOptions)"
+      ]
+    },
+    {
+      "type": "T:System.Text.Json.Serialization.JsonConverter`1",
+      "is_sealed": false,
+      "accessible_constructors": [
+        "protected_internal"
+      ],
+      "externally_derivable": true,
+      "must_override": [
+        "M:System.Text.Json.Serialization.JsonConverter`1.Read(System.Text.Json.Utf8JsonReader@,System.Type,System.Text.Json.JsonSerializerOptions)",
+        "M:System.Text.Json.Serialization.JsonConverter`1.Write(System.Text.Json.Utf8JsonWriter,`0,System.Text.Json.JsonSerializerOptions)"
+      ]
+    },
+    {
+      "type": "T:System.Text.Json.Serialization.JsonNumberEnumConverter`1",
+      "is_sealed": true,
+      "accessible_constructors": [
+        "public"
+      ],
+      "externally_derivable": false,
+      "must_override": []
+    },
+    {
+      "type": "T:System.Text.Json.Serialization.JsonStringEnumConverter",
+      "is_sealed": false,
+      "accessible_constructors": [
+        "public",
+        "public"
+      ],
+      "externally_derivable": true,
+      "must_override": []
+    },
+    {
+      "type": "T:System.Text.Json.Serialization.JsonStringEnumConverter`1",
+      "is_sealed": false,
+      "accessible_constructors": [
+        "public",
+        "public"
+      ],
+      "externally_derivable": true,
+      "must_override": []
+    }
+  ],
+  "q6_stream_deserialize_source": [
+    {
+      "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.JsonSerializerOptions)",
+      "url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs",
+      "first_statement_line": 80
+    },
+    {
+      "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.JsonSerializerOptions)",
+      "url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs",
+      "first_statement_line": 151
+    },
+    {
+      "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize``1(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo{``0})",
+      "url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs",
+      "first_statement_line": 238
+    },
+    {
+      "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+      "url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs",
+      "first_statement_line": 263
+    },
+    {
+      "documentation_id": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Type,System.Text.Json.Serialization.JsonSerializerContext)",
+      "url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs",
+      "first_statement_line": 340
+    }
+  ]
+}

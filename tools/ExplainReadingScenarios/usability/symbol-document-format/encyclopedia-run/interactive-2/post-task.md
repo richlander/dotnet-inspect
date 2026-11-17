@@ -1,0 +1,4 @@
+I first read the recorder guide and command help to find an inspection path for the specified package and net10.0 library. I then requested the public-type inventory once and used focused views of its metadata to identify Stream signatures, `JsonDocument` producers, trimming attributes, and converter types. For facts the inventory could not establish—`ParseAsync`’s documentation and exact source lines—I requested the specific members.
+
+I considered the answers complete when the inventory covered all 79 public types, the requested signatures and attributes had been extracted, and each of the five Stream `Deserialize` overloads had an authored-source file and signature line. A broad view exceeded the output limit, so I replaced it with smaller views; the initial PDB lookup failed, so I used exact overload digests with authored-source lookup instead.
+

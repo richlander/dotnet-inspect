@@ -1,0 +1,163 @@
+{
+  "namespace": "System.Text.Json",
+  "name": "Utf8JsonWriter",
+  "metadata_name": "Utf8JsonWriter",
+  "definition_name": {
+    "namespace": "System.Text.Json",
+    "segments": [
+      "Utf8JsonWriter"
+    ]
+  },
+  "introduced_type_parameter_counts": [
+    0
+  ],
+  "kind": "class",
+  "attributes": [],
+  "layout": "Auto",
+  "layout_details": {
+    "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+    "type_token": 33554501,
+    "size": 0,
+    "packing_size": 0
+  },
+  "memory_safety": {
+    "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+    "rules": {
+      "kind": "available",
+      "state": 0,
+      "observations": []
+    }
+  },
+  "is_sealed": true,
+  "is_abstract": false,
+  "is_static": false,
+  "is_by_ref_like": false,
+  "is_read_only": false,
+  "base_type": "System.Object",
+  "interfaces": [
+    "System.IDisposable",
+    "System.IAsyncDisposable"
+  ],
+  "derived_types": [],
+  "type_parameters": [],
+  "members": [
+    {
+      "name": ".ctor",
+      "kind": "constructor",
+      "attributes": [],
+      "signature": "void .ctor(System.Buffers.IBufferWriter\u003Cbyte\u003E bufferWriter, System.Text.Json.JsonWriterOptions options = default)",
+      "digest": "450f852dc0",
+      "canonical_signature": "M:System.Text.Json.Utf8JsonWriter.#ctor(System.Buffers.IBufferWriter\u003Cbyte\u003E,System.Text.Json.JsonWriterOptions)",
+      "metadata_token": 100664590,
+      "is_static": false,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664590,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664590,
+        "attributes": "Public, HideBySig, SpecialName, RTSpecialName",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Initializes a new instance of the Utf8JsonWriter class using the specified IBufferWriter to write the output to and customization options.",
+        "samples": []
+      }
+    },
+    {
+      "name": ".ctor",
+      "kind": "constructor",
+      "attributes": [],
+      "signature": "void .ctor(System.IO.Stream utf8Json, System.Text.Json.JsonWriterOptions options = default)",
+      "digest": "4d2217c1cb",
+      "canonical_signature": "M:System.Text.Json.Utf8JsonWriter.#ctor(System.IO.Stream,System.Text.Json.JsonWriterOptions)",
+      "metadata_token": 100664591,
+      "is_static": false,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100664591,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100664591,
+        "attributes": "Public, HideBySig, SpecialName, RTSpecialName",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Initializes a new instance of the Utf8JsonWriter class using the specified stream to write the output to and customization options.",
+        "samples": []
+      }
+    }
+  ],
+  "additional_source_files": [],
+  "is_partial_type": false,
+  "is_forwarded": false,
+  "full_name": "System.Text.Json.Utf8JsonWriter",
+  "documentation": {
+    "summary": "Provides a high-performance API for forward-only, non-cached writing of UTF-8 encoded JSON text.",
+    "samples": []
+  }
+}

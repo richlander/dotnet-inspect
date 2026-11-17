@@ -1,0 +1,1116 @@
+{
+  "namespace": "System.Text.Json.Nodes",
+  "name": "JsonNode",
+  "metadata_name": "JsonNode",
+  "definition_name": {
+    "namespace": "System.Text.Json.Nodes",
+    "segments": [
+      "JsonNode"
+    ]
+  },
+  "introduced_type_parameter_counts": [
+    0
+  ],
+  "kind": "class",
+  "attributes": [],
+  "layout": "Auto",
+  "layout_details": {
+    "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+    "type_token": 33554551,
+    "size": 0,
+    "packing_size": 0
+  },
+  "memory_safety": {
+    "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+    "rules": {
+      "kind": "available",
+      "state": 0,
+      "observations": []
+    }
+  },
+  "is_sealed": false,
+  "is_abstract": true,
+  "is_static": false,
+  "is_by_ref_like": false,
+  "is_read_only": false,
+  "interfaces": [],
+  "derived_types": [],
+  "type_parameters": [],
+  "members": [
+    {
+      "name": "AsArray",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Text.Json.Nodes.JsonArray AsArray()",
+      "digest": "94c0066d98",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.AsArray()",
+      "metadata_token": 100665379,
+      "is_static": false,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665379,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665379,
+        "attributes": "Public, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Casts to the derived JsonArray type.",
+        "returns": "A JsonArray.",
+        "samples": []
+      }
+    },
+    {
+      "name": "AsObject",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Text.Json.Nodes.JsonObject AsObject()",
+      "digest": "78050c6cf2",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.AsObject()",
+      "metadata_token": 100665380,
+      "is_static": false,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665380,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665380,
+        "attributes": "Public, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Casts to the derived JsonObject type.",
+        "returns": "A JsonObject.",
+        "samples": []
+      }
+    },
+    {
+      "name": "AsValue",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Text.Json.Nodes.JsonValue AsValue()",
+      "digest": "c087eab9f5",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.AsValue()",
+      "metadata_token": 100665381,
+      "is_static": false,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665381,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665381,
+        "attributes": "Public, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Casts to the derived JsonValue type.",
+        "returns": "A JsonValue.",
+        "samples": []
+      }
+    },
+    {
+      "name": "GetPath",
+      "kind": "method",
+      "attributes": [],
+      "signature": "string GetPath()",
+      "digest": "a24d8d86ae",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.GetPath()",
+      "metadata_token": 100665384,
+      "is_static": false,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665384,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665384,
+        "attributes": "Public, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Gets the JSON path.",
+        "returns": "The JSON Path value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "GetValue",
+      "kind": "method",
+      "attributes": [],
+      "signature": "T GetValue\u003CT\u003E()",
+      "digest": "f197e68304",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.GetValue\u003CT\u003E()",
+      "metadata_token": 100665387,
+      "generic_arity": 1,
+      "is_static": false,
+      "is_virtual": true,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665387,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665387,
+        "attributes": "Public, Virtual, HideBySig, NewSlot",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Gets the value for the current JsonValue.",
+        "returns": "A value converted from the JsonValue instance.",
+        "samples": []
+      }
+    },
+    {
+      "name": "DeepClone",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Text.Json.Nodes.JsonNode DeepClone()",
+      "digest": "2999c7b025",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.DeepClone()",
+      "metadata_token": 100665394,
+      "is_static": false,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665394,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665394,
+        "attributes": "Public, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Creates a new instance of the JsonNode class. All child nodes are recursively cloned.",
+        "returns": "A new cloned instance of the current node.",
+        "samples": []
+      }
+    },
+    {
+      "name": "GetValueKind",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Text.Json.JsonValueKind GetValueKind()",
+      "digest": "75feecc8ed",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.GetValueKind()",
+      "metadata_token": 100665396,
+      "is_static": false,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665396,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665396,
+        "attributes": "Public, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Returns the JsonValueKind of the current instance.",
+        "returns": "The json value kind of the current instance.",
+        "samples": []
+      }
+    },
+    {
+      "name": "GetPropertyName",
+      "kind": "method",
+      "attributes": [],
+      "signature": "string GetPropertyName()",
+      "digest": "d24200769c",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.GetPropertyName()",
+      "metadata_token": 100665398,
+      "is_static": false,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665398,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665398,
+        "attributes": "Public, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Returns the property name of the current node from the parent object.",
+        "returns": "The property name of the current node.",
+        "samples": []
+      }
+    },
+    {
+      "name": "GetElementIndex",
+      "kind": "method",
+      "attributes": [],
+      "signature": "int GetElementIndex()",
+      "digest": "7b3543d0b9",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.GetElementIndex()",
+      "metadata_token": 100665399,
+      "is_static": false,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665399,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665399,
+        "attributes": "Public, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Returns the index of the current node from the parent JsonArray.",
+        "returns": "The index of the current node.",
+        "samples": []
+      }
+    },
+    {
+      "name": "DeepEquals",
+      "kind": "method",
+      "attributes": [],
+      "signature": "bool DeepEquals(System.Text.Json.Nodes.JsonNode? node1, System.Text.Json.Nodes.JsonNode? node2)",
+      "digest": "20ab6836fe",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.DeepEquals(System.Text.Json.Nodes.JsonNode?,System.Text.Json.Nodes.JsonNode?)",
+      "metadata_token": 100665400,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665400,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665400,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Compares the values of two nodes, including the values of all descendant nodes.",
+        "returns": "true if the tokens are equal; otherwise false.",
+        "samples": []
+      }
+    },
+    {
+      "name": "ReplaceWith",
+      "kind": "method",
+      "attributes": [
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCode(\u0022Creating JsonValue instances with non-primitive types is not compatible with trimming. It can result in non-primitive types being serialized, which may have their members trimmed.\u0022)",
+        "System.Diagnostics.CodeAnalysis.RequiresDynamicCode(\u0022Creating JsonValue instances with non-primitive types requires generating code at runtime.\u0022)"
+      ],
+      "signature": "void ReplaceWith\u003CT\u003E(T value)",
+      "digest": "f6a7f5c552",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.ReplaceWith\u003CT\u003E(T)",
+      "metadata_token": 100665402,
+      "generic_arity": 1,
+      "is_static": false,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665402,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665402,
+        "attributes": "Public, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Replaces this node with a new value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Parse",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Text.Json.Nodes.JsonNode? Parse(ref System.Text.Json.Utf8JsonReader reader, System.Nullable\u003CSystem.Text.Json.Nodes.JsonNodeOptions\u003E nodeOptions = null)",
+      "digest": "a351c9a17b",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.Parse(ref System.Text.Json.Utf8JsonReader,System.Nullable\u003CSystem.Text.Json.Nodes.JsonNodeOptions\u003E)",
+      "metadata_token": 100665471,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665471,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665471,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses one JSON value (including objects or arrays) from the provided reader.",
+        "returns": "The JsonNode from the reader, or null if the input represents the null JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Parse",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Text.Json.Nodes.JsonNode? Parse(string json, System.Nullable\u003CSystem.Text.Json.Nodes.JsonNodeOptions\u003E nodeOptions = null, System.Text.Json.JsonDocumentOptions documentOptions = default)",
+      "digest": "540463d496",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.Parse(string,System.Nullable\u003CSystem.Text.Json.Nodes.JsonNodeOptions\u003E,System.Text.Json.JsonDocumentOptions)",
+      "metadata_token": 100665472,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665472,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665472,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses text representing a single JSON value.",
+        "returns": "A JsonNode representation of the JSON value, or null if the input represents the null JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Parse",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Text.Json.Nodes.JsonNode? Parse(System.ReadOnlySpan\u003Cbyte\u003E utf8Json, System.Nullable\u003CSystem.Text.Json.Nodes.JsonNodeOptions\u003E nodeOptions = null, System.Text.Json.JsonDocumentOptions documentOptions = default)",
+      "digest": "aa415ce278",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.Parse(System.ReadOnlySpan\u003Cbyte\u003E,System.Nullable\u003CSystem.Text.Json.Nodes.JsonNodeOptions\u003E,System.Text.Json.JsonDocumentOptions)",
+      "metadata_token": 100665473,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665473,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665473,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses text representing a single JSON value.",
+        "returns": "A JsonNode representation of the JSON value, or null if the input represents the null JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Parse",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Text.Json.Nodes.JsonNode? Parse(System.IO.Stream utf8Json, System.Nullable\u003CSystem.Text.Json.Nodes.JsonNodeOptions\u003E nodeOptions = null, System.Text.Json.JsonDocumentOptions documentOptions = default)",
+      "digest": "e7ee05a186",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.Parse(System.IO.Stream,System.Nullable\u003CSystem.Text.Json.Nodes.JsonNodeOptions\u003E,System.Text.Json.JsonDocumentOptions)",
+      "metadata_token": 100665474,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665474,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665474,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses a Stream as UTF-8-encoded data representing a single JSON value into a JsonNode. The Stream will be read to completion.",
+        "returns": "A JsonNode representation of the JSON value, or null if the input represents the null JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "ParseAsync",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Threading.Tasks.Task\u003CSystem.Text.Json.Nodes.JsonNode?\u003E ParseAsync(System.IO.Stream utf8Json, System.Nullable\u003CSystem.Text.Json.Nodes.JsonNodeOptions\u003E nodeOptions = null, System.Text.Json.JsonDocumentOptions documentOptions = default, System.Threading.CancellationToken cancellationToken = default)",
+      "digest": "ff57224b1b",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.ParseAsync(System.IO.Stream,System.Nullable\u003CSystem.Text.Json.Nodes.JsonNodeOptions\u003E,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken)",
+      "metadata_token": 100665475,
+      "is_static": true,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665475,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665475,
+        "attributes": "Public, Static, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Parses a Stream as UTF-8 encoded data representing a single JSON value into a JsonNode. The stream will be read to completion.",
+        "returns": "A Task to produce either a JsonNode representation of the JSON value, or null if the input represents the null JSON value.",
+        "samples": []
+      }
+    },
+    {
+      "name": "ToJsonString",
+      "kind": "method",
+      "attributes": [],
+      "signature": "string ToJsonString(System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "bda308bcd4",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.ToJsonString(System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100665476,
+      "is_static": false,
+      "is_virtual": false,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665476,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665476,
+        "attributes": "Public, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Converts the current instance to a string in JSON format.",
+        "returns": "The JSON representation of the current instance.",
+        "samples": []
+      }
+    },
+    {
+      "name": "ToString",
+      "kind": "method",
+      "attributes": [],
+      "signature": "string ToString()",
+      "digest": "99b6ae1067",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.ToString()",
+      "metadata_token": 100665477,
+      "is_static": false,
+      "is_virtual": true,
+      "is_abstract": false,
+      "is_override": true,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665477,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665477,
+        "attributes": "Public, Virtual, HideBySig",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Gets a string representation for the current value appropriate to the node type.",
+        "returns": "A string representation for the current value appropriate to the node type.",
+        "samples": []
+      }
+    },
+    {
+      "name": "WriteTo",
+      "kind": "method",
+      "attributes": [],
+      "signature": "void WriteTo(System.Text.Json.Utf8JsonWriter writer, System.Text.Json.JsonSerializerOptions? options = null)",
+      "digest": "1bc872a0a2",
+      "canonical_signature": "M:System.Text.Json.Nodes.JsonNode.WriteTo(System.Text.Json.Utf8JsonWriter,System.Text.Json.JsonSerializerOptions?)",
+      "metadata_token": 100665478,
+      "is_static": false,
+      "is_virtual": true,
+      "is_abstract": true,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665478,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": false,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665478,
+        "attributes": "Public, Virtual, HideBySig, NewSlot, Abstract",
+        "impl_attributes": "IL",
+        "has_body_rva": false
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Writes the JsonNode into the provided Utf8JsonWriter as JSON.",
+        "samples": []
+      }
+    }
+  ],
+  "additional_source_files": [],
+  "is_partial_type": false,
+  "is_forwarded": false,
+  "full_name": "System.Text.Json.Nodes.JsonNode",
+  "documentation": {
+    "summary": "The base class that represents a single node within a mutable JSON document.",
+    "samples": []
+  }
+}

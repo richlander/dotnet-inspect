@@ -1,0 +1,33 @@
+{
+  "member": "M:System.Text.Json.JsonSerializer.Deserialize(System.IO.Stream,System.Text.Json.Serialization.Metadata.JsonTypeInfo)",
+  "document": {
+    "path": "/_/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs",
+    "url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs"
+  },
+  "pdb_span": {
+    "start_line": 263,
+    "end_line": 267
+  },
+  "parts": {
+    "declaration": {
+      "start_line": 259,
+      "end_line": 268
+    },
+    "member": {
+      "start_line": 245,
+      "end_line": 268
+    },
+    "xml_docs": {
+      "start_line": 245,
+      "end_line": 258
+    },
+    "signature": {
+      "start_line": 259,
+      "end_line": 261
+    },
+    "body": {
+      "start_line": 262,
+      "end_line": 268
+    }
+  }
+}
