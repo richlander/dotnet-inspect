@@ -749,7 +749,7 @@ public sealed class NavigationWorkspaceSnapshotTests
     }
 
     [Fact]
-    public async Task SelectorMiss_RetainsIncompleteScopedInventoryEvidence()
+    public async Task IncompleteScopedInventory_RetainsInspectionFailure()
     {
         await using InspectionWorkspace workspace =
             new InspectionWorkspace();
@@ -788,24 +788,19 @@ public sealed class NavigationWorkspaceSnapshotTests
             Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
                 snapshot.ActiveSubject);
 
-        NavigationSnapshotSelectorResolution.Incomplete result =
-            Assert.IsType<NavigationSnapshotSelectorResolution.Incomplete>(
-                NavigationSnapshotSelector.ResolveType(
-                    snapshot,
-                    library,
-                    "Sample.Missing"));
-
-        Assert.Same(snapshot, result.Snapshot);
+        NavigationLibraryInventory inventory = Assert.Single(
+            snapshot.Inventory!.Libraries,
+            candidate => candidate.Subject == library);
         Assert.Same(
             inspectionFailure,
             Assert.IsType<NavigationInventoryEvidence.InspectionFailed>(
-                Assert.Single(result.Inventory.Evidence)).Failure);
+                Assert.Single(inventory.Types.Evidence)).Failure);
     }
 
     [Theory]
     [InlineData("\t")]
     [InlineData("\u2028")]
-    public async Task WhitespaceOnlyTypeSelector_RebindsAdvertisedIdentity(
+    public async Task WhitespaceOnlyTypeIdentity_IsRetainedInSnapshot(
         string fullName)
     {
         await using InspectionWorkspace workspace =
@@ -843,23 +838,14 @@ public sealed class NavigationWorkspaceSnapshotTests
                 },
                 registry,
                 NavigationSnapshotTestData.AllAvailable(registry));
-        var library =
-            Assert.IsType<StructuralSubjectIdentity.LibrarySubject>(
-                snapshot.ActiveSubject);
-
-        NavigationSnapshotSelectorResolution.Selected selected =
-            Assert.IsType<NavigationSnapshotSelectorResolution.Selected>(
-                NavigationSnapshotSelector.ResolveType(
-                    snapshot,
-                    library,
-                    fullName));
-
-        Assert.Same(Assert.Single(snapshot.Types).Row.Subject, selected.Subject);
-        Assert.Equal(fullName, selected.Selector);
+        Assert.Equal(
+            fullName,
+            Assert.Single(snapshot.Types).Row.Subject.Identity.Type
+                .ToEscapedFullName());
     }
 
     [Fact]
-    public async Task MemberSelector_UsesTheSelectedContainingTypeInventory()
+    public async Task MemberInventory_PreservesDeclaringTypeForDescendantNavigation()
     {
         await using InspectionWorkspace workspace =
             new InspectionWorkspace();
@@ -907,9 +893,6 @@ public sealed class NavigationWorkspaceSnapshotTests
                 },
                 registry,
                 facts);
-        NavigationTypeInventoryRow receiverRow =
-            snapshot.Types.Single(row =>
-                ReferenceEquals(row.Row.ProducerRow, receiver)).Row;
         NavigationTypeInventoryRow declaringRow =
             snapshot.Types.Single(row =>
                 ReferenceEquals(row.Row.ProducerRow, declaring)).Row;
@@ -919,19 +902,6 @@ public sealed class NavigationWorkspaceSnapshotTests
             2,
             snapshot.Members.Count(row =>
                 row.Row.Subject == declarationRow.Subject));
-
-        Assert.IsType<NavigationSnapshotSelectorResolution.NotPresent>(
-            NavigationSnapshotSelector.ResolveMember(
-                snapshot,
-                receiverRow,
-                declarationRow.Subject.Identity.Member.StableSelector));
-        NavigationSnapshotSelectorResolution.Selected selected =
-            Assert.IsType<NavigationSnapshotSelectorResolution.Selected>(
-                NavigationSnapshotSelector.ResolveMember(
-                    snapshot,
-                    declaringRow,
-                    declarationRow.Subject.Identity.Member.StableSelector));
-        Assert.Same(declarationRow.Subject, selected.Subject);
 
         NavigationWorkspaceSnapshot source =
             NavigationWorkspaceSnapshotEvaluation.Evaluate(
