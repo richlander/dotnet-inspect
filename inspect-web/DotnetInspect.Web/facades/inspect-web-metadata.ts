@@ -676,6 +676,50 @@ export interface BrowserReadyToRunSection {
   readonly aliasesCliMetadata: boolean;
 }
 
+export interface BrowserTypeExtensionCandidateCoverage {
+  readonly considered: number;
+  readonly examined: number;
+  readonly excluded: number;
+  readonly unavailable: number;
+  readonly limited: number;
+}
+
+export interface BrowserTypeExtensionCandidateDiagnostic {
+  readonly code: string;
+  readonly metadataToken: number | null;
+  readonly detail: string;
+}
+
+export interface BrowserTypeExtensionCandidateParticipant {
+  readonly assembly: string;
+  readonly packageId: string;
+  readonly version: string;
+  readonly framework: string;
+  readonly asset: string;
+  readonly outcome: string;
+  readonly count: number | null;
+  readonly countOutcome: string;
+  readonly rowsOutcome: string;
+  readonly rowsReturned: number | null;
+  readonly nextOrdinal: number | null;
+  readonly coverage: BrowserTypeExtensionCandidateCoverage;
+  readonly rows: ReadonlyArray<BrowserTypeExtensionCandidateRow>;
+  readonly diagnostics: ReadonlyArray<BrowserTypeExtensionCandidateDiagnostic>;
+}
+
+export interface BrowserTypeExtensionCandidateRow {
+  readonly declaringType: string;
+  readonly fingerprint: string;
+  readonly signature: string;
+  readonly occurrences: number;
+}
+
+export interface BrowserTypeExtensionCandidatesMetadata {
+  readonly receiverAssembly: string;
+  readonly receiverType: string;
+  readonly participants: ReadonlyArray<BrowserTypeExtensionCandidateParticipant>;
+}
+
 export interface BrowserTypeFindCandidateActivation {
   readonly candidate: BrowserTypeFindCandidateReference;
   readonly identity: string | null;
@@ -857,6 +901,7 @@ export interface BrowserTypeMetadata {
   readonly typeSignatureInspection: InspectionEnvelope<unknown> | null;
   readonly typeSignaturePresentation: TypeSignaturePresentation | null;
   readonly typeProjectionInspection: InspectionEnvelope<BrowserTypeMetadataProjection> | null;
+  readonly extensionCandidates: BrowserTypeExtensionCandidatesMetadata | null;
 }
 
 export interface BrowserTypeMetadataProjection {

@@ -73,6 +73,7 @@ function metadataResult(fullName = "Example.Widget"): BrowserTypeMetadata {
       diagnostics: [],
     },
     hierarchy: null,
+    extensionCandidates: null,
     graphNodes: [],
     graphEdges: [],
     typeDependencyInspection: {
@@ -344,6 +345,88 @@ test("newer type metadata requests suppress stale success and failure", async ()
   assert.equal(state.typeMetadataError, "");
   assert.equal(state.typeMetadataLoading, false);
   assert.equal(state.typeMetadataKey, "second");
+});
+
+test("stale Type completion cannot replace current extension candidates", async () => {
+  const first = deferred<BrowserTypeMetadata>();
+  const second = deferred<BrowserTypeMetadata>();
+  const state = inspectionState();
+  const coordinator = createMetadataInspectionCoordinator(
+    inspectionDependencies(state, {
+      queryTypeMetadata: request =>
+        request.signature === "first" ? first.promise : second.promise,
+    }));
+
+  const firstLoad = coordinator.loadTypeMetadata(typeRequest({
+    signature: "first",
+  }));
+  const secondLoad = coordinator.loadTypeMetadata(typeRequest({
+    signature: "second",
+  }));
+  const currentCandidates = {
+    receiverAssembly: "System.Runtime",
+    receiverType: "Example.Widget",
+    participants: [{
+      assembly: "Current.Extensions",
+      packageId: "Current.Extensions",
+      version: "1.0.0",
+      framework: "net11.0",
+      asset: "lib/net11.0/Current.Extensions.dll",
+      outcome: "complete",
+      count: 1,
+      countOutcome: "counted",
+      rowsOutcome: "read",
+      rowsReturned: 1,
+      nextOrdinal: null,
+      coverage: {
+        considered: 1,
+        examined: 1,
+        excluded: 0,
+        unavailable: 0,
+        limited: 0,
+      },
+      rows: [{
+        declaringType: "Current.Extensions",
+        fingerprint: "current",
+        signature: "M:Current.Extensions.Where",
+        occurrences: 1,
+      }],
+      diagnostics: [],
+    }],
+  };
+  const current: BrowserTypeMetadata = {
+    ...metadataResult("Example.Current"),
+    extensionCandidates: currentCandidates,
+  };
+  second.resolve(current);
+  await secondLoad;
+
+  const stale: BrowserTypeMetadata = {
+    ...metadataResult("Example.Stale"),
+    extensionCandidates: {
+      ...currentCandidates,
+      receiverType: "Example.Stale",
+      participants: [{
+        ...currentCandidates.participants[0]!,
+        assembly: "Stale.Extensions",
+        rows: [{
+          ...currentCandidates.participants[0]!.rows[0]!,
+          declaringType: "Stale.Extensions",
+          fingerprint: "stale",
+          signature: "M:Stale.Extensions.Where",
+        }],
+      }],
+    },
+  };
+  first.resolve(stale);
+  await firstLoad;
+
+  assert.equal(
+    state.typeMetadata?.extensionCandidates?.participants[0]?.assembly,
+    "Current.Extensions");
+  assert.equal(
+    state.typeMetadata?.extensionCandidates?.receiverType,
+    "Example.Widget");
 });
 
 test("cached type metadata failures render without querying again", async () => {
