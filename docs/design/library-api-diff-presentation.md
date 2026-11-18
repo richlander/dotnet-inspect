@@ -148,15 +148,38 @@ the same matching it applies to the finished document, so the projected Types
 are exactly the Types its output keeps, nested Types included.
 
 Extension/instance member pairing can relate a selected Type to a Type that
-declares an extension method on either endpoint. Before projecting either
-side, the comparison reads both endpoints' top-level extension-declaring Types
-and pairs the selection with their union:
+declares an extension on either endpoint. The claim:
+
+> A Type-scoped comparison gives each selected Type the changed-Type subject
+> the complete comparison gives it, and pairs with only the Types that declare
+> an extension for a selected Type, so its projection follows the selected
+> Types and their extensions rather than the Library.
+
+Before projecting either side, each endpoint finds the Types the selection
+admits and reads, in one walk of the image's extension candidates, the union
+of their canonical same-image extension relation populations, which hold
+extension methods and properties. The comparison pairs the selection with the
+union of the top-level Types that declare those extensions on either endpoint:
 
 - those Types and their nested Types are projected on both endpoints, so
   pairing and relation placement match the complete comparison;
-- a selection that admits one of them projects both endpoints completely; and
+- the read includes hidden, obsolete, and non-public extensions, because the
+  complete comparison projects them and pairs a moved instance member with
+  them;
+- a Type that declares no extension for a selected Type is not projected;
+- when a selected Type itself declares an extension, the endpoint returns
+  every extension-declaring Type instead, and the comparison keeps both
+  projections complete: its extensions pair with members of the Types they
+  extend, which the selection cannot name in advance;
+- an unreadable name, or an extension candidate that cannot be decoded, also
+  keeps both projections complete; and
 - a Type whose name traversal is rejected is projected, so its failure is
   still reported.
+
+The walk reads the whole image's extension candidates once, whatever the
+number of selected Types; it decodes no Type's projection. A selection of one
+exact Type definition (`ApiTypeSelection.ForDefinition`) pairs with every
+extension-declaring Type instead.
 
 Completeness is operation-scoped. Truncation, inspection failures, degraded
 signatures, and identity checks apply to the projected Types. A failure in a
@@ -177,6 +200,17 @@ NativeAOT. `LibraryApiDiffTypeSelectionTests` gates subject parity, the
 projected Type set, the extension-declaring fallback, and operation-scoped
 completeness; `LibraryApiDiffTypeSelectionCommandTests` gates the CLI route.
 
+Pairing with only the selected Types' extensions keeps that parity: over 6,748
+Type-filtered CLI diffs (CoreLib and Xml 10 to 11, Aspire.Hosting 13.6.0 to
+13.6.1, Newtonsoft.Json 11 to 13, System.Text.Json 9 to 10; exact, simple,
+lowercase, arity-free, namespace, glob, missing, and extension-declaring
+filters; API axis and `--all`; table, JSON, and Changes output), stdout and
+exit codes are byte-identical to pairing with every extension-declaring Type.
+`ExtensionOccurrencesForReceiversTests` gates that the one walk equals the
+union of the per-receiver populations on CoreLib, System.Linq, and
+System.Collections.Immutable, and `ExactTypeLoadExtensionPairingTests` gates
+a selection of several receivers against the complete comparison.
+
 ### Exact Type load
 
 A host that knows the exact Types it will present loads them with
@@ -184,29 +218,9 @@ A host that knows the exact Types it will present loads them with
 `ApiType.FullName` spells them. Its claim:
 
 > An exact Type load gives each selected Type the changed-Type subject the
-> complete comparison gives it, and pairs with only the Types that declare an
-> extension for a selected Type, so its projection follows the selected Types
-> and their extensions rather than the Library.
+> complete comparison gives it, and presents only the selected Types.
 
-The metadata scans that find those extensions still read the whole image; they
-decode no Type's projection.
-
-Pairing differs from a predicate selection in one place. Before projecting
-either side, each endpoint reads the canonical same-image extension relation
-population of every selected Type, which holds extension methods and
-properties, and the comparison pairs the selection with the union of the
-top-level Types that declare those extensions. The read includes hidden,
-obsolete, and non-public extensions, because the complete comparison projects
-them and pairs a moved instance member with them. A Type that declares no
-extension for a selected Type is not projected. When a selected Type itself
-declares an extension, the endpoint returns every extension-declaring Type
-instead, and the comparison keeps both projections complete, as it does for
-any selection of such a Type: its extensions pair with members of the Types
-they extend, which an exact load cannot name in advance. An unreadable name,
-or a relation population that is not read completely, also keeps both
-projections complete.
-
-The load presents only the selected Types.
+It pairs as any [Type-scoped comparison](#type-scoped-comparison) does, and
 `LibraryApiDiffPresentationAdapter.Create(result, typeDisplays)` drops the
 subjects of the Types the selection paired with, and the summary counts only
 the selected Types. Completeness stays operation-scoped, as above.

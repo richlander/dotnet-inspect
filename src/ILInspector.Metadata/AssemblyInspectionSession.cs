@@ -854,29 +854,18 @@ public sealed class AssemblyInspectionSession :
             includeCompilerGenerated);
 
     /// <summary>
-    /// The full names of this image's top-level Types that declare an
-    /// extension method, or null when they cannot be read. A comparison pairs
-    /// an <see cref="ApiTypeSelection"/> with both endpoints' names.
-    /// </summary>
-    public IReadOnlySet<string>? ExtensionDeclaringTypeNames()
-        => ApiTypeSelection.ExtensionDeclaringTypeNames(GetAdmittedMetadataReader());
-
-    /// <summary>
-    /// The full names of this image's top-level Types that declare an
-    /// extension whose receiver is one of <paramref name="receiverFullNames"/>,
-    /// or null when they cannot be read. A comparison pairs a
-    /// <see cref="ApiTypeSelection.ForFullNames"/> selection with both
-    /// endpoints' names.
+    /// The full names of this image's top-level Types that a comparison pairs
+    /// <paramref name="selection"/> with (<see cref="ApiTypeSelection.PairWith"/>),
+    /// or null when they cannot be read: for a selection by full name, only
+    /// the Types that declare an extension for a selected Type.
     /// </summary>
     public IReadOnlySet<string>? ExtensionDeclaringTypeNamesFor(
-        IReadOnlySet<string> receiverFullNames)
+        ApiTypeSelection selection)
     {
-        ArgumentNullException.ThrowIfNull(receiverFullNames);
-        MetadataReader reader = GetAdmittedMetadataReader();
-        return ApiTypeSelection.ExtensionDeclaringTypeNamesFor(
+        ArgumentNullException.ThrowIfNull(selection);
+        return selection.PairingTypeNames(
             _image.PEReader,
-            reader,
-            receiverFullNames);
+            GetAdmittedMetadataReader());
     }
 
     /// <summary>
