@@ -166,13 +166,15 @@ public sealed class OptimizationOpportunityRowSpaceTests
             };
         OptimizationOpportunity fanout =
             Opportunity("Fanout", "allocation-fanout");
+        OptimizationOpportunity retiredSyncCall =
+            Opportunity("RetiredSyncCall", "sync-call-in-async");
 
         IReadOnlySet<TypeRef> generatedTypes =
             new HashSet<TypeRef> { generatedType };
         Assert.Equal(
             ["GeneratedString"],
             OptimizationOpportunityRowSpace.PerformanceCandidates(
-                    [generatedBox, generatedString],
+                    [generatedBox, generatedString, retiredSyncCall],
                     [fanout],
                     generatedTypes,
                     includeAllocationFanout: false)
@@ -180,7 +182,7 @@ public sealed class OptimizationOpportunityRowSpaceTests
         Assert.Equal(
             ["GeneratedString", "Fanout"],
             OptimizationOpportunityRowSpace.PerformanceCandidates(
-                    [generatedBox, generatedString],
+                    [generatedBox, generatedString, retiredSyncCall],
                     [fanout],
                     generatedTypes,
                     includeAllocationFanout: true)
