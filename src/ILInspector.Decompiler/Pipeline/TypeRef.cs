@@ -1349,11 +1349,14 @@ public sealed class TypeRef : IEquatable<TypeRef>
                 fullyQualified);
         }
         int firstOwnArgument = checked((int)declaredArity) - ownArity;
-        var ownArguments = Enumerable.Range(firstOwnArgument, ownArity)
-            .Select(index => GenericArgumentDisplay(
-                index,
+        var ownArguments = new string[ownArity];
+        for (int index = 0; index < ownArguments.Length; index++)
+        {
+            ownArguments[index] = GenericArgumentDisplay(
+                firstOwnArgument + index,
                 scope,
-                fullyQualified));
+                fullyQualified);
+        }
         return QualifyGenericName(
             $"{simpleName}<{string.Join(", ", ownArguments)}>",
             fullyQualified);
