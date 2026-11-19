@@ -146,10 +146,20 @@ selection uses, acquires both roles.
   Type list, its filters and counts, and the Library's Navigate count show it
   once.
 
+- **Analysis rows.** Performance and Unsafe run on the implementation and
+  name their rows by the Library's surface participant. A row whose Type the
+  surface lists opens that Type; any other opens as a transient Type built
+  from the implementation's declaration. A member drill loads the
+  implementation member population, so a non-public member opens.
+- **Library document.** Type Names read the surface. Enablements and the
+  Image and Description facts read the implementation, and the document
+  names the implementation assembly.
+
 Remaining adoption:
-- Performance and Unsafe row naming and navigation through the surface,
-  including transient Types for members the surface omits.
-- The Library document's Type names.
+- A transient Type's API lens. After its drill, switching that Type to the
+  API lens reloads the ordinary member population, which reads the surface
+  that does not declare the Type. This holds for a Package with `ref/` assets
+  as well. The transient Type should keep the implementation population.
 - The Platform Playwright fixtures and specs.
 
 The Workspace context paths keep implementation-only scopes, in which each

@@ -150,13 +150,61 @@ internal static class BrowserLibraryDocumentOperation
             .ConfigureAwait(false);
     }
 
-    internal static Task<BrowserLibraryDocumentInspection> InspectPlatformAsync(
+    // Type Names are the Library's surface, the reference assembly when it
+    // has one; Enablements and facts describe what runs, so they stay on the
+    // implementation (docs/design/inspect-web-platform-scope-roles.md).
+    internal static async Task<BrowserLibraryDocumentInspection> InspectPlatformAsync(
         BrowserPlatformScopeResolution resolution,
         LibraryInspectionPlan plan,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(resolution);
-        return InspectAsync(
+        ArgumentNullException.ThrowIfNull(plan);
+        if (plan.Types is null
+            || !resolution.Scope.HasReferenceSurface(resolution.Participant))
+        {
+            return await InspectImplementationAsync(resolution, plan, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var namesPlan = new LibraryInspectionPlan(plan.Types, plan.Bounds);
+        BrowserLibraryDocumentInspection names = await InspectAsync(
+                resolution.Scope.MaterializeSurfaceAsync(
+                    resolution.Participant,
+                    s_limits,
+                    cancellationToken),
+                namesPlan,
+                cancellationToken)
+            .ConfigureAwait(false);
+        if (plan.Enablements is null && plan.Image is null && plan.Description is null)
+            return names;
+
+        var implementationPlan = new LibraryInspectionPlan(
+            types: null,
+            plan.Bounds,
+            plan.Enablements,
+            plan.Image,
+            plan.Description);
+        BrowserLibraryDocumentInspection implementation =
+            await InspectImplementationAsync(resolution, implementationPlan, cancellationToken)
+                .ConfigureAwait(false);
+        return implementation with
+        {
+            // A failed surface run never falls back to runtime names.
+            TypeNames = names.TypeNames
+                ?? new BrowserLibraryTypeNames(
+                    "Unavailable",
+                    names.Detail ?? $"The Library surface returned {names.Outcome}.",
+                    []),
+            Diagnostics = [.. implementation.Diagnostics, .. names.Diagnostics],
+        };
+    }
+
+    private static Task<BrowserLibraryDocumentInspection> InspectImplementationAsync(
+        BrowserPlatformScopeResolution resolution,
+        LibraryInspectionPlan plan,
+        CancellationToken cancellationToken) =>
+        InspectAsync(
             resolution.Scope.UseParticipant(
                 resolution.Participant,
                 (group, member) =>
@@ -168,7 +216,6 @@ internal static class BrowserLibraryDocumentOperation
                         cancellationToken)),
             plan,
             cancellationToken);
-    }
 
     internal static LibraryInspectionPlan Plan(BrowserLibraryInspectionPlan plan) =>
         new(

@@ -9,6 +9,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.Emit;
 using NuGetFetch;
 using Analysis = ILInspector.Analysis;
+using Library = DotnetInspect.Web.Interop.Library;
 
 namespace DotnetInspect.Web.Tests;
 
@@ -57,6 +58,7 @@ public sealed partial class BrowserEngineBoundaryTests
                 public static int RuntimeOnly() => 42;
             }
             internal sealed class ImplementationOnly { }
+            public sealed class RuntimePublic { }
         }
         """;
 
@@ -141,11 +143,45 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Contains("ReferenceOnly", listed);
             Assert.Contains("Shared", listed);
             Assert.DoesNotContain("ImplementationOnly", listed);
+            Assert.DoesNotContain("RuntimePublic", listed);
             // The row of a reference Type the runtime forwards says so from
             // the first projection, before any forwarder inventory exists.
             Assert.Equal(
                 ["ReferenceOnly"],
                 surface.Types.Where(type => type.Forwarded).Select(type => type.Name));
+
+            // Library document Type Names are the surface's; Enablements and
+            // the document's assembly stay on the runtime assembly.
+            await using (BrowserPlatformScopeResolution document = await OpenAsync(assemblyFile))
+            {
+                Library.BrowserLibraryDocumentInspection namesOnly =
+                    await Library.BrowserLibraryDocumentOperation.InspectPlatformAsync(
+                        document,
+                        Library.BrowserLibraryDocumentOperation.Plan(new(Enablements: false, TypeNames: true)),
+                        TestContext.Current.CancellationToken);
+                Library.BrowserLibraryDocumentInspection mixed =
+                    await Library.BrowserLibraryDocumentOperation.InspectPlatformAsync(
+                        document,
+                        Library.BrowserLibraryDocumentOperation.Plan(new(Enablements: true, TypeNames: true)),
+                        TestContext.Current.CancellationToken);
+                foreach (Library.BrowserLibraryDocumentInspection inspection in new[] { namesOnly, mixed })
+                {
+                    Assert.Equal("Available", inspection.TypeNames?.Outcome);
+                    string[] names =
+                    [
+                        .. inspection.TypeNames!.Namespaces
+                            .SelectMany(ns => ns.Types)
+                            .Select(type => type.Name),
+                    ];
+                    Assert.Contains("ReferenceOnly", names);
+                    Assert.Contains("Shared", names);
+                    Assert.DoesNotContain("ImplementationOnly", names);
+                    Assert.DoesNotContain("RuntimePublic", names);
+                }
+                Assert.Equal("11.0.0.0", namesOnly.Assembly?.Version);
+                Assert.Equal("11.0.0.1", mixed.Assembly?.Version);
+                Assert.NotNull(mixed.Enablements);
+            }
 
             // The runtime forwarder of a Type the reference declares has that
             // Type's id, so a host lists the Type once, as its forwarder; a

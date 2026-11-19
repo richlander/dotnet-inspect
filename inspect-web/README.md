@@ -1192,12 +1192,12 @@ Rows open the supported member Overview. Non-public opportunities remain visible
 in the aggregate count.
 
 `QueryPlatformPerformance` runs the same participant-scoped query and Browser
-projection for one selected platform participant. Until the surface role in
-[Platform scope roles](../docs/design/inspect-web-platform-scope-roles.md)
-is adopted, a platform scope holds only the runtime pack's implementation
-assemblies, so the analyzed
-assembly is also its own surface: rows carry its bare assembly identity and
-platform pack, exactly as the Platform Type list names its Types.
+projection for one selected platform participant. Under
+[Platform scope roles](../docs/design/inspect-web-platform-scope-roles.md),
+the ranking reads the implementation (the runtime-pack assembly), and rows
+carry the Library's surface identity and platform pack, exactly as the
+Platform Type list names its Types. A Library with no reference counterpart
+is its own surface.
 
 `QueryMemberFacts` resolves the selected reference-preferred member to its exact
 implementation body through the product's opaque member correspondence, then
