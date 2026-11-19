@@ -192,7 +192,21 @@ jobs:
 
       - name: Run linux-x64 CLI on glibc 2.27
         if: matrix.rid == 'linux-x64'
-        run: bash eng/verify-linux-x64-aot-runtime.sh artifacts/publish/dotnet-inspect/release_linux-x64/dotnet-inspect
+        run: bash eng/verify-linux-aot-runtime.sh artifacts/publish/dotnet-inspect/release_linux-x64/dotnet-inspect
+
+      - name: Archive linux-arm64 publish output
+        if: matrix.rid == 'linux-arm64'
+        run: tar -C artifacts/publish/dotnet-inspect/release_linux-arm64 -czf artifacts/linux-arm64-publish.tar.gz dotnet-inspect
+
+      - name: Upload linux-arm64 publish output
+        if: matrix.rid == 'linux-arm64'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: linux-arm64-publish
+          path: artifacts/linux-arm64-publish.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
 
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -202,6 +216,30 @@ jobs:
           if-no-files-found: error
           retention-days: 1
           overwrite: true
+
+  qualify-linux-arm64:
+    name: Qualify Linux arm64 ABI
+    needs:
+      - source
+      - build-native
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.source.outputs.sha }}
+
+      - name: Download linux-arm64 publish output
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: linux-arm64-publish
+          path: artifacts/native-abi
+          digest-mismatch: error
+
+      - name: Extract linux-arm64 publish output
+        run: tar -C artifacts/native-abi -xzf artifacts/native-abi/linux-arm64-publish.tar.gz
+
+      - name: Run linux-arm64 CLI on glibc 2.27
+        run: bash eng/verify-linux-aot-runtime.sh artifacts/native-abi/dotnet-inspect
 
   build-portable:
     name: Build portable packages
@@ -333,6 +371,7 @@ jobs:
     needs:
       - source
       - build-native
+      - qualify-linux-arm64
       - build-portable
       - build-site
     runs-on: ubuntu-26.04
@@ -465,6 +504,7 @@ jobs:
     needs:
       - source
       - build-native
+      - qualify-linux-arm64
       - build-portable
       - build-site
       - assemble

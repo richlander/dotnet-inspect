@@ -30,4 +30,4 @@ if [ "$encoded" != "$packet" ]; then
     exit 1
 fi
 
-echo "linux-x64 NativeAOT CLI passed help, skill list, and offline workspace packet round trip on glibc 2.27"
+echo "NativeAOT CLI passed help, skill list, and offline workspace packet round trip on glibc 2.27"

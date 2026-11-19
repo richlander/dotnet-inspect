@@ -61,10 +61,35 @@ internal static class ReleaseCandidateWorkflowContract
             candidate,
             "      - name: Run linux-x64 CLI on glibc 2.27\n" +
             "        if: matrix.rid == 'linux-x64'\n" +
-            "        run: bash eng/verify-linux-x64-aot-runtime.sh artifacts/publish/dotnet-inspect/release_linux-x64/dotnet-inspect\n",
+            "        run: bash eng/verify-linux-aot-runtime.sh artifacts/publish/dotnet-inspect/release_linux-x64/dotnet-inspect\n",
             "",
             ValidateCandidate,
             "Release candidate contract accepted an unexecuted linux-x64 runtime ABI canary.");
+        AssertMutationRejected(
+            candidate,
+            "    runs-on: ubuntu-26.04-arm\n",
+            "    runs-on: ubuntu-26.04\n",
+            ValidateCandidate,
+            "Release candidate contract accepted arm64 qualification on an x64 runner.");
+        AssertMutationRejected(
+            candidate,
+            "        run: bash eng/verify-linux-aot-runtime.sh artifacts/native-abi/dotnet-inspect\n",
+            "        run: echo skipped\n",
+            ValidateCandidate,
+            "Release candidate contract accepted an unexecuted linux-arm64 runtime ABI canary.");
+        AssertMutationRejected(
+            candidate,
+            "    name: Assemble immutable candidate\n" +
+            "    needs:\n" +
+            "      - source\n" +
+            "      - build-native\n" +
+            "      - qualify-linux-arm64\n",
+            "    name: Assemble immutable candidate\n" +
+            "    needs:\n" +
+            "      - source\n" +
+            "      - build-native\n",
+            ValidateCandidate,
+            "Release candidate contract accepted assembly without arm64 qualification.");
         AssertMutationRejected(
             candidate,
             "      lane: release-candidate\n",
@@ -255,6 +280,7 @@ internal static class ReleaseCandidateWorkflowContract
             [
                 "source",
                 "build-native",
+                "qualify-linux-arm64",
                 "build-portable",
                 "build-site",
                 "assemble",
@@ -276,8 +302,25 @@ internal static class ReleaseCandidateWorkflowContract
         RequireScalarValue(
             runtime,
             "run",
-            "bash eng/verify-linux-x64-aot-runtime.sh artifacts/publish/dotnet-inspect/release_linux-x64/dotnet-inspect",
+            "bash eng/verify-linux-aot-runtime.sh artifacts/publish/dotnet-inspect/release_linux-x64/dotnet-inspect",
             "linux-x64 runtime ABI qualification");
+
+        YamlMappingNode arm64 =
+            GetRequiredMapping(jobs, "qualify-linux-arm64", "release candidate jobs");
+        RequireSequenceValues(
+            GetRequiredSequence(arm64, "needs", "linux-arm64 runtime ABI qualification"),
+            ["source", "build-native"],
+            "linux-arm64 runtime ABI qualification needs");
+        RequireScalarValue(
+            arm64,
+            "runs-on",
+            "ubuntu-26.04-arm",
+            "linux-arm64 runtime ABI qualification");
+        RequireScalarValue(
+            FindStep(arm64, "Run linux-arm64 CLI on glibc 2.27"),
+            "run",
+            "bash eng/verify-linux-aot-runtime.sh artifacts/native-abi/dotnet-inspect",
+            "linux-arm64 runtime ABI qualification");
 
         YamlMappingNode source =
             GetRequiredMapping(jobs, "source", "release candidate jobs");
@@ -353,7 +396,7 @@ internal static class ReleaseCandidateWorkflowContract
             GetRequiredMapping(jobs, "assemble", "release candidate jobs");
         RequireSequenceValues(
             GetRequiredSequence(assemble, "needs", "release candidate assemble"),
-            ["source", "build-native", "build-portable", "build-site"],
+            ["source", "build-native", "qualify-linux-arm64", "build-portable", "build-site"],
             "release candidate assemble needs");
         YamlMappingNode upload =
             FindStep(assemble, "Upload immutable candidate");
