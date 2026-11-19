@@ -140,16 +140,19 @@ public static partial class AnalysisExports
             await BrowserPlatformWorkspace.OpenAssemblyAsync(
                 targetFramework, platformVersion, assemblyFileName, pack))
         {
-            // Platform Types carry the bare identity name as both assembly and id.
+            // The census reads the implementation; rows are named by the
+            // Library's surface participant, whose bare identity name the
+            // Platform Type list carries as both assembly and id.
             string? platformPack = string.IsNullOrWhiteSpace(pack) ? null : pack;
+            string surface = resolution.SurfaceParticipant.Participant.Assembly.Identity.Name;
             result = ProjectUnsafeMembers(
                 resolution.Scope.UseParticipant(
                     resolution.Participant,
                     (group, participant) =>
                         AssemblyContextUnsafeMemberCensusQuery.ExecuteParticipant(
                             group, participant, censusScope)),
-                identity => new BrowserUnsafeMemberSurfaceNaming(
-                    identity.Name, identity.Name, platformPack));
+                _ => new BrowserUnsafeMemberSurfaceNaming(
+                    surface, surface, platformPack));
         }
         return JsonSerializer.Serialize(result, BrowserAnalysisJsonContext.Default.BrowserUnsafeMembers);
     }
