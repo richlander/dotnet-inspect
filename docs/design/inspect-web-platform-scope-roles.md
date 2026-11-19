@@ -152,8 +152,10 @@ selection uses, acquires both roles.
   from the implementation's declaration. A member drill loads the
   implementation member population, so a non-public member opens.
 - **Library document.** Type Names read the surface. Enablements and the
-  Image and Description facts read the implementation, and the document
-  names the implementation assembly.
+  Image and Description facts read the implementation. A names-only document
+  reads and names the surface assembly, as a package names-only document does.
+  A document that also requests Enablements or facts names the implementation
+  and carries the surface's Type Names.
 
 Remaining adoption:
 - A transient Type's API lens. After its drill, switching that Type to the
