@@ -165,6 +165,78 @@ public sealed partial class DesktopPackageSourceComposition
     }
 
     /// <summary>
+    /// Selects one package version and acquires one exact file in the same
+    /// House operation, preserving the selected source authority.
+    /// </summary>
+    public Task<PackageFileAcquisitionResult> AcquireSelectedFileAsync(
+        string packageId,
+        string? versionSelector,
+        string path,
+        PackageStoreProvider createStore,
+        NuGetSourceOptions? sourceOptions = null,
+        Action<string>? log = null,
+        bool includePrerelease = false,
+        CancellationToken cancellationToken = default,
+        PackagePayloadLimits? limits = null,
+        long rangedSizeCut = PackageRangedRead.DefaultSizeCut)
+    {
+        if (sourceOptions?.AuthorizedSourceKeys is not null
+            || sourceOptions?.ResolvedSources is not null)
+        {
+            throw new ArgumentException(
+                "Selected file acquisition requires configured sources, not legacy producer or resolved-source restrictions.",
+                nameof(sourceOptions));
+        }
+        ArgumentNullException.ThrowIfNull(createStore);
+        if (!TryCreateSelectionRequest(
+                packageId,
+                versionSelector,
+                includePrerelease,
+                rangeAddress: null,
+                out PackageVersionSelectionRequest? selection,
+                out ConfiguredPackagePayloadResult? failure))
+        {
+            throw new ArgumentException(
+                failure!.Failures.FirstOrDefault()?.Message
+                    ?? "The package version selection is invalid.",
+                nameof(versionSelector));
+        }
+
+        var operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Acquire,
+            _options.RequestTimeout,
+            _options.OperationTimeout);
+        PackageSourceOperationLease? sourceOperation =
+            IssueHouseOperation(cancellationToken);
+        try
+        {
+            IPackageSourceAuthorization authorization =
+                AuthorizeHouseSources(
+                    packageId,
+                    sourceOptions,
+                    requiredProducerKey: null);
+            Task<PackageFileAcquisitionResult> execution =
+                PackageFileAcquisition.ExecuteSelectedAsync(
+                    selection!,
+                    path,
+                    operation,
+                    authorization,
+                    new PackageFileAcquisitionPlan(
+                        createStore,
+                        limits,
+                        log: log,
+                        rangedSizeCut: rangedSizeCut),
+                    sourceOperation);
+            sourceOperation = null;
+            return execution;
+        }
+        finally
+        {
+            sourceOperation?.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Acquires a caller-pinned coordinate from its eligible authorities.
     /// The store factory must return a store scoped to the supplied authority.
     /// An external operation remains caller-owned through payload consumption.

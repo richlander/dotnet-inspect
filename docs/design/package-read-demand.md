@@ -482,10 +482,12 @@ archive under the cut is acquired complete, and a warm file read makes
 no request.
 
 `PackageFileAcquisition` is the host-neutral exact-file operation and the first
-semantic Files plus File List adopter. Its request contains one pinned package
-coordinate, one safe relative file path, and one House operation. Its plan
-contains the host-provided authority-scoped store, limits, transfer policy,
-diagnostics, and ranged size cut, but no access mode. The operation:
+semantic Files plus File List adopter. Its inputs contain either one pinned
+package coordinate or one typed version selection, one safe relative file
+path, and one House operation. Selection and exact-file acquisition retain one
+source authority in that operation. Its plan contains the host-provided
+authority-scoped store, limits, transfer policy, diagnostics, and ranged size
+cut, but no access mode. The operation:
 
 1. creates one package-wide semantic query for the exact Files content and
    complete physical File List over the same directory snapshot;
