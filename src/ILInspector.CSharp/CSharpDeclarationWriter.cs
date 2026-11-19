@@ -44,6 +44,8 @@ internal sealed record CSharpDeclarationOptions
     public bool IncludeSignatureAttributes { get; init; } = true;
     public bool IncludeObsoleteAttribute { get; init; } = true;
     public bool OmitInterfaceMemberModifiers { get; init; }
+    /// <summary>Omits a delegate's separate <c>[return: …]</c> line; inline parameter attributes remain.</summary>
+    internal bool OmitDelegateReturnAttributes { get; init; }
     public bool OmitPropertyAccessors { get; init; }
 
     /// <summary>
@@ -303,6 +305,7 @@ internal static partial class CSharpDeclarationWriter
             string parameterList = $"({string.Join(", ", signature.Parameters.Select(parameter =>
                 FormatParameter(parameter, options.IncludeSignatureAttributes)))})";
             string returnAttributes = options.IncludeSignatureAttributes
+                && !options.OmitDelegateReturnAttributes
                 && signature.ReturnAttributes.Count > 0
                 ? $"[return: {string.Join(", ", signature.ReturnAttributes)}]\n"
                 : "";
