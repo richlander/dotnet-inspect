@@ -59,6 +59,14 @@ internal static class ReleaseCandidateWorkflowContract
             "Release candidate contract accepted an unverified production site.");
         AssertMutationRejected(
             candidate,
+            "      - name: Run packaged linux-x64 CLI on glibc 2.27\n" +
+            "        if: matrix.rid == 'linux-x64'\n" +
+            "        run: bash eng/test-linux-x64-aot-runtime.sh artifacts/package/release/dotnet-inspect.linux-x64.*.nupkg\n",
+            "",
+            ValidateCandidate,
+            "Release candidate contract accepted an unexecuted linux-x64 runtime ABI canary.");
+        AssertMutationRejected(
+            candidate,
             "      lane: release-candidate\n",
             "      lane: test\n",
             ValidateCandidate,
@@ -255,6 +263,21 @@ internal static class ReleaseCandidateWorkflowContract
                 "report-failure",
             ],
             "release candidate jobs");
+
+        YamlMappingNode native =
+            GetRequiredMapping(jobs, "build-native", "release candidate jobs");
+        YamlMappingNode runtime =
+            FindStep(native, "Run packaged linux-x64 CLI on glibc 2.27");
+        RequireScalarValue(
+            runtime,
+            "if",
+            "matrix.rid == 'linux-x64'",
+            "linux-x64 runtime ABI qualification");
+        RequireScalarValue(
+            runtime,
+            "run",
+            "bash eng/test-linux-x64-aot-runtime.sh artifacts/package/release/dotnet-inspect.linux-x64.*.nupkg",
+            "linux-x64 runtime ABI qualification");
 
         YamlMappingNode source =
             GetRequiredMapping(jobs, "source", "release candidate jobs");

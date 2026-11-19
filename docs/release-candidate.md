@@ -64,6 +64,14 @@ and
 binaries required GLIBC_2.34. The candidate builds against the .NET 11
 portable cross sysroots and checks each packaged executable's architecture and
 GLIBC requirements before retaining it.
+The linux-x64 package additionally runs its packed NativeAOT executable in a
+separate runtime-only Ubuntu 18.04/glibc 2.27 container launched by the agent
+host after packaging. The check requires CLI help, the embedded skill catalog,
+and an offline workspace-packet decode/encode round trip; a missing executable
+or failed container/command blocks package retention. Its negative canary
+replaces the package executable with a glibc 2.28-linked specimen and requires
+the host launcher to reject it. This runtime qualification does not apply to
+arm64 or change the existing static symbol-version checks.
 
 ## Readiness
 
