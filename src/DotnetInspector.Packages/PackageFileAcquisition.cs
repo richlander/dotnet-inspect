@@ -143,13 +143,68 @@ public abstract class PackageFileAcquisitionResult
 /// </summary>
 public static class PackageFileAcquisition
 {
-    public static async Task<PackageFileAcquisitionResult> ExecuteAsync(
+    public static Task<PackageFileAcquisitionResult> ExecuteAsync(
         PackageFileAcquisitionRequest request,
         IPackageSourceAuthorization sourceAuthorization,
         PackageFileAcquisitionPlan plan,
         PackageSourceOperationLease sourceOperation)
     {
         ArgumentNullException.ThrowIfNull(request);
+        return ExecuteAsync(
+            new PackageHouseDemand.Exact(request.Coordinate),
+            request.Path,
+            request.Operation,
+            request.ContentQuery,
+            sourceAuthorization,
+            plan,
+            sourceOperation);
+    }
+
+    /// <summary>
+    /// Acquires and resolves one exact file from a version selected by this
+    /// House operation. Selection and payload acquisition retain one source
+    /// authority.
+    /// </summary>
+    public static Task<PackageFileAcquisitionResult> ExecuteSelectedAsync(
+        PackageVersionSelectionRequest selection,
+        string path,
+        PackageHouseOperation operation,
+        IPackageSourceAuthorization sourceAuthorization,
+        PackageFileAcquisitionPlan plan,
+        PackageSourceOperationLease sourceOperation)
+    {
+        ArgumentNullException.ThrowIfNull(selection);
+        ArgumentNullException.ThrowIfNull(operation);
+        if (operation.Profile != PackageHouseOperationProfile.Acquire)
+        {
+            throw new ArgumentException(
+                "Exact package-file acquisition requires an Acquire operation.",
+                nameof(operation));
+        }
+        PackageHouseContentQuery contentQuery =
+            PackageHouseContentQuery.PackageFilesWithFileList([path]);
+        string normalizedPath =
+            contentQuery.FilesTerminal!.Entries.Single();
+        return ExecuteAsync(
+            new PackageHouseDemand.Selecting(selection),
+            normalizedPath,
+            operation,
+            contentQuery,
+            sourceAuthorization,
+            plan,
+            sourceOperation);
+    }
+
+    private static async Task<PackageFileAcquisitionResult> ExecuteAsync(
+        PackageHouseDemand demand,
+        string path,
+        PackageHouseOperation operation,
+        PackageHouseContentQuery contentQuery,
+        IPackageSourceAuthorization sourceAuthorization,
+        PackageFileAcquisitionPlan plan,
+        PackageSourceOperationLease sourceOperation)
+    {
+        ArgumentNullException.ThrowIfNull(demand);
         ArgumentNullException.ThrowIfNull(sourceAuthorization);
         ArgumentNullException.ThrowIfNull(plan);
         ArgumentNullException.ThrowIfNull(sourceOperation);
@@ -159,9 +214,9 @@ public static class PackageFileAcquisition
             plan.PayloadAcquisition,
             plan.PayloadAcquisition.Log);
         var houseRequest = new PackageHouseRequest(
-            new PackageHouseDemand.Exact(request.Coordinate),
-            request.Operation,
-            contentQuery: request.ContentQuery);
+            demand,
+            operation,
+            contentQuery: contentQuery);
         PackageHouseSettlement settlement =
             await house.ExecuteAsync(
                     houseRequest,
@@ -176,7 +231,7 @@ public static class PackageFileAcquisition
         PackageFileEntryResolution resolution =
             PackageFileEntryResolver.Resolve(
                 acquired,
-                request.Path);
+                path);
         if (settlement.Result is not PackageHouseResult.Settled)
         {
             return new PackageFileAcquisitionResult.Unavailable(

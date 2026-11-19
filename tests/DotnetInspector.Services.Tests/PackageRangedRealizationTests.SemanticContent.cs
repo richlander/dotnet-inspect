@@ -17,6 +17,52 @@ namespace DotnetInspector.Services.Tests;
 /// </summary>
 public sealed partial class PackageRangedRealizationTests
 {
+    [Fact]
+    public async Task PackageFileAcquisition_SelectedVersionUsesOneHouseOperation()
+    {
+        const string content = "selected file content";
+        byte[] archive = CreateFrameworkArchive(
+            ("README.md", System.Text.Encoding.UTF8.GetBytes(content)));
+        var server = new RangeFeed(
+            AddressPackageId,
+            AddressPackageVersion,
+            archive);
+        await using RangedEnvironment environment =
+            RangedEnvironment.Create(server);
+        var operation = PackageHouseOperation.Create(
+            PackageHouseOperationProfile.Acquire);
+
+        PackageFileAcquisitionResult result =
+            await PackageFileAcquisition.ExecuteSelectedAsync(
+                new PackageVersionSelectionRequest.LatestStable(
+                    AddressPackageId),
+                "README.md",
+                operation,
+                environment.Authorization,
+                new PackageFileAcquisitionPlan(
+                    (_, _) => new InMemoryPackageStore(),
+                    log: environment.Log.Enqueue,
+                    rangedSizeCut: 0),
+                environment.Root.IssueOperationLease(
+                    TestContext.Current.CancellationToken,
+                    operation.RequestTimeout,
+                    operation.OperationTimeout));
+
+        PackageFileAcquisitionResult.Acquired acquired =
+            Assert.IsType<PackageFileAcquisitionResult.Acquired>(result);
+        Assert.Equal(
+            AddressPackageVersion,
+            acquired.Settlement.Payload.Coordinate.Version);
+        using PackageHousePayloadRead file = acquired.OpenRead();
+        using var reader = new StreamReader(file);
+        Assert.Equal(
+            content,
+            await reader.ReadToEndAsync(
+                TestContext.Current.CancellationToken));
+        Assert.Equal(0, server.FullRequests);
+        Assert.True(server.RangedRequests > 0);
+    }
+
     // PR-fast: directory-only reconstruction of Microsoft.CSharp 4.7.0's six-DLL layout.
     [Theory]
     [InlineData(false, null, "netstandard2.0", new[] { "ref/netstandard2.0/Microsoft.CSharp.dll" })]
