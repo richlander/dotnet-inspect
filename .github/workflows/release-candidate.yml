@@ -190,9 +190,9 @@ jobs:
           RID: ${{ matrix.rid }}
         run: eng/verify-linux-aot-abi.sh artifacts/package/release/dotnet-inspect."$RID".*.nupkg "$RID"
 
-      - name: Run packaged linux-x64 CLI on glibc 2.27
+      - name: Run linux-x64 CLI on glibc 2.27
         if: matrix.rid == 'linux-x64'
-        run: bash eng/test-linux-x64-aot-runtime.sh artifacts/package/release/dotnet-inspect.linux-x64.*.nupkg
+        run: bash eng/verify-linux-x64-aot-runtime.sh artifacts/publish/dotnet-inspect/release_linux-x64/dotnet-inspect
 
       - name: Upload package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

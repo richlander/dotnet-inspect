@@ -615,7 +615,6 @@ internal sealed class ChangeRoutingPolicy
             "eng/test-linux-aot-abi.sh",
             "eng/verify-linux-aot-abi.sh",
             "eng/assert-linux-x64-aot-runtime.sh",
-            "eng/test-linux-x64-aot-runtime.sh",
             "eng/verify-linux-x64-aot-runtime.sh",
             "eng/verify-nuget-retry-package.cs",
             "eng/verify-release-candidate-artifact.sh",
