@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { stripTypeScriptTypes } from "node:module";
 import { runInNewContext } from "node:vm";
 import test from "node:test";
-import { functionDeclaration, sourceText } from "./composition-root-test-fixture.ts";
+import { functionSource } from "./composition-root-test-fixture.ts";
 
 const source = stripTypeScriptTypes(
-  sourceText(functionDeclaration("libraryNavigateTypeCount")),
+  functionSource("libraryNavigateTypeCount"),
 );
 
 type Presentation = {
@@ -15,7 +15,10 @@ type Presentation = {
 } | null;
 
 function count(
-  pkg: { isRuntimePack: boolean },
+  pkg: {
+    isRuntimePack: boolean;
+    types?: readonly { id: string; accessibilityId: string }[];
+  },
   definitions: number | null,
   presentation: Presentation,
   selectedKey: string | null = "xml",
@@ -24,11 +27,13 @@ function count(
   const result: unknown = runInNewContext(
     `${source}\nlibraryNavigateTypeCount(pkg, definitions);`,
     {
-      pkg,
+      pkg: { ...pkg, types: pkg.types ?? [] },
       definitions,
       platformForwarderPresentation: presentation,
       selectedPlatformForwarderKey: () => selectedKey,
       selectedTypeAccessibility: () => accessibility,
+      isDefaultAccessibility: (type: { accessibilityId: string }) =>
+        type.accessibilityId === "public",
       accessibilityBuckets: () => [
         { id: "public", isDefault: true },
         { id: "internal", isDefault: false },
@@ -56,6 +61,21 @@ test("a Platform facade counts the forwarded Types its Type list shows", () => {
   assert.equal(
     count({ isRuntimePack: true }, 5, { key: "xml", ready: true, view: { forwarders: [] } }),
     5);
+});
+
+test("a reference-declared forwarded Type counts only once", () => {
+  const pkg = {
+    isRuntimePack: true,
+    types: [{ id: "System.Xml:System.Xml.XmlReader", accessibilityId: "public" }],
+  };
+  assert.equal(count(pkg, 1, xmlForwarders), 1);
+  assert.equal(count(pkg, 1, {
+    ...xmlForwarders,
+    view: { forwarders: [
+      ...xmlForwarders.view.forwarders,
+      { id: "System.Xml:System.Xml.XmlWriter" },
+    ] },
+  }), 2);
 });
 
 test("a Platform Library stays unnumbered until its forwarder inventory is known", () => {
