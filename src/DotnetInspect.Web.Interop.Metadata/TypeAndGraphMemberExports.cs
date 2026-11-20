@@ -237,7 +237,8 @@ public static partial class MetadataExports
                     signature.Diagnostics),
             TypeSignaturePresentation =
                 signature?.Content is TypeSignatureInspectionOutcome.Available available
-                    ? ExactTypeInfoTsvPresentation.Project(available.Signature)
+                    ? BrowserMetadataWireProjection.Project(
+                        ExactTypeInfoTsvPresentation.Project(available.Signature))
                     : null,
         };
     }
