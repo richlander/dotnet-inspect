@@ -90,6 +90,7 @@ public sealed partial class BrowserEngineBoundaryTests
         var handler = new StallContinuationHandler(
             packageHandler, cancelled ? cancellation.Cancel : null);
         using IPackageSourceClient source = Gallery(handler);
+        PackageHouseAcquisitionReceipt? settledRoot = null;
         Task<BrowserReferencePackageSupplierEvidenceInspection> first = InspectAsync();
         Task<BrowserReferencePackageSupplierEvidenceInspection>? second = null;
         if (sharedWaiter)
@@ -109,8 +110,12 @@ public sealed partial class BrowserEngineBoundaryTests
             Assert.Null(wire.Content.Suppliers);
             BrowserPackageAcquisitionEvidenceEntry root = Assert.Single(wire.Evidence.Acquisitions);
             Assert.Equal(id.ToLowerInvariant(), root.PackageId);
-            Assert.InRange(root.Transfer.BytesReceived, 1, packageHandler.PackageBytesServed - 1);
-            Assert.Equal(packageHandler.RangedPackageResponses - 1, root.Transfer.RequestCount);
+            Assert.InRange(
+                root.Transfer.BytesReceived,
+                1,
+                packageHandler.PackageBytesServed - handler.PackageSizeProbeResponses);
+            Assert.Equal(settledRoot?.Transfer.BytesReceived, root.Transfer.BytesReceived);
+            Assert.Equal(settledRoot?.Transfer.RequestCount, root.Transfer.RequestCount);
         }
 
         async Task<BrowserReferencePackageSupplierEvidenceInspection> InspectAsync()
@@ -120,7 +125,11 @@ public sealed partial class BrowserEngineBoundaryTests
                 {
                     await BrowserPackageWorkspace.RealizeWithSettlementAsync(
                         id, "1.0.0", "net11.0", source, TimeSpan.FromSeconds(2),
-                        cancellation.Token, capture);
+                        cancellation.Token, acquisition =>
+                        {
+                            settledRoot ??= acquisition;
+                            capture?.Invoke(acquisition);
+                        });
                     return [];
                 });
             return BrowserPackageWireProjection.Project(enriched);
@@ -299,6 +308,7 @@ public sealed partial class BrowserEngineBoundaryTests
         : DelegatingHandler(inner)
     {
         int _entryRequests;
+        public int PackageSizeProbeResponses { get; private set; }
         public bool ContinuationStarted { get; private set; }
         public TaskCompletionSource Started { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -308,7 +318,9 @@ public sealed partial class BrowserEngineBoundaryTests
         protected override async Task<HttpResponseMessage> SendAsync(
             HttpRequestMessage request, CancellationToken cancellationToken)
         {
-            if (request.Headers.Range?.Ranges.Any(range => range.From is not null) == true
+            var range = request.Headers.Range?.Ranges.SingleOrDefault();
+            bool sizeProbe = range is { From: 0, To: 0 };
+            if (range?.From is not null && !sizeProbe
                 && ++_entryRequests > 1)
             {
                 ContinuationStarted = true;
@@ -323,7 +335,14 @@ public sealed partial class BrowserEngineBoundaryTests
                     Stopped.TrySetResult();
                 }
             }
-            return await base.SendAsync(request, cancellationToken);
+            HttpResponseMessage response =
+                await base.SendAsync(request, cancellationToken);
+            if (sizeProbe
+                && response.StatusCode == System.Net.HttpStatusCode.PartialContent)
+            {
+                PackageSizeProbeResponses++;
+            }
+            return response;
         }
     }
 }
