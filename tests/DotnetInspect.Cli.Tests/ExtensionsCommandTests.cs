@@ -23,6 +23,34 @@ namespace DotnetInspect.Cli.Tests;
 public class ExtensionsCommandTests
 {
     [Fact]
+    public void WorkspaceCandidateOutput_ContainsDiagnosticTextAndPreservesCodeSpans()
+    {
+        var view = new ExtensionMethodsView
+        {
+            ContextualRows =
+            [
+                new WorkspaceExtensionCandidateRow
+                {
+                    Participant = "Contoso\u202E.Extensions",
+                    Outcome = "Candidate",
+                    Candidate = MarkoutInline.Code("Contoso.Extensions"),
+                    Signature = MarkoutInline.Code("Extend<T>(T value)"),
+                    Diagnostics = "Unable to inspect\u001b[31m member",
+                    IsCandidate = true,
+                },
+            ],
+        };
+
+        string output = MarkoutSerializer.Serialize(view, ApiViewContext.Default);
+
+        Assert.DoesNotContain('\u202E', output);
+        Assert.DoesNotContain('\u001b', output);
+        Assert.Contains("Unable to inspect", output, StringComparison.Ordinal);
+        Assert.Contains("`Contoso.Extensions`", output, StringComparison.Ordinal);
+        Assert.Contains("`Extend<T>(T value)`", output, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Extract_DetectsExtensionMethods()
     {
         var assemblyPath = typeof(ExtensionsCommandTests).Assembly.Location;

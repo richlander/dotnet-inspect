@@ -681,18 +681,34 @@ public class ExtensionMethodsView
 [MarkoutSerializable]
 public sealed class WorkspaceExtensionCandidateRow
 {
-    public string Participant { get; init; } = "";
-    public string Outcome { get; init; } = "";
+    public string Participant
+    {
+        get => field;
+        init => field = LibraryViewText.Contain(value);
+    } = "";
+    public string Outcome
+    {
+        get => field;
+        init => field = LibraryViewText.Contain(value);
+    } = "";
 
     [MarkoutSkipNull]
     [MarkoutPropertyName("Participant Count")]
     public int? Count { get; init; }
 
     [MarkoutSkipNull]
-    public string? CountOutcome { get; init; }
+    public string? CountOutcome
+    {
+        get => field;
+        init => field = LibraryViewText.Contain(value);
+    }
 
     [MarkoutSkipNull]
-    public string? RowsOutcome { get; init; }
+    public string? RowsOutcome
+    {
+        get => field;
+        init => field = LibraryViewText.Contain(value);
+    }
 
     [MarkoutSkipNull]
     public int? RowsReturned { get; init; }
@@ -719,19 +735,39 @@ public sealed class WorkspaceExtensionCandidateRow
     public int? Limited { get; init; }
 
     [MarkoutSkipNull]
-    public string? Candidate { get; init; }
+    public string? Candidate
+    {
+        get => field;
+        init => field = LibraryViewText.Contain(value);
+    }
 
     [MarkoutSkipNull]
-    public string? Fingerprint { get; init; }
+    public string? Fingerprint
+    {
+        get => field;
+        init => field = LibraryViewText.Contain(value);
+    }
 
     [MarkoutSkipNull]
-    public string? Signature { get; init; }
+    public string? Signature
+    {
+        get => field;
+        init => field = LibraryViewText.Contain(value);
+    }
 
     [MarkoutSkipNull]
-    public string? Receiver { get; init; }
+    public string? Receiver
+    {
+        get => field;
+        init => field = LibraryViewText.Contain(value);
+    }
 
     [MarkoutSkipNull]
-    public string? Diagnostics { get; init; }
+    public string? Diagnostics
+    {
+        get => field;
+        init => field = LibraryViewText.Contain(value);
+    }
 
     [MarkoutChild]
     public bool IsCandidate { get; init; }
