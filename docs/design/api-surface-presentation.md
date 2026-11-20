@@ -53,6 +53,12 @@ The presentation owner does not choose Browser limits, transport field names,
 navigation behavior, or TypeScript serialization. It does not filter,
 reorder, or count the admitted declaration population.
 
+Browser public Type and Member totals consume Metadata's
+`EnclosingTypesOrdinary` evidence alongside the owner-issued accessibility
+bucket. A public nested Type inside a non-public enclosing Type remains in a
+widened inventory but does not contribute to public Library totals. Declaration
+spelling, inventory rows, and transport bounds remain unchanged.
+
 ## Motivating asset and evidence
 
 The motivating production asset is

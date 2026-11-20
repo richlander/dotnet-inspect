@@ -569,8 +569,11 @@ public sealed partial class BrowserEngineBoundaryTests
         Assert.True(reader.Members < reader.Api.Length);
         BrowserTypeSurfaceInfo[] publicTypes =
         [
-            .. projected.Types.Where(type =>
-                ApiAccessibility.Classify(type.Accessibility).IsDefault),
+            .. publicSurface.Types.Select(type =>
+                Assert.Single(
+                    projected.Types,
+                    candidate => candidate.DefinitionId
+                        == DotnetInspector.Presentation.ApiSurfacePresentation.Type(type).DefinitionId)),
         ];
         Assert.All(
             publicTypes,
@@ -584,6 +587,29 @@ public sealed partial class BrowserEngineBoundaryTests
             publicMembers,
             Assert.Single(projected.Assemblies).PublicMembers);
         Assert.Equal(publicMembers, projected.TotalMembers);
+
+        var composedAssembly = Assert.IsType<
+            AssemblyContextEntry<AssemblyApiSurface>.Available>(
+                Assert.Single(composed.Assemblies.Assemblies));
+        BrowserSurfaceProjection.Surface exact =
+            BrowserSurfaceProjection.Project(
+                composedAssembly.Value.Surface,
+                composed.Accessibility,
+                composedAssembly.Subject.Identity,
+                "System.Text.Json",
+                "stj",
+                "lib/net10.0/System.Text.Json.dll",
+                composedAssembly.Value.InspectionFailures);
+        Assert.Equal(
+            publicSurface.Types.Count,
+            Assert.Single(projected.Assemblies).PublicTypes);
+        Assert.Equal(
+            publicSurface.Types.Count,
+            Assert.Single(exact.Assemblies).PublicTypes);
+        Assert.Equal(
+            publicMembers,
+            Assert.Single(exact.Assemblies).PublicMembers);
+        Assert.Equal(publicMembers, exact.TotalMembers);
     }
 
     [Fact]
