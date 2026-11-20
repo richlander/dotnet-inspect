@@ -71,12 +71,15 @@ public sealed class AnnotatedTypeMapApiShapeFamilyTests
             [new AnnotatedTypeMapMemberKey(changed.Key)],
             recorder.Plans[Fixture + "OverloadDefaultChanged"].Request.MemberKeys!.Value);
 
+        // A Type-owned uncertain difference selects every Member: the nullable
+        // context, since a rendered Type attribute change is presented and
+        // never settles.
         Assert.Equal(
-            Members("TypeAttributeChanged").Members.Select(member => new AnnotatedTypeMapMemberKey(member.Key)).ToHashSet(),
-            recorder.Plans[Fixture + "TypeAttributeChanged"].Request.MemberKeys!.Value.ToHashSet());
+            Members("NullableOuter").Members.Select(member => new AnnotatedTypeMapMemberKey(member.Key)).ToHashSet(),
+            recorder.Plans[Fixture + "NullableOuter"].Request.MemberKeys!.Value.ToHashSet());
 
-        Assert.Empty(Members("ITypeAttributeOnly").Members);
-        Assert.Null(recorder.Plans[Fixture + "ITypeAttributeOnly"].Request.MemberKeys);
+        Assert.Empty(Members("ITypeUnrenderedAttributeOnly").Members);
+        Assert.Null(recorder.Plans[Fixture + "ITypeUnrenderedAttributeOnly"].Request.MemberKeys);
     }
 
     [Fact]

@@ -166,9 +166,17 @@ false; the Body axis compares every body and every declaration instead, and a
 consumer that wants a narrower view filters what it is given. Declaration
 facts compare raw: a kind the complete comparison does not present is an
 uncertain Body fact, and the uncertain-kind census of Diff capabilities
-settles each kind in its adoption step 2. `beforefieldinit` is a Body fact;
-the implementation flags and compiler-emitted attributes of a Member the
-surface admits are uncertain API facts until that step moves them to Body.
+settles each kind in its adoption step 2. `beforefieldinit` is a Body fact,
+and so are two implementation facts of a Type or Member the surface admits,
+which the surface never renders and reads for nothing else: a method's
+implementation flags, such as inlining, `InternalCall`, and `Async`, and the
+compiler-emitted `Intrinsic`, `AsyncStateMachine`, and `IteratorStateMachine`
+attributes. Each is staged led by `NonApi`, as `beforefieldinit` is, so the
+API census stays equal when only they change. Three stay uncertain API facts,
+because the surface reads them: a property accessor's implementation flags,
+which decide whether it can spell the property's accessor modifiers; a
+Type's `Extension` attribute, which decides whether its methods are extension
+methods; and `AsyncIteratorStateMachine`, which the renderer shows.
 
 Under that policy, `ldc.i4` forms and short branches fold to one family, branch
 and switch targets compare by aligned instruction, metadata tokens compare by
@@ -413,10 +421,11 @@ of one method share its decoded signature dependencies; the parameter constant
 is decoded once. API facts fill their result list without adding Body-only
 facts or collecting unused method keys.
 
-When API and Body are read together, the successful API census supplies its
-staged `beforefieldinit` fact to Body instead of rebuilding visible API facts
-and discarding them. That slot belongs to the current unit and is cleared at
-`EndUnit` before staging resets. A standalone Body census keeps its existing
+When API and Body are read together, the successful API census supplies the
+Body facts it staged, `beforefieldinit` and the [implementation
+facts](#axes) of admitted subjects, to Body instead of rebuilding visible API
+facts and discarding them. Those slots belong to the current unit and are
+cleared at `EndUnit` before staging resets. A standalone Body census keeps its existing
 validation path. The remaining facts retain their keys and owners. The
 multiple-Type module and multiple-default/method cases in
 `CensusAndClosureHash_RespectCrossTypeDependencies`, the integral and
