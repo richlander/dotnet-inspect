@@ -1,0 +1,132 @@
+{
+  "answer": {
+    "packages": [
+      {
+        "packageId": "Microsoft.Extensions.Http.Polly",
+        "inspectedVersion": "10.0.12",
+        "requestedDependencyTarget": "net10.0",
+        "selectedManifestGroup": ".NETStandard2.0",
+        "matchingDirectDeclaredDependencies": [
+          {
+            "id": "Polly",
+            "declaredVersionRange": "7.2.4"
+          },
+          {
+            "id": "Polly.Extensions.Http",
+            "declaredVersionRange": "3.0.0"
+          }
+        ],
+        "evidence": "response-05.out: results[0].package.manifest.dependencyGroups[0] and results[0].evidence entries for dependency-target and depends"
+      },
+      {
+        "packageId": "Microsoft.Extensions.Resilience",
+        "inspectedVersion": "10.10.0",
+        "requestedDependencyTarget": "net10.0",
+        "selectedManifestGroup": "net10.0",
+        "matchingDirectDeclaredDependencies": [
+          {
+            "id": "Polly.Extensions",
+            "declaredVersionRange": "8.4.2"
+          },
+          {
+            "id": "Polly.RateLimiting",
+            "declaredVersionRange": "8.4.2"
+          }
+        ],
+        "evidence": "response-06.out: results[0].package.manifest.dependencyGroups entry with targetFramework net10.0 and results[0].evidence entries for dependency-target and depends"
+      }
+    ],
+    "exhaustsMicrosoftExtensionsPackageFamily": false,
+    "exhaustivenessBasis": "The broad Microsoft.Extensions* query inspected 40/40 candidates and warned CandidateLimitReached; its result does not exhaust the requested package-ID scope. The narrower Http* and Resilience* queries completed within their scopes only."
+  },
+  "executedCommandsAndResponses": [
+    {
+      "request": 1,
+      "argv": [
+        "package",
+        "query",
+        "--help"
+      ],
+      "response": "response-01.out",
+      "purpose": "CLI options"
+    },
+    {
+      "request": 2,
+      "argv": [
+        "package",
+        "query",
+        "-Q"
+      ],
+      "response": "response-02.out",
+      "purpose": "query-capable sections"
+    },
+    {
+      "request": 3,
+      "argv": [
+        "package",
+        "query",
+        "-Q",
+        "Packages"
+      ],
+      "response": "response-03.out",
+      "purpose": "direct dependency prefix and target syntax"
+    },
+    {
+      "request": 4,
+      "argv": [
+        "package",
+        "query",
+        "Microsoft.Extensions*",
+        "--where",
+        "depends starts-with Polly",
+        "--where",
+        "dependency-target=net10.0",
+        "--take",
+        "40",
+        "--json"
+      ],
+      "responses": [
+        "response-04.out",
+        "response-04.err"
+      ],
+      "purpose": "broad bounded search; 40 candidates, one match, candidate limit reached"
+    },
+    {
+      "request": 5,
+      "argv": [
+        "package",
+        "query",
+        "Microsoft.Extensions.Http*",
+        "--where",
+        "depends starts-with Polly",
+        "--where",
+        "dependency-target=net10.0",
+        "--take",
+        "40",
+        "--json"
+      ],
+      "response": "response-05.out",
+      "purpose": "focused Http prefix; four candidates, one match, complete"
+    },
+    {
+      "request": 6,
+      "argv": [
+        "package",
+        "query",
+        "Microsoft.Extensions.Resilience*",
+        "--where",
+        "depends starts-with Polly",
+        "--where",
+        "dependency-target=net10.0",
+        "--take",
+        "40",
+        "--json"
+      ],
+      "response": "response-06.out",
+      "purpose": "focused Resilience prefix; one candidate, one match, complete"
+    }
+  ],
+  "uncertainty": "Other Microsoft.Extensions packages beyond the broad 40-candidate window may also match. The two focused scopes do not establish family-wide exhaustiveness.",
+  "discoverySchemaNavigationFriction": "The package query help led to -Q Packages for the exact depends starts-with syntax and dependency-target scope. The broad result used numeric completion, so its stderr warning was needed to identify CandidateLimitReached. Result evidence explicitly named the selected manifest group; the full manifest included unrelated groups and required selecting the applicable group.",
+  "truncation": "No tool output was truncated."
+}
