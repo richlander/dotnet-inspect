@@ -17,6 +17,7 @@ string[] assetJobs =
     "Build package (osx-arm64)",
     "Build package (linux-x64)",
     "Build package (linux-arm64)",
+    "Qualify Linux arm64 ABI",
     "Build portable packages",
     "Build production site",
     AssembleJob,
@@ -816,6 +817,11 @@ static void RunSelfTest(
     [
         (assetsOnly.Select(job => job.Name == SourceJob
             ? job with { Conclusion = "failure" } : job).ToArray(), artifacts, checks, SourceJob),
+        (assetsOnly.Where(job => job.Name != "Qualify Linux arm64 ABI").ToArray(),
+            artifacts, checks, "Qualify Linux arm64 ABI"),
+        (assetsOnly.Select(job => job.Name == "Qualify Linux arm64 ABI"
+            ? job with { Conclusion = "failure" } : job).ToArray(),
+            artifacts, checks, "Qualify Linux arm64 ABI"),
         (assetsOnly.Select(job => job.Name == AssembleJob
             ? job with { RunAttempt = 1 } : job).ToArray(), artifacts, checks, "belongs to attempt"),
         (assetsOnly, artifacts, [new(303, TargetCiJob, "completed", "failure")], TargetCiJob),
