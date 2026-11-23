@@ -385,9 +385,11 @@ public static partial class AnalysisExports
     /// <summary>
     /// Product-ranked optimization-opportunity members for one selected
     /// platform participant, over the same participant-scoped query and
-    /// Browser projection as <see cref="QueryPackagePerformance"/>. A platform
-    /// scope holds only runtime-pack implementation assemblies, so the analyzed
-    /// assembly also names the rows, as the Platform Type list names its Types.
+    /// Browser projection as <see cref="QueryPackagePerformance"/>. The
+    /// ranking reads the implementation (the runtime-pack assembly); rows are
+    /// named by the Library's surface participant, as the Platform Type list
+    /// names its Types, so a listed Type opens and any other opens as a
+    /// transient Type (<c>docs/design/inspect-web-platform-scope-roles.md</c>).
     /// </summary>
     [JSExport]
     public static async Task<string> QueryPlatformPerformance(
@@ -405,7 +407,7 @@ public static partial class AnalysisExports
                 pack))
         {
             string assembly =
-                resolution.Participant.Participant.Assembly.Identity.Name;
+                resolution.SurfaceParticipant.Participant.Assembly.Identity.Name;
             AssemblyContextOptimizationOpportunitiesResult result =
                 resolution.Scope.UseParticipant(
                     resolution.Participant,
