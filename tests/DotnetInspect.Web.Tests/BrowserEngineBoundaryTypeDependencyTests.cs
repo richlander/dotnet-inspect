@@ -259,6 +259,15 @@ public sealed partial class BrowserEngineBoundaryTests
             directSignature.Diagnostics,
             workspace.TypeSignatureInspection.Diagnostics);
         Assert.Equal(typeName, workspace.TypeSignaturePresentation?.Type);
+        Assert.True(JsonElement.DeepEquals(
+            JsonSerializer.SerializeToElement(
+                DotnetInspector.Presentation.ExactTypeInfoTsvPresentation.Project(
+                    Assert.IsType<TypeSignatureInspectionOutcome.Available>(
+                        directSignature.Content).Signature),
+                new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase }),
+            JsonSerializer.SerializeToElement(
+                workspace.TypeSignaturePresentation,
+                BrowserMetadataJsonContext.Default.TypeSignaturePresentation)));
         Assert.Equal(
             typeName,
             workspace.TypeDependencyInspection.Content
