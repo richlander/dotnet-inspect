@@ -1761,6 +1761,33 @@ friend only its test assemblies. The current
 `LayeringTests.Metadata_FriendsOnlyTestAssemblies` gate enforces the complete
 friend set rather than checking selected production assembly names.
 
+#### Extraction-local signature name reuse
+
+For the `OpenAI@2.15.0`, `net10.0` retained Workspace in #11125,
+Investigation #11219 profiles full API-surface preparation. A managed diagnostic trace at
+`5c3a5c6c` attributed about 388 MB of sampled allocation to extraction;
+bounded method and property signature helpers created separate
+`TypeNodeProvider` name caches for each declaration.
+
+One extraction may reuse a signature provider across method and property
+signatures. The provider retains only its existing bounded immutable name
+reads, never mutable Type trees. Each decode still creates fresh Type nodes,
+checks the complete signature through the existing guard, and replays cached
+name materialization work into the current extraction budget. Provider reuse
+ends with that extraction; it does not publish a cross-request budget cache.
+Standalone identity helpers retain their existing provider behavior.
+
+The existing bounded-surface and provider tests gate output and limits;
+focused repeated-name tests gate fresh nodes and replayed charges. The exact
+OpenAI Workspace export preserves all 2,728 Types and 23,441 Members in its
+22,563,650-byte response (only the fresh session nonce is normalized for the
+comparison). Seven alternating fresh-process NativeAOT pairs on SDK/runtime
+11.0.100/11.0.0, pinned to one CPU, measured median export times of 1.465 s
+before and 1.422 s after reuse. Managed allocation sampling fell from about
+1.038 GB to 0.981 GB. These scoped observations support a modest improvement,
+not a Browser loading-time guarantee. Browser projection and acquisition
+remain separate consumers.
+
 ### Session-owned format admission
 
 Assembly Inspection owns general assembly-format admission for operations
