@@ -1987,20 +1987,164 @@ public sealed class PackagePayloadAcquisitionTests
                     PackageId,
                     Version,
                     archive,
-                    () => Directory.CreateDirectory(Path.Combine(
-                        root,
-                        $"staging-{Guid.NewGuid():N}")).FullName,
-                    (stagedExtract, stagedNupkg) =>
-                        NuGetCache.CommitPackageToSlotWithDisposition(
-                            stagedExtract,
-                            stagedNupkg,
+                    (payload, token) =>
+                        NuGetCache.CommitOwnedArchiveToSlotAsync(
+                            payload,
                             PackageId,
                             Version,
                             producerKey,
                             target,
                             marker,
-                            useAppCache: false),
+                            useAppCache: false,
+                            token),
                     TestContext.Current.CancellationToken);
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OwnedFileSystemCommit_DurableAuthorityNeedsNoTemporaryWorkspace(
+        bool prepared)
+    {
+        string root = TempDirectory();
+        NuGetCache.Initialize("dotnet-inspect-test", root, skipNuGetCache: true);
+        try
+        {
+            ConfiguredPackageAuthority authority = Assert.Single(
+                PackageSourceAuthorization.Authorize([Primary]).Authorities);
+            Assert.NotNull(authority.PersistentCacheKey);
+            using IPackageSourceClient client = PackageSourceClientFactory.Create(
+                authority.Source, authority.Association);
+            var store = new AuthorityScopedFileSystemPackageStore(
+                authority,
+                client.Source.Producer,
+                () => throw new InvalidOperationException(
+                    "A durable publication must not request a second temporary workspace."));
+            byte[] bytes = TestPackageArchive.Create(
+                "lib/net10.0/Sample.dll", $"{PackageId}.nuspec");
+            IPackageContent content;
+            if (prepared)
+            {
+                var valid = Assert.IsType<PackageArchiveValidation.Valid>(
+                    PackageArchiveValidator.Validate(
+                        bytes, cancellationToken: TestContext.Current.CancellationToken));
+                PreparedPackageCommit committed =
+                    await ((IPreparedPackageStore)store).CommitPreparedAsync(
+                        PackageId, Version, client.Source.Producer.Key,
+                        valid.Archive, TestContext.Current.CancellationToken);
+                Assert.False(committed.RequiresAdmission);
+                content = committed.Content;
+            }
+            else
+            {
+                using var input = new MemoryStream(bytes, writable: false);
+                content = await store.CommitAsync(
+                    PackageId, Version, client.Source.Producer.Key,
+                    input, TestContext.Current.CancellationToken);
+            }
+
+            var disk = Assert.IsType<FileSystemPackageContent>(content);
+            Assert.Equal(bytes, File.ReadAllBytes(disk.NupkgPath!));
+            var manifest = Assert.IsAssignableFrom<IPackageArchiveEntryManifest>(content);
+            Assert.True(manifest.TryGetArchiveEntries(
+                out IReadOnlyList<PackageContentEntry>? entries));
+            Assert.Equal(
+                new[] { "lib/net10.0/Sample.dll", $"{PackageId}.nuspec" },
+                entries.Select(entry => entry.Path).Order(StringComparer.Ordinal));
+            Assert.Empty(Directory.GetDirectories(
+                root, ".*.tmp-*", SearchOption.AllDirectories));
+            Assert.True(await PackageContentAdmission.IsAdmissibleAsync(
+                content, PackagePayloadLimits.Default,
+                TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            NuGetCache.Initialize("dotnet-inspect");
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Theory]
+    [InlineData(".dotnet-inspect.complete")]
+    [InlineData("sample.package.1.2.3.nupkg")]
+    public async Task OwnedFileSystemCommit_RejectsPublicationFileCollisions(
+        string reservedPath)
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            var valid = Assert.IsType<PackageArchiveValidation.Valid>(
+                PackageArchiveValidator.Validate(
+                    TestPackageArchive.Create(
+                        "lib/net10.0/Sample.dll", $"{PackageId}.nuspec", reservedPath),
+                    cancellationToken: TestContext.Current.CancellationToken));
+
+            await Assert.ThrowsAsync<IOException>(async () =>
+                await NuGetCache.CommitOwnedArchiveToSlotAsync(
+                    valid.Archive, PackageId, Version, "producer",
+                    Path.Combine(root, "slot"), "publication-test",
+                    useAppCache: false, TestContext.Current.CancellationToken));
+
+            Assert.Empty(Directory.EnumerateFileSystemEntries(root));
+        }
+        finally
+        {
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
+    public async Task OwnedFileSystemCommit_ConcurrentPublishersConvergeOnOneArchive()
+    {
+        string root = TempDirectory();
+        Directory.CreateDirectory(root);
+        try
+        {
+            byte[][] inputs =
+            [
+                TestPackageArchive.Create(
+                    "lib/net10.0/First.dll", $"{PackageId}.nuspec"),
+                TestPackageArchive.Create(
+                    "lib/net10.0/Second.dll", $"{PackageId}.nuspec"),
+            ];
+            PackageArchivePayload[] archives = inputs.Select(bytes =>
+                Assert.IsType<PackageArchiveValidation.Valid>(
+                    PackageArchiveValidator.Validate(
+                        bytes, cancellationToken: TestContext.Current.CancellationToken))
+                    .Archive).ToArray();
+            using var start = new Barrier(2);
+            string target = Path.Combine(root, "slot");
+            PackageCommitResult[] results = await Task.WhenAll(
+                archives.Select(archive => Task.Run(async () =>
+                {
+                    Assert.True(start.SignalAndWait(
+                        TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken));
+                    return await NuGetCache.CommitOwnedArchiveToSlotAsync(
+                        archive, PackageId, Version, "producer", target,
+                        "publication-test", useAppCache: false,
+                        TestContext.Current.CancellationToken);
+                }, TestContext.Current.CancellationToken)));
+
+            PackageCommitResult published = Assert.Single(
+                results, result => result.PublishedStagedContent);
+            Assert.All(results, result => Assert.Equal(target, result.Package.ExtractPath));
+            string? retainedPath = published.Package.NupkgPath;
+            Assert.NotNull(retainedPath);
+            byte[] retained = File.ReadAllBytes(retainedPath);
+            int winner = Array.FindIndex(inputs, bytes => bytes.SequenceEqual(retained));
+            Assert.InRange(winner, 0, 1);
+            Assert.Equal(
+                new[] { winner == 0 ? "First.dll" : "Second.dll" },
+                Directory.EnumerateFiles(Path.Combine(target, "lib", "net10.0"))
+                    .Select(Path.GetFileName));
+            Assert.Equal(new[] { target }, Directory.GetDirectories(root));
         }
         finally
         {

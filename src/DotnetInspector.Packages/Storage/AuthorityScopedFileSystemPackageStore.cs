@@ -187,17 +187,15 @@ public sealed class AuthorityScopedFileSystemPackageStore :
             packageName,
             version,
             nupkg,
-            () => Directory.CreateDirectory(Path.Combine(
-                _getTemporaryRoot(), $"package-commit-{Guid.NewGuid():N}")).FullName,
-            (extractedPath, nupkgPath) => NuGetCache.CommitPackageToSlotWithDisposition(
-                extractedPath,
-                nupkgPath,
+            (archive, token) => NuGetCache.CommitOwnedArchiveToSlotAsync(
+                archive,
                 normalizedName,
                 normalizedVersion,
                 _producer.Key,
                 GetSlotPath(normalizedName, normalizedVersion, create: true)!,
                 GetMarkerContent(normalizedName, normalizedVersion),
-                useAppCache: _authority.PersistentCacheKey is not null),
+                useAppCache: _authority.PersistentCacheKey is not null,
+                token),
             cancellationToken).ConfigureAwait(false);
         if (prepared.RequiresAdmission
             && !await PackageContentAdmission.IsAdmissibleAsync(
@@ -234,17 +232,15 @@ public sealed class AuthorityScopedFileSystemPackageStore :
             packageName,
             version,
             archive,
-            () => Directory.CreateDirectory(Path.Combine(
-                _getTemporaryRoot(), $"package-commit-{Guid.NewGuid():N}")).FullName,
-            (extractedPath, nupkgPath) => NuGetCache.CommitPackageToSlotWithDisposition(
-                extractedPath,
-                nupkgPath,
+            (payload, token) => NuGetCache.CommitOwnedArchiveToSlotAsync(
+                payload,
                 normalizedName,
                 normalizedVersion,
                 _producer.Key,
                 GetSlotPath(normalizedName, normalizedVersion, create: true)!,
                 GetMarkerContent(normalizedName, normalizedVersion),
-                useAppCache: _authority.PersistentCacheKey is not null),
+                useAppCache: _authority.PersistentCacheKey is not null,
+                token),
             cancellationToken);
     }
 
