@@ -42,6 +42,13 @@ row capabilities are transitional implementation surfaces. Their retirement is
 a focused adoption of that pattern; this document continues to own operation
 definition, route binding, and operation-plan resolution.
 
+`ResultProjection` is the explicit bridge for an operation term whose values
+select result cells while that operation still uses route-local projection. It
+is distinct from `ResultPredicate`: projection contributes output demand but
+does not filter the result population. Member Metrics is the first adopter;
+the role retires with the same row-space projection migration rather than
+becoming a second projection model.
+
 ## Authority and exact claim
 
 **Query Operation Infrastructure** is the single normative owner established

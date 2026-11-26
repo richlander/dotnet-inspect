@@ -2,9 +2,13 @@
 
 ## Status and scope
 
-This document is the proposed normative design for
-**MemberMetricsInspect**, tracked by
+This document is the normative design for **MemberMetricsInspect**, tracked by
 [#8445](https://github.com/richlander/dotnet-inspect/issues/8445).
+
+The initial host-neutral operation and QuerySpace descriptor are implemented
+for encoded body size and exact sibling-overload calls. CLI and Inspect Web
+adoption, legacy exact-family retirement, and comparative performance evidence
+remain open.
 
 The current product already has:
 
@@ -368,6 +372,9 @@ targets outside the returned family. Returned relationship rows remain bounded
 to the selected public family. The composition uses typed current-module
 targets, plus the peeled MethodDef of a MethodSpec when target classification
 cannot publish the same fact, without acquiring the target body.
+MemberMetricsInspect uses the same target preference before testing membership
+in its bound public family, so a call encoded through a generic type
+instantiation still binds to the exact sibling MethodDef.
 
 ## Minimal-work contract
 
@@ -543,9 +550,18 @@ This design does not define one generic reduction algebra. Each exposed
 logical facet names and gates its exact reduction. Hosts do not invent
 different reductions over the same field.
 
-A bodyless declaration remains a metrics row with a `bodyless` outcome when
-the base population proves no managed body. A failed or unavailable body is
-not bodyless and does not acquire zero metric values.
+A bodyless declaration remains a metrics row. Body-size evidence has a
+`bodyless` outcome when the base population proves no managed body. Complete
+sibling-call evidence may still be `available`: the declaration has no
+outgoing calls of its own, while analyzed sibling bodies can establish exact
+incoming callers. A failed or unavailable body is not bodyless and does not
+acquire zero metric values.
+
+Incoming sibling counts are relative to the complete bound family. A retained
+prefix from any incomplete caller therefore makes incoming evidence incomplete
+for every family row, including callees whose own bodies scanned completely.
+Known prefix relationships and counts remain available as partial values, but
+metric value predicates cannot consume them as exact.
 
 ## Evidence outcome and query semantics
 
@@ -715,8 +731,10 @@ Inspected names, signatures, diagnostics, and evidence strings remain inert
 data under their producing owners. Display text cannot recover subject,
 population, logical, physical, or relationship identity.
 
-These implementation properties are **unverified** until the gates named by
-[#8445](https://github.com/richlander/dotnet-inspect/issues/8445) exist and pass.
+The initial operation gates verify immutable Library snapshot use, detached
+publication, typed population correspondence, generated-body attribution, and
+bounded incomplete completion. NativeAOT and Browser/Wasm host adoption remain
+unverified until their later slices exist and pass.
 
 ## Pathological cases
 
@@ -774,10 +792,12 @@ owns the counted path:
 Each implementation or adoption remains a focused owner change. This design
 and tracker connect them without approving one broad implementation PR.
 
-Step 2 is implemented for encoded body size and the call/target prerequisite of
-exact sibling relationships. Steps 3 through 6 remain open; this Analysis slice
-does not publish Member Metrics rows or replace the exact-family compatibility
-route.
+Steps 2 and 3 are implemented for encoded body size and exact sibling
+relationships. The host-neutral operation consumes the owner-issued Overloads
+population, resolves QuerySpace demand, executes only the focused evidence
+lanes under explicit bounds, and publishes typed Rows or Count content. Steps 4
+through 6 remain open; CLI and Inspect Web still use the exact-family
+compatibility route.
 
 A later `TypeMetricsInspect` may apply the same pattern to a Type's `Members`
 population only through its own focused design and measured work contract.
@@ -836,12 +856,14 @@ relationship scope. Harnesses invoke product-owned Member population,
 QuerySpace, and Analysis planning rather than constructing a repaired metrics
 aggregate.
 
-The Analysis-only gates now verify body-size selectivity, sibling-call
-selectivity, shared physical acquisition, ordinary and private targets, generic
-MethodSpec peeling, generated execution bodies, bodyless methods, malformed
-instructions, and no-evidence rejection at the Analysis entry point. The
-host-neutral operation, effective-evidence normalization, logical relationship
-composition, host adoption, and performance claims remain **unverified**.
+The Analysis gates verify body-size selectivity, sibling-call selectivity,
+shared physical acquisition and generated expansion, ordinary and private
+targets, generic MethodSpec peeling, generated execution bodies, bodyless
+methods, malformed instructions, and no-evidence rejection. Host-neutral gates
+verify effective demand, authorization, population validation, Rows/Count
+agreement, generated attribution, logical relationship composition, selective
+projection, and bounded incomplete completion. Host adoption and comparative
+performance claims remain **unverified**.
 
 ## Non-claims
 

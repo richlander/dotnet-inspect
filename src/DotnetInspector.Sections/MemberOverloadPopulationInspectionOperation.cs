@@ -313,6 +313,7 @@ public static class MemberOverloadPopulationInspectionOperation
         return Envelope(
             new MemberOverloadPopulationInspectionOutcome.Available(
                 new(
+                    request.Library.ApiAssembly.Generation,
                     assembly,
                     subject,
                     new(binding, count, rows),

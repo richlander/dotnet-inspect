@@ -1021,14 +1021,18 @@ public static class MethodDefinitionSourceRequestSet
                 _associations[0].Request;
             MethodDefinitionSourceRequest request =
                 association.Request;
-            // A shared traversal carries no declared-source relation, so a
-            // request that declares one keeps its own lane.
+            // Exact MethodDef requests can settle one identical generated-body
+            // relation before a shared traversal. Other expanded breadths keep
+            // their own lanes because their relation settles during traversal
+            // or requires source-kind-specific discovery.
             if (first.Breadth.Kind
                     is not (
                         MethodDefinitionSourceBreadthKind.AllDefinitions
                         or MethodDefinitionSourceBreadthKind.ExactMethods)
-                || first.Breadth.Expansion
-                    != MethodDefinitionSourceExpansion.None
+                || (first.Breadth.Expansion
+                        != MethodDefinitionSourceExpansion.None
+                    && first.Breadth.Kind
+                        != MethodDefinitionSourceBreadthKind.ExactMethods)
                 || !SameBreadth(first.Breadth, request.Breadth)
                 || first.Work.PassCount != 1
                 || request.Work.PassCount != 1)
@@ -1376,7 +1380,23 @@ public sealed record MethodDefinitionSourceGroupReceipt(
     QuerySpaceResourceIdentity Resource,
     QuerySpaceSourceBindingIdentity Source,
     MethodDefinitionSourceCoverage PhysicalCoverage,
-    ImmutableArray<WorkReceipt> LaneReceipts);
+    ImmutableArray<WorkReceipt> LaneReceipts)
+{
+    /// <summary>Creates a receipt for a source group that required no work.</summary>
+    public static MethodDefinitionSourceGroupReceipt CreateEmpty() =>
+        new(
+            MethodDefinitionSourceResourceIdentity.Create()
+                .QuerySpaceIdentity,
+            QuerySpaceSourceBindingIdentity.Create(
+                MethodDefinitionSourceIdentityAuthority.Domain),
+            new(
+                MethodDefinitionHandleCoverage.Empty,
+                MethodDefinitionHandleCoverage.Empty,
+                MethodDefinitionHandleCoverage.Empty,
+                MethodDefinitionHandleCoverage.Empty,
+                MethodDefinitionHandleCoverage.Empty),
+            []);
+}
 
 /// <summary>Detached result set preserving request order and group work.</summary>
 public sealed class MethodDefinitionSourceRequestSetExecution

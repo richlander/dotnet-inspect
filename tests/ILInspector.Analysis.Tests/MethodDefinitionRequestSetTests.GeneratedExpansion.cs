@@ -8,9 +8,9 @@ namespace ILInspector.Analysis.Tests;
 public sealed partial class MethodDefinitionRequestSetTests
 {
     [Fact]
-    public void Plan_KeepsGeneratedExpansionRequestsInSeparateGroups()
+    public void Plan_SharesOnlyIdenticalExactMethodGeneratedExpansion()
     {
-        MethodDefinitionSourceBreadth Breadth(
+        MethodDefinitionSourceBreadth TypeBreadth(
             MethodDefinitionGeneratedBodyRoles roles,
             bool candidates = false) =>
             MethodDefinitionSourceBreadth
@@ -19,17 +19,35 @@ public sealed partial class MethodDefinitionRequestSetTests
                     roles: roles,
                     includeUnauthenticatedCandidates: candidates);
 
-        MethodDefinitionSourceRequestSetPlan equal =
+        MethodDefinitionSourceBreadth MethodBreadth(
+            MethodDefinitionGeneratedBodyRoles roles) =>
+            MethodDefinitionSourceBreadth
+                .ExactMethods(MetadataTokens.MethodDefinitionHandle(1))
+                .IncludeGeneratedExecutionBodies(roles: roles);
+
+        MethodDefinitionSourceRequestSetPlan exactEqual =
             AcceptedPlan(
             [
                 Association(
                     CountingProducer.Instance,
                     ProducerTerminal.Count,
-                    Breadth(MethodDefinitionGeneratedBodyRoles.All)),
+                    MethodBreadth(MethodDefinitionGeneratedBodyRoles.All)),
                 Association(
                     CountingProducer.Instance,
                     ProducerTerminal.Exists,
-                    Breadth(MethodDefinitionGeneratedBodyRoles.All)),
+                    MethodBreadth(MethodDefinitionGeneratedBodyRoles.All)),
+            ]);
+        MethodDefinitionSourceRequestSetPlan typeEqual =
+            AcceptedPlan(
+            [
+                Association(
+                    CountingProducer.Instance,
+                    ProducerTerminal.Count,
+                    TypeBreadth(MethodDefinitionGeneratedBodyRoles.All)),
+                Association(
+                    CountingProducer.Instance,
+                    ProducerTerminal.Exists,
+                    TypeBreadth(MethodDefinitionGeneratedBodyRoles.All)),
             ]);
         MethodDefinitionSourceRequestSetPlan roles =
             AcceptedPlan(
@@ -37,11 +55,12 @@ public sealed partial class MethodDefinitionRequestSetTests
                 Association(
                     CountingProducer.Instance,
                     ProducerTerminal.Count,
-                    Breadth(MethodDefinitionGeneratedBodyRoles.Execution)),
+                    TypeBreadth(
+                        MethodDefinitionGeneratedBodyRoles.Execution)),
                 Association(
                     CountingProducer.Instance,
                     ProducerTerminal.Exists,
-                    Breadth(MethodDefinitionGeneratedBodyRoles.All)),
+                    TypeBreadth(MethodDefinitionGeneratedBodyRoles.All)),
             ]);
         MethodDefinitionSourceRequestSetPlan candidates =
             AcceptedPlan(
@@ -49,20 +68,18 @@ public sealed partial class MethodDefinitionRequestSetTests
                 Association(
                     CountingProducer.Instance,
                     ProducerTerminal.Count,
-                    Breadth(MethodDefinitionGeneratedBodyRoles.All)),
+                    TypeBreadth(MethodDefinitionGeneratedBodyRoles.All)),
                 Association(
                     CountingProducer.Instance,
                     ProducerTerminal.Exists,
-                    Breadth(
+                    TypeBreadth(
                         MethodDefinitionGeneratedBodyRoles.All,
                         candidates: true)),
             ]);
 
-        // Only all-definition requests share a physical source group, and
-        // all-definition breadth carries no expansion. Requests that expand,
-        // even with equal roles, therefore never share one, so their roles
-        // and candidates cannot widen each other's breadth.
-        Assert.Equal(2, equal.Groups.Length);
+        Assert.Single(exactEqual.Groups);
+        Assert.Equal(2, Assert.Single(exactEqual.Groups).Lanes.Length);
+        Assert.Equal(2, typeEqual.Groups.Length);
         Assert.Equal(2, roles.Groups.Length);
         Assert.Equal(2, candidates.Groups.Length);
     }
