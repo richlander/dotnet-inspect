@@ -1,0 +1,9 @@
+You are a fresh participant in a cooperative usability trial. Your scratch directory is {trial}; work only there. Do not read anything else on this machine outside your scratch directory and the .NET SDK, including repositories, designs, earlier results, or other trials. Do not spawn agents. This protocol is cooperative, not a security sandbox.
+
+Guide:
+{guide}
+
+Write answer.json in your scratch directory as {"answers": [{"question": N, "answer": ..., "evidence": [...], "complete": true or false, "why": "..."}], "friction": "..."}. Cite the commands, files, or URLs each answer rests on. Do not count your own tool calls or bytes. Stop with explicit uncertainty when the evidence is insufficient.
+
+Task:
+{task}

@@ -1,0 +1,189 @@
+{
+  "answers": [
+    {
+      "question": 1,
+      "answer": {
+        "System.Text.Json.JsonDocument": [
+          "JsonDocument Parse(Stream utf8Json, JsonDocumentOptions options = default)",
+          "Task<JsonDocument> ParseAsync(Stream utf8Json, JsonDocumentOptions options = default, CancellationToken cancellationToken = default)"
+        ],
+        "System.Text.Json.JsonSerializer": [
+          "TValue? Deserialize<TValue>(Stream utf8Json, JsonSerializerOptions? options = null)",
+          "object? Deserialize(Stream utf8Json, Type returnType, JsonSerializerOptions? options = null)",
+          "TValue? Deserialize<TValue>(Stream utf8Json, JsonTypeInfo<TValue> jsonTypeInfo)",
+          "object? Deserialize(Stream utf8Json, JsonTypeInfo jsonTypeInfo)",
+          "object? Deserialize(Stream utf8Json, Type returnType, JsonSerializerContext context)",
+          "ValueTask<TValue?> DeserializeAsync<TValue>(Stream utf8Json, JsonSerializerOptions? options = null, CancellationToken cancellationToken = default)",
+          "ValueTask<object?> DeserializeAsync(Stream utf8Json, Type returnType, JsonSerializerOptions? options = null, CancellationToken cancellationToken = default)",
+          "ValueTask<TValue?> DeserializeAsync<TValue>(Stream utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken = default)",
+          "ValueTask<object?> DeserializeAsync(Stream utf8Json, JsonTypeInfo jsonTypeInfo, CancellationToken cancellationToken = default)",
+          "ValueTask<object?> DeserializeAsync(Stream utf8Json, Type returnType, JsonSerializerContext context, CancellationToken cancellationToken = default)",
+          "IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(Stream utf8Json, JsonSerializerOptions? options = null, CancellationToken cancellationToken = default)",
+          "IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(Stream utf8Json, bool topLevelValues, JsonSerializerOptions? options = null, CancellationToken cancellationToken = default)",
+          "IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(Stream utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken = default)",
+          "IAsyncEnumerable<TValue?> DeserializeAsyncEnumerable<TValue>(Stream utf8Json, JsonTypeInfo<TValue> jsonTypeInfo, bool topLevelValues, CancellationToken cancellationToken = default)",
+          "void Serialize<TValue>(Stream utf8Json, TValue value, JsonSerializerOptions? options = null)",
+          "void Serialize(Stream utf8Json, object? value, Type inputType, JsonSerializerOptions? options = null)",
+          "void Serialize<TValue>(Stream utf8Json, TValue value, JsonTypeInfo<TValue> jsonTypeInfo)",
+          "void Serialize(Stream utf8Json, object? value, JsonTypeInfo jsonTypeInfo)",
+          "void Serialize(Stream utf8Json, object? value, Type inputType, JsonSerializerContext context)",
+          "Task SerializeAsync<TValue>(Stream utf8Json, TValue value, JsonSerializerOptions? options = null, CancellationToken cancellationToken = default)",
+          "Task SerializeAsync(Stream utf8Json, object? value, Type inputType, JsonSerializerOptions? options = null, CancellationToken cancellationToken = default)",
+          "Task SerializeAsync<TValue>(Stream utf8Json, TValue value, JsonTypeInfo<TValue> jsonTypeInfo, CancellationToken cancellationToken = default)",
+          "Task SerializeAsync(Stream utf8Json, object? value, JsonTypeInfo jsonTypeInfo, CancellationToken cancellationToken = default)",
+          "Task SerializeAsync(Stream utf8Json, object? value, Type inputType, JsonSerializerContext context, CancellationToken cancellationToken = default)"
+        ],
+        "System.Text.Json.Nodes.JsonNode": [
+          "JsonNode? Parse(Stream utf8Json, JsonNodeOptions? nodeOptions = null, JsonDocumentOptions documentOptions = default)",
+          "Task<JsonNode?> ParseAsync(Stream utf8Json, JsonNodeOptions? nodeOptions = null, JsonDocumentOptions documentOptions = default, CancellationToken cancellationToken = default)"
+        ],
+        "System.Text.Json.Utf8JsonWriter": [
+          "Utf8JsonWriter(Stream utf8Json, JsonWriterOptions options = default)",
+          "void Reset(Stream utf8Json)"
+        ]
+      },
+      "evidence": [
+        "dotnet run --project reader/reader.csproj --no-launch-profile; metadata.txt, === STREAM === (30 public/protected declared methods and constructors from lib/net10.0/System.Text.Json.dll)",
+        "lib/net10.0/System.Text.Json.xml, Stream-bearing M: members"
+      ],
+      "complete": true,
+      "why": "Enumerated the exported types' declared public and protected methods and constructors, filtering parameters for System.IO.Stream; there are 30."
+    },
+    {
+      "question": 2,
+      "answer": {
+        "System.Text.Json.JsonDocument": [
+          "JsonDocument Parse(ReadOnlyMemory<byte> utf8Json, JsonDocumentOptions options = default)",
+          "JsonDocument Parse(ReadOnlySequence<byte> utf8Json, JsonDocumentOptions options = default)",
+          "JsonDocument Parse(Stream utf8Json, JsonDocumentOptions options = default)",
+          "Task<JsonDocument> ParseAsync(Stream utf8Json, JsonDocumentOptions options = default, CancellationToken cancellationToken = default)",
+          "JsonDocument Parse(ReadOnlyMemory<char> json, JsonDocumentOptions options = default)",
+          "JsonDocument Parse(string json, JsonDocumentOptions options = default)",
+          "bool TryParseValue(ref Utf8JsonReader reader, out JsonDocument? document)",
+          "JsonDocument ParseValue(ref Utf8JsonReader reader)"
+        ],
+        "System.Text.Json.JsonSerializer": [
+          "JsonDocument SerializeToDocument<TValue>(TValue value, JsonSerializerOptions? options = null)",
+          "JsonDocument SerializeToDocument(object? value, Type inputType, JsonSerializerOptions? options = null)",
+          "JsonDocument SerializeToDocument<TValue>(TValue value, JsonTypeInfo<TValue> jsonTypeInfo)",
+          "JsonDocument SerializeToDocument(object? value, JsonTypeInfo jsonTypeInfo)",
+          "JsonDocument SerializeToDocument(object? value, Type inputType, JsonSerializerContext context)"
+        ]
+      },
+      "evidence": [
+        "dotnet run --project reader/reader.csproj --no-launch-profile; metadata.txt, === JSONDOCUMENT === (13 signatures from lib/net10.0/System.Text.Json.dll)",
+        "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Document/JsonDocument.Parse.cs#L394"
+      ],
+      "complete": true,
+      "why": "Checked all exported declared methods for a direct JsonDocument return, Task/ValueTask of JsonDocument, or an out JsonDocument parameter; 13 matched."
+    },
+    {
+      "question": 3,
+      "answer": {
+        "System.Text.Json.JsonSerializer": {
+          "Deserialize": true,
+          "DeserializeAsync": true,
+          "DeserializeAsyncEnumerable": true,
+          "SerializeToDocument": true,
+          "SerializeToElement": true,
+          "SerializeToNode": true,
+          "SerializeToUtf8Bytes": true,
+          "SerializeAsync": true,
+          "Serialize": true
+        },
+        "System.Text.Json.JsonSerializerOptions": {
+          "GetConverter": false,
+          "Default (property)": false,
+          "Web (property)": false,
+          "Strict (property)": false,
+          "MakeReadOnly": true
+        },
+        "System.Text.Json.Nodes.JsonArray": {
+          "Add": true
+        },
+        "System.Text.Json.Nodes.JsonNode": {
+          "ReplaceWith": false
+        },
+        "System.Text.Json.Nodes.JsonValue": {
+          "Create": true
+        },
+        "System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver": {
+          "constructor": false
+        },
+        "System.Text.Json.Serialization.Metadata.JsonTypeInfo": {
+          "CreateJsonTypeInfo": false,
+          "CreateJsonPropertyInfo": false
+        }
+      },
+      "evidence": [
+        "dotnet run --project reader/reader.csproj --no-launch-profile; metadata.txt, === RUC GROUPS === and === OTHER RUC TARGETS === (54 attributed public/protected methods/accessors/constructors across 20 groups; boolean means an unmarked same-named overload exists)"
+      ],
+      "complete": true,
+      "why": "Inspected RequiresUnreferencedCode on public/protected declared methods, constructors and property accessors, compared each group against unmarked same-named overloads, and checked exported types and fields/properties/events for additional direct annotations."
+    },
+    {
+      "question": 4,
+      "answer": {
+        "signature": "public static Task<JsonDocument> ParseAsync(Stream utf8Json, JsonDocumentOptions options = default, CancellationToken cancellationToken = default)",
+        "documentation_summary": "Parses a Stream as UTF-8-encoded data representing a single JSON value into a JsonDocument. The stream is read to completion."
+      },
+      "evidence": [
+        "lib/net10.0/System.Text.Json.xml, M:System.Text.Json.JsonDocument.ParseAsync(System.IO.Stream,System.Text.Json.JsonDocumentOptions,System.Threading.CancellationToken), summary",
+        "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Document/JsonDocument.Parse.cs#L208-L212"
+      ],
+      "complete": true,
+      "why": "Signature is from the release-commit source; summary is the text of the package's net10.0 XML documentation."
+    },
+    {
+      "question": 5,
+      "answer": {
+        "System.Text.Json.Serialization.JsonConverter": "Cannot be directly derived from outside the assembly: its only constructor is internal.",
+        "System.Text.Json.Serialization.JsonConverter<T>": "Derivable; must override T? Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) and void Write(Utf8JsonWriter writer, T value, JsonSerializerOptions options).",
+        "System.Text.Json.Serialization.JsonConverterAttribute": "Derivable; no mandatory overrides. Its virtual CreateConverter(Type typeToConvert) can optionally be overridden.",
+        "System.Text.Json.Serialization.JsonConverterFactory": "Derivable; must override bool CanConvert(Type typeToConvert) and JsonConverter CreateConverter(Type typeToConvert, JsonSerializerOptions options).",
+        "System.Text.Json.Serialization.JsonNumberEnumConverter<TEnum>": "Sealed; cannot be derived from.",
+        "System.Text.Json.Serialization.JsonStringEnumConverter": "Derivable; no mandatory overrides.",
+        "System.Text.Json.Serialization.JsonStringEnumConverter<TEnum>": "Derivable; no mandatory overrides."
+      },
+      "evidence": [
+        "dotnet run --project reader/reader.csproj --no-launch-profile; metadata.txt, === CONVERTER TYPES === (seven public converter-named types, constructor accessibility, abstract methods and virtual implementations)",
+        "lib/net10.0/System.Text.Json.xml, T:System.Text.Json.Serialization.JsonConverter* and M:System.Text.Json.Serialization.JsonConverterFactory.CreateConverter",
+        "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonConverterOfT.cs#L146 and #L576-L581"
+      ],
+      "complete": true,
+      "why": "Enumerated every exported converter-named type and checked whether its constructor is accessible, whether it is sealed, and which abstract members remain to implement."
+    },
+    {
+      "question": 6,
+      "answer": [
+        {
+          "signature": "Deserialize<TValue>(Stream, JsonSerializerOptions?)",
+          "source": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs#L76"
+        },
+        {
+          "signature": "Deserialize(Stream, Type, JsonSerializerOptions?)",
+          "source": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs#L146"
+        },
+        {
+          "signature": "Deserialize<TValue>(Stream, JsonTypeInfo<TValue>)",
+          "source": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs#L234"
+        },
+        {
+          "signature": "Deserialize(Stream, JsonTypeInfo)",
+          "source": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs#L259"
+        },
+        {
+          "signature": "Deserialize(Stream, Type, JsonSerializerContext)",
+          "source": "https://github.com/dotnet/dotnet/blob/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs#L335"
+        }
+      ],
+      "evidence": [
+        "System.Text.Json.nuspec, repository commit 0427b9abbead3fa64c6655eb4290c537397131fa",
+        "curl -fLsS https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs -o JsonSerializer.Read.Stream.cs; nl -ba JsonSerializer.Read.Stream.cs"
+      ],
+      "complete": true,
+      "why": "Located all five synchronous Deserialize(Stream, ...) declarations in the source at the package's repository commit; async methods have a different member name."
+    }
+  ],
+  "friction": "No .NET inspection tool was available; used a scratch .NET reflection program and package XML. Reflection does not display C# nullability or default(struct) spelling, so source and documentation were used to express those signatures."
+}

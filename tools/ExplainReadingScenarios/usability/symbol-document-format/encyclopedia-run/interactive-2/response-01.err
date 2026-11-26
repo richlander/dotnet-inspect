@@ -1,0 +1,1 @@
+Error: Library aggregate inspection cannot be combined with -D/--discover. Narrow with --library <dll>, --namesake-library, or --first-library.

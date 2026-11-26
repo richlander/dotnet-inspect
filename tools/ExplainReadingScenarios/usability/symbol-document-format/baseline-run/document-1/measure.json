@@ -1,0 +1,35 @@
+{
+  "participant": "document-1",
+  "tool_calls": 18,
+  "output_bytes": 76290,
+  "failed": 1,
+  "by_kind": {
+    "document": {
+      "calls": 10,
+      "bytes": 65928,
+      "failed": 0
+    },
+    "shell": {
+      "calls": 1,
+      "bytes": 3413,
+      "failed": 0
+    },
+    "download": {
+      "calls": 1,
+      "bytes": 2145,
+      "failed": 0
+    },
+    "apply_patch": {
+      "calls": 3,
+      "bytes": 228,
+      "failed": 0
+    },
+    "script": {
+      "calls": 3,
+      "bytes": 4576,
+      "failed": 1
+    }
+  },
+  "dotnet_inspect_use": [],
+  "paths_outside_scratch": []
+}

@@ -1,0 +1,4 @@
+I read the guide first, then inspected the recorded library document’s structure and completeness status. Its indexes pointed to the relevant members—Stream parameters, JsonDocument results, `RequiresUnreferencedCode`, and converter-named types—so I joined those IDs to signatures, documentation, override requirements, and source locations. I made one additional comparison to determine whether each marked member name had an unmarked overload; a converter-signature query failed, so I corrected the query rather than requesting new product output.
+
+I stopped when the document accounted for all six questions: 30 Stream APIs, 13 JsonDocument-producing APIs, 54 marked APIs in 20 groups, seven converter-named types, and source lines for all five Stream `Deserialize` overloads. The recorded sections were complete, and I saw no truncation; further reads would have repeated evidence rather than filled a gap.
+

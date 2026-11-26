@@ -1,0 +1,104 @@
+# System.Text.Json
+
+## Classes
+
+| Type | Members |
+| ---- | ------- |
+| `System.Text.Json.JsonNamingPolicy` | 6 |
+| `System.Text.Json.JsonDocument` | 16 |
+| `System.Text.Json.JsonException` | 9 |
+| `System.Text.Json.JsonSerializer` | 104 |
+| `System.Text.Json.Utf8JsonWriter` | 124 |
+| `System.Text.Json.JsonSerializerOptions` | 41 |
+| `System.Text.Json.Schema.JsonSchemaExporter` | 2 |
+| `System.Text.Json.Schema.JsonSchemaExporterOptions` | 4 |
+| `System.Text.Json.Nodes.JsonArray` | 23 |
+| `System.Text.Json.Nodes.JsonNode` | 95 |
+| `System.Text.Json.Nodes.JsonObject` | 33 |
+| `System.Text.Json.Nodes.JsonValue` | 38 |
+| `System.Text.Json.Serialization.JsonAttribute` | 0 |
+| `System.Text.Json.Serialization.JsonSerializableAttribute` | 3 |
+| `System.Text.Json.Serialization.JsonSourceGenerationOptionsAttribute` | 29 |
+| `System.Text.Json.Serialization.JsonObjectCreationHandlingAttribute` | 2 |
+| `System.Text.Json.Serialization.JsonConstructorAttribute` | 1 |
+| `System.Text.Json.Serialization.JsonConverterAttribute` | 3 |
+| `System.Text.Json.Serialization.JsonDerivedTypeAttribute` | 5 |
+| `System.Text.Json.Serialization.JsonExtensionDataAttribute` | 1 |
+| `System.Text.Json.Serialization.JsonIgnoreAttribute` | 2 |
+| `System.Text.Json.Serialization.JsonIncludeAttribute` | 1 |
+| `System.Text.Json.Serialization.JsonNumberHandlingAttribute` | 2 |
+| `System.Text.Json.Serialization.JsonPolymorphicAttribute` | 4 |
+| `System.Text.Json.Serialization.JsonPropertyNameAttribute` | 2 |
+| `System.Text.Json.Serialization.JsonRequiredAttribute` | 1 |
+| `System.Text.Json.Serialization.JsonPropertyOrderAttribute` | 2 |
+| `System.Text.Json.Serialization.JsonUnmappedMemberHandlingAttribute` | 2 |
+| `System.Text.Json.Serialization.JsonNumberEnumConverter<TEnum>` | 3 |
+| `System.Text.Json.Serialization.JsonSerializerContext` | 3 |
+| `System.Text.Json.Serialization.JsonConverter` | 2 |
+| `System.Text.Json.Serialization.JsonConverterFactory` | 2 |
+| `System.Text.Json.Serialization.JsonConverter<T>` | 7 |
+| `System.Text.Json.Serialization.JsonStringEnumConverter<TEnum>` | 4 |
+| `System.Text.Json.Serialization.JsonStringEnumConverter` | 4 |
+| `System.Text.Json.Serialization.JsonStringEnumMemberNameAttribute` | 2 |
+| `System.Text.Json.Serialization.ReferenceHandler` | 3 |
+| `System.Text.Json.Serialization.ReferenceHandler<T>` | 2 |
+| `System.Text.Json.Serialization.ReferenceResolver` | 3 |
+| `System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver` | 3 |
+| `System.Text.Json.Serialization.Metadata.JsonPolymorphismOptions` | 5 |
+| `System.Text.Json.Serialization.Metadata.JsonTypeInfo<T>` | 1 |
+| `System.Text.Json.Serialization.Metadata.JsonTypeInfoResolver` | 3 |
+| `System.Text.Json.Serialization.Metadata.JsonCollectionInfoValues<TCollection>` | 6 |
+| `System.Text.Json.Serialization.Metadata.JsonMetadataServices` | 65 |
+| `System.Text.Json.Serialization.Metadata.JsonObjectInfoValues<T>` | 8 |
+| `System.Text.Json.Serialization.Metadata.JsonParameterInfoValues` | 8 |
+| `System.Text.Json.Serialization.Metadata.JsonParameterInfo` | 9 |
+| `System.Text.Json.Serialization.Metadata.JsonPropertyInfo` | 17 |
+| `System.Text.Json.Serialization.Metadata.JsonPropertyInfoValues<T>` | 16 |
+| `System.Text.Json.Serialization.Metadata.JsonTypeInfo` | 23 |
+
+## Enums
+
+| Type | Members |
+| ---- | ------- |
+| `System.Text.Json.JsonCommentHandling` | 3 |
+| `System.Text.Json.JsonSerializerDefaults` | 3 |
+| `System.Text.Json.JsonValueKind` | 8 |
+| `System.Text.Json.JsonTokenType` | 12 |
+| `System.Text.Json.Serialization.JsonIgnoreCondition` | 6 |
+| `System.Text.Json.Serialization.JsonKnownNamingPolicy` | 6 |
+| `System.Text.Json.Serialization.JsonKnownReferenceHandler` | 3 |
+| `System.Text.Json.Serialization.JsonNumberHandling` | 4 |
+| `System.Text.Json.Serialization.JsonObjectCreationHandling` | 2 |
+| `System.Text.Json.Serialization.JsonSourceGenerationMode` | 3 |
+| `System.Text.Json.Serialization.JsonUnknownTypeHandling` | 2 |
+| `System.Text.Json.Serialization.JsonUnmappedMemberHandling` | 2 |
+| `System.Text.Json.Serialization.JsonUnknownDerivedTypeHandling` | 3 |
+| `System.Text.Json.Serialization.Metadata.JsonTypeInfoKind` | 4 |
+
+## Interfaces
+
+| Type | Members |
+| ---- | ------- |
+| `System.Text.Json.Serialization.IJsonOnDeserialized` | 1 |
+| `System.Text.Json.Serialization.IJsonOnDeserializing` | 1 |
+| `System.Text.Json.Serialization.IJsonOnSerialized` | 1 |
+| `System.Text.Json.Serialization.IJsonOnSerializing` | 1 |
+| `System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver` | 2 |
+
+## Structs
+
+| Type | Members |
+| ---- | ------- |
+| `System.Text.Json.JsonDocumentOptions` | 4 |
+| `System.Text.Json.JsonElement` | 62 |
+| `System.Text.Json.JsonElement.ArrayEnumerator` | 8 |
+| `System.Text.Json.JsonElement.ObjectEnumerator` | 8 |
+| `System.Text.Json.JsonProperty` | 7 |
+| `System.Text.Json.JsonEncodedText` | 9 |
+| `System.Text.Json.JsonReaderOptions` | 4 |
+| `System.Text.Json.JsonReaderState` | 2 |
+| `System.Text.Json.Utf8JsonReader` | 56 |
+| `System.Text.Json.JsonWriterOptions` | 7 |
+| `System.Text.Json.Schema.JsonSchemaExporterContext` | 4 |
+| `System.Text.Json.Nodes.JsonNodeOptions` | 1 |
+| `System.Text.Json.Serialization.Metadata.JsonDerivedType` | 5 |

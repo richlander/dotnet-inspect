@@ -1,0 +1,58 @@
+Description:
+Find packages, libraries, API types, or members across a population
+
+Usage:
+dotnet-inspect find [<pattern>] [options]
+
+Arguments:
+<pattern>  API name/glob by default; exact package ID or terminal-star prefix with --packages; directory with --libraries.
+
+Options:
+--package <package>                Search in package(s) (name or name@version). Can repeat.
+--workspace <workspace>            Search the declarations in a registration-only Ecosystem Workspace packet
+--library <library>                Search in library file(s). Can repeat.
+--platform <platform>              Search platform APIs; with --libraries, requires a reference-pack framework (runtime, aspnetcore, netstandard, or family@version)
+--ecosystem <ecosystem>            API search: register the named ecosystem(s), repeatable. Package grain: query one ecosystem's core packages and recorded prefixes.
+--extensions                       Search current Microsoft.Extensions.* packages outside the shared frameworks
+--aspnetcore                       Search current Microsoft.AspNetCore.* packages outside the shared frameworks
+--project <project>                Search project dependencies via project.assets.json. Can repeat.
+--bin <bin>                        Search all DLLs in output directory(s). Can repeat.
+--tfm <tfm>                        Select library or target framework by TFM (e.g., net8.0)
+--all                              Include non-public, hidden, and obsolete types
+--members                          Search member names instead of type names (auto-enabled when the pattern starts with '.', e.g. .Serialize)
+--type <type>                      Filter API types by glob (for example --type *Json*)
+--take <take>                      Candidate work bound: API prefix default 10, max 20; Package default 200, max 1000 (content max 20, metadata-expensive max 5); Library default 256, max 4096
+--json                             Output as JSON
+--markdown                         Output as markdown
+--compact                          Minified JSON (use with --json or --envelope)
+--table                            Output as a pretty table (space-padded columns)
+--tsv                              Output as normalized tab-separated values
+--jsonl                            Output as JSON Lines (one object per row)
+--nh, --no-header, --no-headers    Suppress table/TSV column headers
+--package-prefix <package-prefix>  With a type or member pattern, search up to 500 matching package IDs
+-D, --discover <D>                 Discover schema: sections, or items within a section
+--tree                             Show hierarchical output when supported
+--columns <columns>                Filter columns by name (comma/semicolon-separated)
+--fields <fields>                  Filter fields by name (comma/semicolon-separated)
+--count                            Reduce the effective table/vector population to a row count
+--verbose                          Show progress messages on stderr
+-v <v>                             Verbosity: q(uiet), m(inimal), n(ormal), d(etailed)
+-E <E>                             Write companion output to stderr (.tips is available; bare explanation and .references are reserved)
+--rows <rows>                      Select data rows using forms supported by the active command. Legacy commands accept a count (6), range (2..10), start plus count (2+10), or open range (10..); adopted semantic-row surfaces accept only range forms and use -n for counts
+-n <n>                             Select items: semantic rows when declared, otherwise rendered lines; pair with --tail to take from the end
+--head                             Take the count from the start (the default direction)
+--tail                             Take the count from the end instead of the start
+--lines                            Apply -n to rendered lines instead of semantic rows
+--tail-lines                       Apply -n to rendered lines from the end
+--source <source>                  NuGet source URL (replaces defaults, can repeat)
+--add-source <add-source>          NuGet source URL to add (can repeat)
+--nugetconfig <nugetconfig>        Path to nuget.config file
+--where <where>                    Filter selected section rows with a field predicate, e.g. --where "Allocation=boxed *" or --where "RootReach>=10"
+-S, -s, --select, --section <S>    Select sections/categories by name or wildcard (comma/semicolon-separated)
+--envelope                         Output the complete inspection envelope as JSON where supported
+--packages                         Return Packages using an exact ID, terminal-star prefix, or one --ecosystem
+--libraries                        Return Libraries from a directory or --platform framework
+--explain <explain>                Explain installed Package Query facets and CLI bindings as HAL JSON without executing a query (use -Q facet keys to narrow)
+--preview, --prerelease            Include prerelease versions
+--nuspec-only                      Reject queries that require package archive content
+-Q, --query-help <Q>               Discover query-capable sections, or the facets and operators of a section/category (no inspection)

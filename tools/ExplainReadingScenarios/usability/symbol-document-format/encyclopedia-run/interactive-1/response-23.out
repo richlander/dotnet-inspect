@@ -1,0 +1,195 @@
+{
+  "namespace": "System.Text.Json.Serialization",
+  "name": "JsonConverterFactory",
+  "metadata_name": "JsonConverterFactory",
+  "definition_name": {
+    "namespace": "System.Text.Json.Serialization",
+    "segments": [
+      "JsonConverterFactory"
+    ]
+  },
+  "introduced_type_parameter_counts": [
+    0
+  ],
+  "kind": "class",
+  "attributes": [],
+  "layout": "Auto",
+  "layout_details": {
+    "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+    "type_token": 33554615,
+    "size": 0,
+    "packing_size": 0
+  },
+  "memory_safety": {
+    "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+    "rules": {
+      "kind": "available",
+      "state": 0,
+      "observations": []
+    }
+  },
+  "is_sealed": false,
+  "is_abstract": true,
+  "is_static": false,
+  "is_by_ref_like": false,
+  "is_read_only": false,
+  "interfaces": [],
+  "derived_types": [],
+  "type_parameters": [],
+  "members": [
+    {
+      "name": "CreateConverter",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Text.Json.Serialization.JsonConverter? CreateConverter(System.Type typeToConvert, System.Text.Json.JsonSerializerOptions options)",
+      "digest": "19078c7e0b",
+      "canonical_signature": "M:System.Text.Json.Serialization.JsonConverterFactory.CreateConverter(System.Type,System.Text.Json.JsonSerializerOptions)",
+      "metadata_token": 100665913,
+      "is_static": false,
+      "is_virtual": true,
+      "is_abstract": true,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665913,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": false,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665913,
+        "attributes": "Public, Virtual, HideBySig, NewSlot, Abstract",
+        "impl_attributes": "IL",
+        "has_body_rva": false
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Creates a converter for a specified type.",
+        "returns": "A converter for which T is compatible with typeToConvert.",
+        "samples": []
+      }
+    },
+    {
+      "name": "Type",
+      "kind": "property",
+      "attributes": [],
+      "signature": "System.Type? Type { get; }",
+      "digest": "8699ea811b",
+      "canonical_signature": "P:System.Text.Json.Serialization.JsonConverterFactory.Type",
+      "index_parameter_count": 0,
+      "getter_token": 100665925,
+      "getter_has_method_body": true,
+      "is_static": false,
+      "is_virtual": true,
+      "is_abstract": false,
+      "is_override": true,
+      "is_sealed": true,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 385876500,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 0,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "accessor_memory_safety": [
+        {
+          "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+          "caller_contract": {
+            "kind": "none",
+            "evidence": {
+              "member_token": 100665925,
+              "rules_state": 0,
+              "pointer": "Absent",
+              "fixed_buffer": 0,
+              "direct_attribute": {
+                "state": 1,
+                "valid_row_count": 0,
+                "has_malformed_row": false
+              },
+              "associated_attribute": {
+                "state": 1,
+                "valid_row_count": 0,
+                "has_malformed_row": false
+              },
+              "associated_member_token": 385876500
+            }
+          },
+          "signature_pointer": "Absent"
+        }
+      ],
+      "backing_storage": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "convention": "AutoProperty",
+        "state": "Unknown",
+        "candidates": []
+      },
+      "accessor_implementations": [
+        {
+          "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+          "method_token": 100665925,
+          "attributes": "Public, Final, Virtual, HideBySig, SpecialName",
+          "impl_attributes": "IL",
+          "has_body_rva": true
+        }
+      ],
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "Gets the type being converted by the current converter instance.",
+        "samples": []
+      }
+    }
+  ],
+  "additional_source_files": [],
+  "is_partial_type": false,
+  "is_forwarded": false,
+  "full_name": "System.Text.Json.Serialization.JsonConverterFactory",
+  "documentation": {
+    "summary": "Supports converting several types by using a factory pattern.",
+    "samples": []
+  }
+}

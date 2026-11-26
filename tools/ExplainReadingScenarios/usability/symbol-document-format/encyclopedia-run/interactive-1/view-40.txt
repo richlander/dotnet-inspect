@@ -1,0 +1,1 @@
+{"pdb_path":"/_/src/runtime/artifacts/obj/System.Text.Json/Release/net10.0/System.Text.Json.pdb","pdb_location":"Symbol Package","has_embedded_pdb":false,"has_source_link":true,"source_link_unavailable_reason":null,"inspection_failures":null,"source":"NuGet","repository_verified":true,"symbols":null}

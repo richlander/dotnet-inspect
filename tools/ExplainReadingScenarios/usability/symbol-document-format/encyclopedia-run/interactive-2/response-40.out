@@ -1,0 +1,47 @@
+{
+  "member": "M:System.Text.Json.JsonSerializer.Deserialize\u003CTValue\u003E(System.IO.Stream,System.Text.Json.JsonSerializerOptions)",
+  "document": {
+    "path": "/_/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs",
+    "url": "https://raw.githubusercontent.com/dotnet/dotnet/0427b9abbead3fa64c6655eb4290c537397131fa/src/runtime/src/libraries/System.Text.Json/src/System/Text/Json/Serialization/JsonSerializer.Read.Stream.cs"
+  },
+  "pdb_span": {
+    "start_line": 80,
+    "end_line": 83
+  },
+  "parts": {
+    "declaration": {
+      "start_line": 74,
+      "end_line": 84
+    },
+    "member": {
+      "start_line": 54,
+      "end_line": 84
+    },
+    "xml_docs": {
+      "start_line": 54,
+      "end_line": 73
+    },
+    "attributes": {
+      "start_line": 74,
+      "end_line": 75,
+      "fragments": [
+        {
+          "start_line": 74,
+          "end_line": 74
+        },
+        {
+          "start_line": 75,
+          "end_line": 75
+        }
+      ]
+    },
+    "signature": {
+      "start_line": 76,
+      "end_line": 78
+    },
+    "body": {
+      "start_line": 79,
+      "end_line": 84
+    }
+  }
+}

@@ -1,0 +1,9 @@
+| Part | Start Line | End Line |
+| ---- | ---------- | -------- |
+| declaration | 56 | 64 |
+| member | 37 | 64 |
+| xml-docs | 37 | 55 |
+| attributes | 56 | 56 |
+| attributes | 57 | 57 |
+| signature | 58 | 58 |
+| body | 59 | 64 |

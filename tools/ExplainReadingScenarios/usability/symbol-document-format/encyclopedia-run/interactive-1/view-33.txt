@@ -1,0 +1,1 @@
+{"type":"System.Text.Json.Serialization.JsonConverter`1","members":[{"signature":"void .ctor()","access":"FamORAssem, HideBySig, SpecialName, RTSpecialName"}]}

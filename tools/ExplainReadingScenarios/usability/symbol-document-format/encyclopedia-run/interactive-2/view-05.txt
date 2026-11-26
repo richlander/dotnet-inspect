@@ -1,0 +1,19 @@
+| Name | Kind | Path |
+| ---- | ---- | ---- |
+| @Audit | category | library/categories/audit |
+| @Dependencies | category | library/categories/dependencies |
+| @Library | category | library/categories/library |
+| @Metadata | category | library/categories/metadata |
+| @Performance | category | library/categories/performance |
+| @Surface | category | library/categories/surface |
+| Async Methods | section | library/sections/async-methods |
+| Custom Attributes | section | library/sections/custom-attributes |
+| Extension Methods | section | library/sections/extension-methods |
+| Library Info | section | library/sections/library-info |
+| References | section | library/sections/references |
+| Resources | section | library/sections/resources |
+| Signals | section | library/sections/signals |
+| Switches | section | library/sections/switches |
+| Symbols | section | library/sections/symbols |
+| Type Forwarders | section | library/sections/type-forwarders |
+| Unsafe Code | section | library/sections/unsafe-code |

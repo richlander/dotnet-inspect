@@ -1,0 +1,14 @@
+{
+  "frozen_at": "2026-11-06T23:00:59.586895+00:00",
+  "files": {
+    "System.Text.Json.symbols.json": "d1fcd04e665b446251679eec7c66913d564cf5f7c09af648962c3e83de4ed5e4",
+    "answer.json": "c2e8258e4bd901d4627010c91e98b71dd91b721f9b0c8ddfc8b15cdfd9ca7696",
+    "err.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "exit.txt": "0df9516211af9ec38d601bca4874329f86c00baafa40c116add57bca8cc5bee5",
+    "prompt.txt": "6c7ff2517093d8079794d8e441c28efafcd0d4ac65bca8ac11ea6b305c235ecf",
+    "result.md": "5907f3267f9d529093c9760db2e9a3df4430b647ab45002e5a5412276a95a0dd",
+    "run.sh": "31474c646655fb41acd45f5c4198e4c509d2452f54a96be7924ae5e583aca08a",
+    "session-id": "32b6e55b66ac16b15eccbea8fda13ce3254277bdc0237aefa3362ee92eb6a5f2",
+    "session.md": "7e3e74552355a271529cb2753c67c6c194a3daa1bb119f4489744451acc64e10"
+  }
+}

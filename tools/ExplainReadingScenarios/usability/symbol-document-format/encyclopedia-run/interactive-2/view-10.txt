@@ -1,0 +1,10 @@
+| Name | Kind | Path |
+| ---- | ---- | ---- |
+| Async Methods | section | library/sections/async-methods |
+| Custom Attributes | section | library/sections/custom-attributes |
+| Extension Methods | section | library/sections/extension-methods |
+| P/Invoke Methods | section | library/sections/p-invoke-methods |
+| Resources | section | library/sections/resources |
+| Switches | section | library/sections/switches |
+| Type Forwarders | section | library/sections/type-forwarders |
+| Union Types | section | library/sections/union-types |

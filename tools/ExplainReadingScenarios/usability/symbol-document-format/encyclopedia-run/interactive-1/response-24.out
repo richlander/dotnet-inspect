@@ -1,0 +1,106 @@
+{
+  "namespace": "System.Text.Json.Serialization",
+  "name": "JsonConverterAttribute",
+  "metadata_name": "JsonConverterAttribute",
+  "definition_name": {
+    "namespace": "System.Text.Json.Serialization",
+    "segments": [
+      "JsonConverterAttribute"
+    ]
+  },
+  "introduced_type_parameter_counts": [
+    0
+  ],
+  "kind": "class",
+  "attributes": [],
+  "layout": "Auto",
+  "layout_details": {
+    "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+    "type_token": 33554582,
+    "size": 0,
+    "packing_size": 0
+  },
+  "memory_safety": {
+    "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+    "rules": {
+      "kind": "available",
+      "state": 0,
+      "observations": []
+    }
+  },
+  "is_sealed": false,
+  "is_abstract": false,
+  "is_static": false,
+  "is_by_ref_like": false,
+  "is_read_only": false,
+  "base_type": "System.Text.Json.Serialization.JsonAttribute",
+  "interfaces": [],
+  "derived_types": [],
+  "type_parameters": [],
+  "members": [
+    {
+      "name": "CreateConverter",
+      "kind": "method",
+      "attributes": [],
+      "signature": "System.Text.Json.Serialization.JsonConverter? CreateConverter(System.Type typeToConvert)",
+      "digest": "a14319c638",
+      "canonical_signature": "M:System.Text.Json.Serialization.JsonConverterAttribute.CreateConverter(System.Type)",
+      "metadata_token": 100665722,
+      "is_static": false,
+      "is_virtual": true,
+      "is_abstract": false,
+      "is_override": false,
+      "is_sealed": false,
+      "is_read_only": false,
+      "is_const": false,
+      "is_unsafe": false,
+      "is_async": false,
+      "memory_safety": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "caller_contract": {
+          "kind": "none",
+          "evidence": {
+            "member_token": 100665722,
+            "rules_state": 0,
+            "pointer": "Absent",
+            "fixed_buffer": 0,
+            "direct_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            },
+            "associated_attribute": {
+              "state": 1,
+              "valid_row_count": 0,
+              "has_malformed_row": false
+            }
+          }
+        },
+        "signature_pointer": "Absent"
+      },
+      "has_method_body": true,
+      "method_implementation": {
+        "module_version_id": "2ddc75da-7a95-4826-8729-839cc65f9eea",
+        "method_token": 100665722,
+        "attributes": "Public, Virtual, HideBySig, NewSlot",
+        "impl_attributes": "IL",
+        "has_body_rva": true
+      },
+      "is_extension": false,
+      "is_obsolete": false,
+      "documentation": {
+        "summary": "When overridden in a derived class and ConverterType is null, allows the derived class to create a JsonConverter in order to pass additional state.",
+        "returns": "The custom converter.",
+        "samples": []
+      }
+    }
+  ],
+  "additional_source_files": [],
+  "is_partial_type": false,
+  "is_forwarded": false,
+  "full_name": "System.Text.Json.Serialization.JsonConverterAttribute",
+  "documentation": {
+    "summary": "When placed on a property or type, specifies the converter type to use.",
+    "samples": []
+  }
+}
