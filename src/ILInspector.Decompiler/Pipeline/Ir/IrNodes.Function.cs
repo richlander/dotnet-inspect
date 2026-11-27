@@ -59,6 +59,13 @@ public sealed class IrFunction : IrNode
     internal ClassicAsyncRequestAdapterResult? ClassicAsyncRequest
         { get; set; }
     internal bool IsMetadataBacked { get; set; }
+    /// <summary>
+    /// Set by a state-machine inverse once it has removed the lowering shell
+    /// from a generated <c>MoveNext</c> body. The body keeps the generated
+    /// identity while the ordinary pipeline structures it, but its control flow
+    /// is the user's, so structuring rules withheld from the raw shell apply.
+    /// </summary>
+    internal bool IsSplicedStateMachineBody { get; set; }
     internal bool HasAccessorStorageBinding { get; set; }
     internal MethodInstructions? ExceptionInstructions { get; set; }
     internal InstructionExceptionFlowResult<InstructionExceptionFlowFacts>?

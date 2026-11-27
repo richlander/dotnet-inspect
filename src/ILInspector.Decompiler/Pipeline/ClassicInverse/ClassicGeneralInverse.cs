@@ -47,6 +47,7 @@ internal static class ClassicGeneralInverse
         string? failure = transform.Run();
         if (failure is not null)
             return new Outcome.Declined(failure, work);
+        work.IsSplicedStateMachineBody = true;
         // The spliced returns carry the async result, not MoveNext's void: the
         // later passes type a returned value (a short-circuit's constants) from
         // the function's return type.

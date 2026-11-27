@@ -2778,8 +2778,10 @@ public sealed class StructuringPass : IIrPass
         // common join. Validation below still owns both complete regions.
         // Generated MoveNext bodies are consumed as the classic async/iterator
         // control-flow shell; this source-oriented alternative structuring is
-        // applied only after that cross-method reconstruction.
+        // applied only after that cross-method reconstruction, which marks the
+        // spliced body it hands back to this pipeline.
         if (ctx.Function.Name == "MoveNext"
+            && !ctx.Function.IsSplicedStateMachineBody
             && GeneratedCodeIdentity.IsIteratorStateMachineTypeName(
                 ctx.Function.DeclaringType))
         {
