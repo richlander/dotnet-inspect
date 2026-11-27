@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using ILInspector.Analysis;
+using QuerySpace.Rows;
 
 namespace DotnetInspector.Queries;
 
@@ -86,5 +87,32 @@ public static class OptimizationOpportunitiesQuery
         {
             return new OptimizationOpportunitiesResult.Failed(ex);
         }
+    }
+
+    public static ImmutableArray<OptimizationOpportunity> Select(
+        OptimizationOpportunitiesResult.Available available,
+        IReadOnlyCollection<string> admittedShapes,
+        ResolvedRowQueryPlan<OptimizationOpportunity> plan)
+    {
+        ArgumentNullException.ThrowIfNull(available);
+        ArgumentNullException.ThrowIfNull(admittedShapes);
+        ArgumentNullException.ThrowIfNull(plan);
+
+        RowSelectionResult<OptimizationOpportunity> result =
+            OptimizationOpportunityRowSpace.SelectPerformanceCandidates(
+                available.Opportunities,
+                available.AllocationFanoutOpportunities,
+                available.GeneratedFrameworkTypes,
+                includeAllocationFanout: true,
+                admittedShapes,
+                plan);
+        if (!result.IsSuccess)
+        {
+            throw new InvalidOperationException(
+                "Performance Triage produced an unexpected "
+                    + "row-window failure.");
+        }
+
+        return [.. result.Values];
     }
 }

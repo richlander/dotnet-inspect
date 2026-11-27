@@ -70,6 +70,13 @@ completed-row path. The CLI binds the scalar result into the same per-section
 count presentation, so terminal specialization changes physical work rather
 than visible cardinality.
 
+`OptimizationOpportunitiesQuery` composes the Analysis-owned Performance
+Triage candidate population and executes the resolved Analysis row plan.
+`PerformanceTriageRowQuery` lowers Library command syntax to that plan and
+invokes the operation; that CLI binding does not independently combine
+generated-code policy, allocation fanout, legacy-shape retirement, shape
+membership, filtering, or ranking.
+
 The third migration adds `LibraryLeverageAnalysisResult` for whole-library
 ranking and `LibraryCallGraphAnalysisResult` for detached call evidence, local
 graph derivation, and catalog participation. Library Top Leverage and member
