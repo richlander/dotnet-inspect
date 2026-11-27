@@ -1702,6 +1702,37 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
           producers: [],
           coverage: [],
         },
+        extensionCandidates: {
+          receiverAssembly: "System.Runtime",
+          receiverType: "System.Collections.Generic.IEnumerable`1",
+          participants: [{
+            assembly: "System.Linq",
+            packageId: "System.Linq",
+            version: "11.0.0",
+            framework: "net11.0",
+            asset: "ref/net11.0/System.Linq.dll",
+            outcome: "complete",
+            count: 1,
+            countOutcome: "counted",
+            rowsOutcome: "read",
+            rowsReturned: 1,
+            nextOrdinal: null,
+            coverage: {
+              considered: 1,
+              examined: 1,
+              excluded: 0,
+              unavailable: 0,
+              limited: 0,
+            },
+            rows: [{
+              declaringType: "System.Linq.Enumerable",
+              fingerprint: "where",
+              signature: "M:System.Linq.Enumerable.Where<TSource>(IEnumerable<TSource>, Func<TSource, Boolean>)",
+              occurrences: 1,
+            }],
+            diagnostics: [],
+          }],
+        },
       },
     },
     memberCompositionHtml: `
@@ -1742,6 +1773,10 @@ test("type metadata renders composition, interfaces, and hierarchy once loaded",
   assert.match(html, /Implements/);
   assert.match(html, /data-graph-type="System\.IDisposable"/);
   assert.match(html, /Derived types/);
+  assert.match(html, /Extension method candidates/);
+  assert.match(html, /System\.Runtime:System\.Collections\.Generic\.IEnumerable/);
+  assert.match(html, /System\.Linq\.Enumerable\.Where/);
+  assert.match(html, /C# applicability is not evaluated/);
   assert.match(html, /1 total/);
   assert.match(html, /data-graph-package="System\.Text\.Json"/);
   assert.match(html, /data-graph-version="9\.0\.0"/);
