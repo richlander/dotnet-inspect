@@ -48,8 +48,16 @@ effective or non-effective recommendation basis. It is gated by
 `MemberHierarchy_UnresolvedEvidenceIsFailed`,
 `PreparedPackage_RequiresExactOwnerIssuedAssetParticipantAssociation`,
 `TypeHierarchy_UsesTheExactLibraryInventoryOutcome`,
-`SelectorMiss_RetainsIncompleteScopedInventoryEvidence`, and
-`MemberSelector_UsesTheSelectedContainingTypeInventory`.
+`IncompleteScopedInventory_RetainsInspectionFailure`,
+`WhitespaceOnlyTypeIdentity_IsRetainedInSnapshot`, and
+`MemberInventory_PreservesDeclaringTypeForDescendantNavigation`.
+
+The unused snapshot-selector rebinding API and its selector-specific test
+assertions were retired under
+[#11256](https://github.com/richlander/dotnet-inspect/issues/11256).
+Snapshot inventory/failure evidence and descendant navigation remain covered by
+the retained gates above. This retirement does not change current CLI Workspace
+authoring or the navigation identity, state, and snapshot contracts.
 
 The pure stateless descendant subject plus exact-lens mapping is implemented by
 `NavigationDescendantLensEvaluation`. It validates the exact source,
@@ -63,9 +71,11 @@ posting. It is gated by
 `InvalidAncestry_RejectsBeforeRegistryResolution`, and
 `NonAvailableDestinationLenses_PostNeitherRequestedHalf`.
 
-The CLI `workspace` consumer evaluates this product result and lowers its
-portable projection through Markout and structured formats. Its focused gates
-are
+**Historical CLI consumer:** the stateless `workspace` navigation route and
+the gates below predate the resource-free authoring reframe in #10355. They no
+longer describe the current CLI command. The former consumer lowered its
+portable projection through Markout and structured formats; its historical
+gates were
 `WorkspaceCommandTests.ActivePackage_ProjectsPortableNavigationThroughJson`,
 `ExactTypeAndMemberLens_UseAtomicStatelessNavigation`,
 `UnknownDestinationLens_RetainsSourceAndDiagnostic`,
@@ -117,7 +127,7 @@ C# or TypeScript implementation conforms to them.
 The Workspace-rooted subject graph specified below remains **partially
 implemented** under
 [#7301](https://github.com/richlander/dotnet-inspect/issues/7301).
-The current `StructuralSubjectIdentity`, stateless snapshot, Registry, and CLI
+The current `StructuralSubjectIdentity`, stateless snapshot, and Registry
 gates prove the Package-backed subset plus one exact registered-empty Ecosystem
 subject with effective Ecosystem Overview. Canonical restoration preparation
 now accepts that exact Ecosystem evaluation and optional exact lens without
