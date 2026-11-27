@@ -32,6 +32,11 @@ import type {
   BrowserTypeMethodLeverage as TypeMethodLeverage,
 } from "../src/facades/inspect-web-analysis.js";
 import type {
+  BrowserEcosystemTypeFindRequest,
+  BrowserEcosystemTypeFindResult,
+  BrowserRetainedWorkspaceActivationResult,
+  BrowserRetainedWorkspaceConsumerCompletionResult,
+  BrowserRetainedWorkspacePreparationResult,
   BrowserWorkspaceShareEncodeResult,
   BrowserWorkspaceShareState,
 } from "../src/facades/inspect-web-catalog.js";
@@ -596,6 +601,28 @@ declare global {
       buildIdentity(): Promise<BrowserBuildIdentity>;
       queryTypeFindingDiffAny(id: string, request: BrowserTypeFindingDiffAnyRequest): Promise<BrowserTypeFindingDiffAnyResult>;
       encodeWorkspaceShareState(state: BrowserWorkspaceShareState): Promise<BrowserWorkspaceShareEncodeResult>;
+      prepareEcosystemWorkspaceDefinition(
+        retainedDefinitionId: string,
+        label: string,
+        canonicalLocation: string,
+        ecosystemId: string,
+      ): Promise<BrowserRetainedWorkspacePreparationResult>;
+      commitRetainedWorkspaceActivation(
+        receipt: string,
+      ): Promise<BrowserRetainedWorkspaceActivationResult>;
+      completeRetainedWorkspaceActivation(
+        receipt: string,
+        succeeded: boolean,
+        failure: string | null,
+      ): Promise<BrowserRetainedWorkspaceConsumerCompletionResult>;
+      findEcosystemTypes(
+        operationId: string,
+        retainedDefinitionId: string,
+        realizationId: string,
+        resultGeneration: number,
+        request: BrowserEcosystemTypeFindRequest,
+        eventSink: unknown,
+      ): Promise<BrowserEcosystemTypeFindResult>;
       queryPackage(
         packageId: string,
         version: string,
@@ -736,6 +763,43 @@ async function boot(page: Page): Promise<void> {
       buildIdentity: () => client.host.buildIdentity(),
       queryTypeFindingDiffAny: (id, request) => client.metadata.queryTypeFindingDiffAny(id, request),
       encodeWorkspaceShareState: state => client.catalog.encodeWorkspaceShareState(state),
+      prepareEcosystemWorkspaceDefinition: (
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        ecosystemId,
+      ) => client.catalog.prepareEcosystemWorkspaceDefinition(
+        retainedDefinitionId,
+        label,
+        canonicalLocation,
+        ecosystemId,
+      ),
+      commitRetainedWorkspaceActivation: receipt =>
+        client.catalog.commitRetainedWorkspaceActivation(receipt),
+      completeRetainedWorkspaceActivation: (
+        receipt,
+        succeeded,
+        failure,
+      ) => client.catalog.completeRetainedWorkspaceActivation(
+        receipt,
+        succeeded,
+        failure,
+      ),
+      findEcosystemTypes: (
+        operationId,
+        retainedDefinitionId,
+        realizationId,
+        resultGeneration,
+        request,
+        eventSink,
+      ) => client.catalog.findEcosystemTypes(
+        operationId,
+        retainedDefinitionId,
+        realizationId,
+        resultGeneration,
+        request,
+        eventSink,
+      ),
       queryPackage: (packageId, pkgVersion, framework) =>
         client.package.queryPackage(packageId, pkgVersion, framework, ""),
       queryVersions: (packageId, currentVersion) =>
@@ -4733,6 +4797,7 @@ test.describe("bounded network-backed Worker smoke", () => {
         viewport: { width: 1440, height: 900 },
         serviceWorkers: "block",
       });
+
       try {
         await installGalleryRoutes(context, new GalleryFixtureRegistry([{
           packageId, version: runtimeVersion, archive,
@@ -5786,6 +5851,169 @@ test.describe("bounded network-backed Worker smoke", () => {
     expect(surface.activeFramework).toBe("net8.0");
     expect(surface.assemblies.length).toBeGreaterThan(0);
     expect(surface.types.length).toBeGreaterThan(0);
+  });
+});
+
+test.describe("Ecosystem Type Find over the published Browser/Wasm runtime", () => {
+  test.describe.configure({ timeout: 600_000 });
+
+  test("runs cold all-Ecosystem bounded work and demanded live prefix continuation", async ({
+    page,
+  }) => {
+    await boot(page);
+
+    const evidence = await page.evaluate(async () => {
+      const adoption = window.__adoption;
+      if (adoption === undefined) {
+        throw new Error("The production Worker client is unavailable.");
+      }
+      const retainedDefinitionId =
+        `ecosystem-type-find-${crypto.randomUUID()}`;
+      const preparation =
+        await adoption.prepareEcosystemWorkspaceDefinition(
+          retainedDefinitionId,
+          "Ecosystem Type Find gate",
+          location.href,
+          "ecosystem.aspire",
+        );
+      if (preparation.status !== "prepared"
+          || preparation.receipt === null) {
+        throw new Error(
+          `Ecosystem Workspace preparation failed: ${
+            preparation.failure?.message ?? preparation.status
+          }.`,
+        );
+      }
+      const activation =
+        await adoption.commitRetainedWorkspaceActivation(
+          preparation.receipt,
+        );
+      if (activation.status !== "activated"
+          || activation.posting === null) {
+        throw new Error(
+          `Ecosystem Workspace activation failed: ${
+            activation.failure?.message ?? activation.status
+          }.`,
+        );
+      }
+      const posting = activation.posting;
+      const completion =
+        await adoption.completeRetainedWorkspaceActivation(
+          preparation.receipt,
+          true,
+          null,
+        );
+      if (completion.status !== "completed"
+          || completion.succeeded !== true) {
+        throw new Error(
+          `Ecosystem Workspace completion failed: ${
+            completion.failure ?? completion.message ?? completion.status
+          }.`,
+        );
+      }
+
+      const run = async (
+        operationId: string,
+        resultGeneration: number,
+        findRequest: BrowserEcosystemTypeFindRequest,
+      ) => {
+        const events: unknown[] = [];
+        const phases: string[] = [];
+        const eventSink = {
+          set event(value: unknown) {
+            if (typeof value !== "string") {
+              throw new TypeError(
+                "Ecosystem Type Find event was not JSON text.",
+              );
+            }
+            const parsed: unknown = JSON.parse(value);
+            events.push(parsed);
+            if (typeof parsed === "object"
+                && parsed !== null
+                && "kind" in parsed
+                && parsed.kind === "Progress"
+                && "progress" in parsed) {
+              const progress = parsed.progress;
+              if (typeof progress === "object"
+                  && progress !== null
+                  && "phase" in progress
+                  && typeof progress.phase === "string") {
+                phases.push(progress.phase);
+              }
+            }
+          },
+        };
+        const result = await adoption.findEcosystemTypes(
+          operationId,
+          posting.retainedDefinitionId,
+          posting.realizationId,
+          resultGeneration,
+          findRequest,
+          eventSink,
+        );
+        return { result, events, phases };
+      };
+      const ecosystems = [
+        "ecosystem.runtime",
+        "ecosystem.microsoft-extensions",
+        "ecosystem.aspnetcore",
+        "ecosystem.aspire",
+      ];
+      const bounded = await run(
+        "ecosystem-type-find-bounded",
+        1,
+        {
+          text: "ContainerResource",
+          ecosystems,
+          prefixDemand: [],
+          rowStart: 1,
+          rowEnd: 1_000,
+          maximumPrefixPackages: 3,
+          targetFramework: "net10.0",
+        },
+      );
+      const live = await run(
+        "ecosystem-type-find-live",
+        2,
+        {
+          text: ".AddRedis*",
+          ecosystems,
+          prefixDemand: ["ecosystem.aspire"],
+          rowStart: 1,
+          rowEnd: 100,
+          maximumPrefixPackages: 3,
+          targetFramework: "net10.0",
+        },
+      );
+      adoption.dispose();
+      return { bounded, live };
+    });
+
+    expect(evidence.bounded.result.kind).toBe("Succeeded");
+    expect(evidence.bounded.result.inspection?.settlement.findings.length)
+      .toBeGreaterThan(0);
+    expect(evidence.bounded.phases).toEqual([
+      "Indexed",
+      "Bounded",
+      "Workspace",
+    ]);
+    expect(evidence.bounded.events).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        kind: "Progress",
+        progress: expect.objectContaining({ phase: "Prefix" }),
+      }),
+    ]));
+
+    expect(
+      evidence.live.result.kind,
+      JSON.stringify(evidence.live.result, null, 2),
+    ).toBe("Succeeded");
+    expect(evidence.live.phases).toEqual([
+      "Indexed",
+      "Bounded",
+      "Workspace",
+      "Prefix",
+    ]);
   });
 });
 

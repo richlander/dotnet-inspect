@@ -3,9 +3,9 @@
 ## Status and owner
 
 Complete finding convergence and pre-execution result-row-plan association are
-implemented for CLI composition. Browser adoption remains planned under
-[#8811](https://github.com/richlander/dotnet-inspect/issues/8811), and remaining
-adapter retirement is tracked by
+implemented for CLI composition. Inspect Web Type Find now adopts the same
+managed request, reporting session, continuation, and settlement; Member
+adoption and remaining adapter retirement are tracked by
 [#11065](https://github.com/richlander/dotnet-inspect/issues/11065).
 
 This focused update transfers Ecosystem-specific report composition and
@@ -750,7 +750,7 @@ The CLI is the first production adopter:
 Those mappings are CLI policy. Output format is not passed to the semantic
 operation; the host lowers its default to an explicit `PrefixDemand`.
 
-Inspect Web then adopts the same request, event, and Document:
+Inspect Web adopts the same request, event, and terminal settlement:
 
 - the initial Spotlight Ecosystems search selects all registrations with no
   prefix demand;
@@ -764,16 +764,38 @@ Inspect Web then adopts the same request, event, and Document:
 - operation authority suppresses stale publication after text, scope, or
   demand replacement.
 
-All of those producers publish into one managed Ecosystem Find reporting
-session. TypeScript consumes one complete finding stream and one terminal
-settlement; it neither invokes nor observes a separate indexed operation.
+The Type operation runs the indexed phase first, evaluates retained semantic
+Type Find once, partitions those matches into selected bounded memberships and
+membership-empty Workspace findings, then resumes demanded prefix work. All
+producers publish into one managed `EcosystemFindResultSession` in indexed,
+bounded, Workspace, prefix order.
+
+The managed operation buffers nonterminal events until each finding has an
+activation correspondence, then publishes ordered progress, complete finding,
+and item-failure events before returning one terminal settlement. Indexed
+failures are identical in the event stream and terminal failure vector.
+TypeScript strictly validates and transports those events through the shared
+operation authority; it neither invokes a separate indexed operation nor
+receives, serializes, or computes capacity for the continuation.
+
+The JavaScript boundary projects the complete host-neutral
+`EcosystemFindFinding` into a Catalog-local DTO because the generated facade
+cannot expose the complete CLR domain graph. The projection preserves scope,
+all memberships, normalized pattern and match facts, exact source coordinate,
+assembly identity, provenance, requested TFM/RID, declaration order and kind,
+and discovery attributes. The managed result session still retains and
+publishes the same complete host-neutral finding before this boundary
+projection.
 
 Spotlight grouping, visible batch size, focus, activation, and navigation
 remain Browser-owned. Selecting a Type or Member requires a separately
 owner-issued exact activation association; this operation never constructs
 one from its rendered row. The Browser operation keeps the continuation inside
 the .NET Worker; TypeScript receives result and lifecycle events, not the
-continuation capability.
+continuation capability. Indexed and retained Workspace Type findings carry
+their exact activation correspondence. A live-prefix finding currently carries
+an explicit unavailable correspondence until external-package activation is
+published by the activation owner.
 
 [#9171](https://github.com/richlander/dotnet-inspect/issues/9171) tracks three
 continuation-adoption slices: this focused contract; host-neutral session
@@ -790,16 +812,16 @@ The convergence successor is staged by owner:
    them in the CLI.
 2. **Implemented:** Query Operation Infrastructure moves the existing Find
    result-row plan from post-result shaping to pre-execution association.
-3. **This slice:** the complete finding admits typed membership-empty
+3. **Implemented:** the complete finding admits typed membership-empty
    intervening Workspace findings through the same result session.
-4. Inspect Web adopts the same complete finding and settlement through its
-   existing async-event operation authority.
+4. **Implemented for Type Find:** Inspect Web adopts the same complete finding
+   and settlement through its existing async-event operation authority.
 5. The CLI retires its projection maps and ambient-attribution adapter after
    every Ecosystem Member producer uses the complete value.
 
-The first implementation slice locks one owner-issued host-neutral boundary
-with its existing CLI production adopter. Query Operation and Browser remain
-separate owner-sized successors.
+The remaining convergence work is Member adoption, Browser presentation, and
+legacy CLI adapter retirement, not another Type scheduling or result-admission
+path.
 
 ## Evidence and acceptance
 
@@ -882,7 +904,15 @@ Release gates for an implementation must establish:
 24. for two patterns over two bounded sources, the coordinator consumes the
     reduced block's pattern-first order unchanged, so `Window(2, 2)` selects
     the same row as Find Semantic Evaluation rather than a source-first
-    reconstruction.
+    reconstruction;
+25. Inspect Web Type Find publishes indexed, bounded, intervening Workspace,
+    and prefix findings through one managed result session in that order;
+26. TypeScript receives complete events and one terminal settlement but never
+    receives the continuation or computes remaining semantic capacity;
+27. every indexed failure visible in terminal settlement is also published as
+    an ordered item-failure event before that settlement; and
+28. every Browser finding has an exact activation association or an explicit
+    non-success correspondence before publication.
 
 NativeAOT evidence is required for every CLI terminal adopted by the
 implementation, including the miss-path cost before a bounded result.

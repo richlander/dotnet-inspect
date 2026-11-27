@@ -22,6 +22,8 @@ import type {
   BrowserPackageQueryTerm,
 } from "./facades/inspect-web-package.d.ts";
 import type {
+  BrowserEcosystemTypeFindInspection,
+  BrowserEcosystemTypeFindResult,
   BrowserSpotlightTypeFindInspection,
   BrowserSpotlightTypeFindResult,
 } from "./facades/inspect-web-catalog.d.ts";
@@ -50,6 +52,12 @@ import {
   type SpotlightTypeFindEvent,
   type SpotlightTypeFindRequest,
 } from "./engine-worker-spotlight-type-find.ts";
+import {
+  createEngineWorkerEcosystemTypeFindHostRegistration,
+  type EcosystemTypeFindEvent,
+  type EcosystemTypeFindRequest,
+  type EngineWorkerEcosystemTypeFindFailure,
+} from "./engine-worker-ecosystem-type-find.ts";
 import {
   createEngineWorkerPackageChangesHostRegistration,
   engineWorkerPackageChangesInput,
@@ -180,6 +188,23 @@ export function registerEngineWorkerSpotlightTypeFindAdapter(
 ): EngineWorkerSpotlightTypeFindAdapter {
   return host.registerOperation(
     createEngineWorkerSpotlightTypeFindHostRegistration(),
+  );
+}
+
+export type EngineWorkerEcosystemTypeFindAdapter = OperationProducerAdapter<
+  EcosystemTypeFindRequest,
+  BrowserEcosystemTypeFindInspection,
+  EngineWorkerEcosystemTypeFindFailure,
+  never,
+  WorkerRuntimePreparationError,
+  EcosystemTypeFindEvent
+>;
+
+export function registerEngineWorkerEcosystemTypeFindAdapter(
+  host: EngineWorkerHost,
+): EngineWorkerEcosystemTypeFindAdapter {
+  return host.registerOperation(
+    createEngineWorkerEcosystemTypeFindHostRegistration(),
   );
 }
 
@@ -370,6 +395,19 @@ function publishSpotlightTypeFindEvent(
   }
   if (!Reflect.set(eventSink, "event", JSON.stringify(event))) {
     throw new TypeError("Spotlight Type Find event sink rejected an event.");
+  }
+}
+
+function publishEcosystemTypeFindEvent(
+  eventSink: unknown,
+  event: EcosystemTypeFindEvent,
+): void {
+  if ((typeof eventSink !== "object" && typeof eventSink !== "function")
+    || eventSink === null) {
+    throw new TypeError("Ecosystem Type Find event sink is unavailable.");
+  }
+  if (!Reflect.set(eventSink, "event", JSON.stringify(event))) {
+    throw new TypeError("Ecosystem Type Find event sink rejected an event.");
   }
 }
 
@@ -783,6 +821,131 @@ export function bindSpotlightTypeFindFacade(
       }
     },
     cancelSpotlightTypeFind(operationId, reason) {
+      active.get(operationId)?.handle.cancel(operationCancelReason(reason));
+    },
+    dispose() {
+      for (const operation of active.values())
+        operation.session.dispose();
+      active.clear();
+    },
+  };
+}
+
+export function bindEcosystemTypeFindFacade(
+  adapter: EngineWorkerEcosystemTypeFindAdapter,
+  reportDiagnostic: (diagnostic: OperationDiagnostic) => undefined,
+  authority: SharedEngineOperationAuthority,
+): Pick<
+  EngineClient["catalog"],
+  "cancelEcosystemTypeFind" | "findEcosystemTypes"
+> & { readonly dispose: () => void } {
+  interface ActiveEcosystemTypeFind {
+    readonly handle: OperationHandle<
+      BrowserEcosystemTypeFindInspection,
+      EngineWorkerEcosystemTypeFindFailure
+    >;
+    readonly session: OperationSession<
+      EcosystemTypeFindRequest,
+      BrowserEcosystemTypeFindInspection,
+      EngineWorkerEcosystemTypeFindFailure,
+      never,
+      WorkerRuntimePreparationError,
+      EcosystemTypeFindEvent
+    >;
+  }
+
+  const active = new Map<string, ActiveEcosystemTypeFind>();
+  return {
+    async findEcosystemTypes(
+      operationId,
+      retainedDefinitionId,
+      realizationId,
+      resultGeneration,
+      requestJson,
+      eventSink,
+    ): Promise<BrowserEcosystemTypeFindResult> {
+      if (active.has(operationId)) {
+        throw new Error(
+          `Ecosystem Type Find operation '${operationId}' is already active.`,
+        );
+      }
+      const request: EcosystemTypeFindRequest = {
+        retainedDefinitionId,
+        realizationId,
+        resultGeneration,
+        ...requestJson,
+      };
+      const session = authority.page.createSession<
+        EcosystemTypeFindRequest,
+        BrowserEcosystemTypeFindInspection,
+        EngineWorkerEcosystemTypeFindFailure,
+        never,
+        WorkerRuntimePreparationError,
+        EcosystemTypeFindEvent
+      >({
+        feature: {
+          publish: event => {
+            if (event.kind === "durable") {
+              publishEcosystemTypeFindEvent(
+                eventSink,
+                event.durable.value,
+              );
+            }
+            return undefined;
+          },
+        },
+        diagnostic: { report: reportDiagnostic },
+      });
+      const started = authority.startWithId(
+        operationId,
+        () => session.start(request, adapter),
+      );
+      if (started.kind === "rejected") {
+        session.dispose();
+        throw new Error(
+          `Ecosystem Type Find could not start: ${
+            startFailureReason(started.reason)
+          }.`,
+        );
+      }
+      active.set(operationId, { handle: started.handle, session });
+      try {
+        const outcome = await started.handle.outcome;
+        await started.handle.quiesced;
+        if (outcome.kind === "succeeded") {
+          return {
+            kind: "Succeeded",
+            inspection: outcome.value,
+            failureKind: null,
+            error: null,
+            diagnostic: null,
+            reason: null,
+          };
+        }
+        if (outcome.kind === "failed") {
+          return {
+            kind: "Failed",
+            inspection: null,
+            failureKind: outcome.error.failureKind,
+            error: outcome.error.error,
+            diagnostic: outcome.error.diagnostic,
+            reason: null,
+          };
+        }
+        return {
+          kind: "Canceled",
+          inspection: null,
+          failureKind: null,
+          error: null,
+          diagnostic: null,
+          reason: outcome.reason,
+        };
+      } finally {
+        active.delete(operationId);
+        session.dispose();
+      }
+    },
+    cancelEcosystemTypeFind(operationId, reason) {
       active.get(operationId)?.handle.cancel(operationCancelReason(reason));
     },
     dispose() {
@@ -1369,6 +1532,11 @@ export function createProductionEngineWorkerClient(
     options.operationDiagnostic,
     authority,
   );
+  const ecosystemTypeFind = bindEcosystemTypeFindFacade(
+    registerEngineWorkerEcosystemTypeFindAdapter(host),
+    options.operationDiagnostic,
+    authority,
+  );
   const packageQuery = bindPackageQueryFacade(
     registerEngineWorkerPackageQueryAdapter(host),
     options.operationDiagnostic,
@@ -1414,6 +1582,7 @@ export function createProductionEngineWorkerClient(
       ...ordinary.catalog,
       ...startup.catalog,
       ...spotlightTypeFind,
+      ...ecosystemTypeFind,
     },
     activity: ordinary.activity,
   };
@@ -1426,6 +1595,7 @@ export function createProductionEngineWorkerClient(
       packageChanges.dispose();
       libraryPerformance.dispose();
       packageQuery.dispose();
+      ecosystemTypeFind.dispose();
       spotlightTypeFind.dispose();
       typeExplorer.dispose();
       typeSource.dispose();

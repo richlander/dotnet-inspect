@@ -166,6 +166,46 @@ public sealed partial class BrowserEngineBoundaryTests
     }
 
     // PR-fast: real managed fixture images, no broad analysis.
+    [Fact]
+    public async Task SurfaceRealization_DoesNotTransferImplementationAssets()
+    {
+        string id = $"surface.exact.{Guid.NewGuid():N}";
+        byte[] assembly =
+            File.ReadAllBytes(typeof(BrowserPackage).Assembly.Location);
+        var handler = new GalleryPackageHandler(
+            id,
+            "1.0.0",
+            PackageEntries(
+                ($"{id}.nuspec", Encoding.UTF8.GetBytes(
+                    Nuspec(id, "1.0.0"))),
+                ($"ref/net11.0/{id}.dll", assembly),
+                ($"lib/net11.0/{id}.dll", assembly)));
+        using IPackageSourceClient source = Gallery(handler);
+
+        BrowserPackageRealization realization = Assert.IsType<
+            BrowserPackageRealizationResult.Realized>(
+                await BrowserPackageWorkspace
+                    .RealizeSurfaceWithSettlementAsync(
+                        id,
+                        "1.0.0",
+                        "net11.0",
+                        source,
+                        TimeSpan.FromSeconds(10),
+                        TestContext.Current.CancellationToken))
+            .Realization;
+        RangedPackageContent content = Assert.IsType<RangedPackageContent>(
+            realization.Coordinate.Package.Content);
+
+        Assert.True(content.IsMaterialized($"ref/net11.0/{id}.dll"));
+        Assert.False(content.IsMaterialized($"lib/net11.0/{id}.dll"));
+        await using BrowserScopeLease<BrowserInspectionScope> scope =
+            await BrowserPackageWorkspace.OpenScopeAsync(
+                realization,
+                TestContext.Current.CancellationToken);
+        Assert.Empty(scope.Scope.ImplementationParticipants);
+    }
+
+    // PR-fast: real managed fixture images, no broad analysis.
     [Theory]
     [InlineData("net11.0", PackageAssetDemand.Surface)]
     [InlineData("", PackageAssetDemand.Surface)]

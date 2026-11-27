@@ -2,6 +2,10 @@ import { dotnet } from "./runtime-loader.js";
 
 export type BrowserCompileLibraryStatus = "Selected" | "NoCompileAssets" | "NoMatchingTargetFramework" | "EmptyCompileGroup" | "InvalidImplementationAssets" | number;
 
+export type BrowserEcosystemTypeFindFailureKind = "Expected" | "Unexpected" | number;
+
+export type BrowserEcosystemTypeFindResultKind = "Succeeded" | "Failed" | "Canceled" | number;
+
 export type BrowserIndexedTypeFindActivationStatus = "Available" | "Unavailable" | "Stale" | "Ambiguous" | "Refused" | "Failed" | number;
 
 export type BrowserIndexedTypeFindResultStatus = "Completed" | "Rejected" | "Unavailable" | "Stale" | number;
@@ -181,6 +185,128 @@ export interface BrowserEcosystemPackageWorkspaceAdmissionResult {
   readonly posting: BrowserRetainedWorkspacePosting | null;
   readonly navigation: BrowserRetainedNavigationResult | null;
   readonly message: string | null;
+}
+
+export interface BrowserEcosystemTypeFindAssemblyIdentity {
+  readonly name: string;
+  readonly version: string;
+  readonly culture: string | null;
+  readonly publicKeyToken: string | null;
+}
+
+export interface BrowserEcosystemTypeFindCancellation {
+  readonly status: string;
+  readonly reason: string | null;
+}
+
+export interface BrowserEcosystemTypeFindFinding {
+  readonly identity: string;
+  readonly scope: string;
+  readonly memberships: ReadonlyArray<BrowserEcosystemTypeFindMembership>;
+  readonly pattern: BrowserEcosystemTypeFindPattern;
+  readonly effectivePattern: string;
+  readonly matchKind: string;
+  readonly similarity: number;
+  readonly name: string;
+  readonly namespace: string;
+  readonly fullName: string;
+  readonly source: BrowserEcosystemTypeFindSource;
+  readonly moduleVersionId: string;
+  readonly declarationOrder: number;
+  readonly declarationKind: string;
+  readonly definitionKind: string | null;
+  readonly isEditorBrowsableNever: boolean | null;
+  readonly isObsolete: boolean | null;
+}
+
+export interface BrowserEcosystemTypeFindInspection {
+  readonly requestIdentity: string;
+  readonly settlement: BrowserEcosystemTypeFindSettlement;
+}
+
+export interface BrowserEcosystemTypeFindItemFailure {
+  readonly phase: string;
+  readonly source: string;
+  readonly message: string;
+}
+
+export interface BrowserEcosystemTypeFindMembership {
+  readonly ecosystem: string;
+  readonly basis: string;
+  readonly platformFamily: string | null;
+  readonly packageId: string | null;
+  readonly packageVersion: string | null;
+  readonly packageFramework: string | null;
+  readonly packageRuntimeIdentifier: string | null;
+  readonly packagePrefix: string | null;
+}
+
+export interface BrowserEcosystemTypeFindPattern {
+  readonly ordinal: number;
+  readonly text: string;
+  readonly kind: string;
+  readonly exactNamespaceFallback: string | null;
+  readonly namespace: string | null;
+  readonly namespaceMatch: string | null;
+}
+
+export interface BrowserEcosystemTypeFindProvenance {
+  readonly kind: string;
+  readonly packageId: string | null;
+  readonly packageVersion: string | null;
+  readonly targetFramework: string | null;
+  readonly runtimeIdentifier: string | null;
+  readonly assetPath: string | null;
+  readonly framework: string | null;
+  readonly frameworkVersion: string | null;
+  readonly project: string | null;
+  readonly resolverSource: string | null;
+  readonly contentReference: string | null;
+  readonly digest: string | null;
+  readonly declaredName: string | null;
+}
+
+export interface BrowserEcosystemTypeFindRequest {
+  readonly text: string;
+  readonly ecosystems: ReadonlyArray<string>;
+  readonly prefixDemand: ReadonlyArray<string>;
+  readonly rowStart: number;
+  readonly rowEnd: number;
+  readonly maximumPrefixPackages: number;
+  readonly targetFramework: string | null;
+}
+
+export interface BrowserEcosystemTypeFindResult {
+  readonly kind: BrowserEcosystemTypeFindResultKind;
+  readonly inspection: BrowserEcosystemTypeFindInspection | null;
+  readonly failureKind: BrowserEcosystemTypeFindFailureKind | null;
+  readonly error: string | null;
+  readonly diagnostic: string | null;
+  readonly reason: string | null;
+}
+
+export interface BrowserEcosystemTypeFindSettlement {
+  readonly rowStart: number | null;
+  readonly rowEnd: number | null;
+  readonly findings: ReadonlyArray<BrowserEcosystemTypeFindFinding>;
+  readonly completion: string;
+  readonly failures: ReadonlyArray<BrowserEcosystemTypeFindItemFailure>;
+  readonly unsearched: ReadonlyArray<string>;
+  readonly incomplete: boolean;
+}
+
+export interface BrowserEcosystemTypeFindSource {
+  readonly kind: string;
+  readonly label: string;
+  readonly packageId: string | null;
+  readonly packageVersion: string | null;
+  readonly platformFamily: string | null;
+  readonly library: BrowserEcosystemTypeFindAssemblyIdentity;
+  readonly provenance: BrowserEcosystemTypeFindProvenance;
+  readonly requestedTargetFramework: string | null;
+  readonly requestedRuntimeIdentifier: string | null;
+  readonly contextOrder: number;
+  readonly memberOrder: number;
 }
 
 export interface BrowserHomeDemoCatalog {
@@ -1222,6 +1348,7 @@ type $ManagedExports = {
             readonly "AdmitRetainedWorkspacePackage.2036994461": (retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number) => Promise<string>;
             readonly "AdmitRetainedWorkspacePlatform.2036994461": (retainedDefinitionId: string, realizationId: string, navigationId: string, typeOffset: number) => Promise<string>;
             readonly "CanUpgradeLegacyPlatformWorkspace.91425100": (packet: string) => boolean;
+            readonly "CancelEcosystemTypeFind.271973316": (operationId: string, reason: string) => string;
             readonly "CancelRetainedWorkspaceActivation.976702342": (receipt: string) => Promise<string>;
             readonly "CancelSpotlightTypeFind.271973316": (operationId: string, reason: string) => string;
             readonly "CanonicalizeWorkspaceSharePacket.304094707": (encoded: string) => string;
@@ -1237,6 +1364,7 @@ type $ManagedExports = {
             readonly "ExplainResources.271973316": (path: string, projection: string) => string;
             readonly "ExplainVocabularies.1772831633": (path: string, depth: number, valueIds: string[] | null) => string;
             readonly "ExplainWorkspaceComponent.1537767637": (json: string, parentPacket: string | null, projection: string) => string;
+            readonly "FindEcosystemTypes.755314920": (operationId: string, retainedDefinitionId: string, realizationId: string, resultGeneration: number, requestJson: string, eventSink: unknown) => Promise<string>;
             readonly "FindIndexedTypes.72069702": (retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string, maximumRows: number) => Promise<string>;
             readonly "FindSpotlightTypes.2105594833": (operationId: string, retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string, maximumRows: number, eventSink: unknown) => Promise<string>;
             readonly "InspectVocabulary.1310674786": () => string;
@@ -1423,6 +1551,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "Interop");
     value = $ownDataProperty(value, "Catalog");
     value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "CancelEcosystemTypeFind.271973316");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.CancelEcosystemTypeFind.271973316\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
     value = $ownDataProperty(value, "CancelRetainedWorkspaceActivation.976702342");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.CancelRetainedWorkspaceActivation.976702342\u0027 is not callable.");
@@ -1594,6 +1734,18 @@ function $validateManagedExports(exports: unknown): asserts exports is $ManagedE
     value = $ownDataProperty(value, "ExplainWorkspaceComponent.1537767637");
     if (typeof value !== "function") {
       throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.ExplainWorkspaceComponent.1537767637\u0027 is not callable.");
+    }
+  }
+  {
+    let value: unknown = exports;
+    value = $ownDataProperty(value, "DotnetInspect");
+    value = $ownDataProperty(value, "Web");
+    value = $ownDataProperty(value, "Interop");
+    value = $ownDataProperty(value, "Catalog");
+    value = $ownDataProperty(value, "CatalogExports");
+    value = $ownDataProperty(value, "FindEcosystemTypes.755314920");
+    if (typeof value !== "function") {
+      throw new Error("Managed export \u0027DotnetInspect.Web.Interop.Catalog.CatalogExports.FindEcosystemTypes.755314920\u0027 is not callable.");
     }
   }
   {
@@ -1959,6 +2111,12 @@ export function canUpgradeLegacyPlatformWorkspace(packet: string): boolean {
   return $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["CanUpgradeLegacyPlatformWorkspace.91425100"](packet);
 }
 
+export function cancelEcosystemTypeFind(operationId: string, reason: string): BrowserEcosystemTypeFindCancellation {
+  const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["CancelEcosystemTypeFind.271973316"](operationId, reason);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserEcosystemTypeFindCancellation;
+}
+
 export async function cancelRetainedWorkspaceActivation(receipt: string): Promise<BrowserRetainedWorkspaceActivationResult> {
   const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["CancelRetainedWorkspaceActivation.976702342"](receipt);
   const $parsed: unknown = JSON.parse($result);
@@ -2047,6 +2205,12 @@ export function explainWorkspaceComponent(json: string, parentPacket: string | n
   const $result = $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["ExplainWorkspaceComponent.1537767637"](json, parentPacket, projection);
   const $parsed: unknown = JSON.parse($result);
   return $parsed as BrowserResourceExplanationResult;
+}
+
+export async function findEcosystemTypes(operationId: string, retainedDefinitionId: string, realizationId: string, resultGeneration: number, requestJson: BrowserEcosystemTypeFindRequest, eventSink: unknown): Promise<BrowserEcosystemTypeFindResult> {
+  const $result = await $requireManagedExports()["DotnetInspect"]["Web"]["Interop"]["Catalog"]["CatalogExports"]["FindEcosystemTypes.755314920"](operationId, retainedDefinitionId, realizationId, resultGeneration, $serializeJsonInput(requestJson, "DotnetInspect.Web.Interop.Catalog.CatalogExports.FindEcosystemTypes.755314920", "requestJson"), eventSink);
+  const $parsed: unknown = JSON.parse($result);
+  return $parsed as BrowserEcosystemTypeFindResult;
 }
 
 export async function findIndexedTypes(retainedDefinitionId: string, realizationId: string, resultGeneration: number, text: string, maximumRows: number): Promise<BrowserIndexedTypeFindResult> {
