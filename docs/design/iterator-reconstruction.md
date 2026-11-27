@@ -24,8 +24,18 @@ only for a machine the inverse declines.
 | --- | --- | --- |
 | 1 | General inverse for iterators with no yield inside a `try` block, consulted after every shape matcher declines | Done |
 | 2 | Finally frames: a yield inside `try`/`finally`, `using`, or `foreach` over a disposable enumerator | Planned |
-| 3a | Run the inverse first; a shape matcher sees only what the inverse declines | This change |
-| 3b | Retire each shape matcher that keeps no accepted population of its own | Planned |
+| 3a | Run the inverse first; a shape matcher sees only what the inverse declines | Done |
+| 3b | Retire each shape matcher that keeps no accepted population of its own | This change |
+
+Stage 3b removes the linear, counting-loop, and multi-yield matchers, which
+accept nothing once the inverse runs first. Five remain, each with a
+population the inverse does not own yet: the foreach family (finally frames,
+stage 2), the switch matcher (the inverse declines the compiler's `switch`
+with a yield in each section on a surviving transfer), the yield-break-loop
+matcher, the stateless matcher (a single-state machine with no dispatch to
+fold), and the reducible matcher (a body with a raised lambda, which the
+inverse declines until #11208). Each retires when the inverse owns its
+population.
 
 ## Why the shape matchers cannot grow
 
