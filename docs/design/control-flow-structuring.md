@@ -950,13 +950,16 @@ only when the post-dominator machinery is proven.
    the container keeps its goto form. Because planning a sibling-arm move can
    take the very block whose fallthrough proved a shared join, that proof is
    re-read after planning so validation decides on the walk build will see.
-   Seven pinned
-   methods lost exact PDB local names (`DEC0009`, `unspellable-local-name`)
-   because a sibling-scope pattern local whose scope-entry label the
-   structuring dissolved is now declared at its first store and encloses its
-   namesakes; the exact-local scope-entry owner tracks that in
+   Seven pinned methods initially lost exact PDB local names (`DEC0009`,
+   `unspellable-local-name`) when structured sibling scopes made emitted
+   bindings overlap despite disjoint source scopes. The scope-entry owner
+   tracks the local-name fidelity obligation in
    [#10493](https://github.com/richlander/dotnet-inspect/issues/10493)
-   (seven other pinned methods moved Partial → Full the same way). Multi-entry
+   (seven other pinned methods moved Partial → Full the same way). The
+   [local-binding plan](decompiler-local-binding-plan.md#exact-name-scope-composition-before-planning)
+   owns later conditional lexical placement and proved unreachable-clone
+   elimination; no structuring candidate is disabled or granted another
+   transfer owner. Multi-entry
    case bodies — two case labels whose tests sit in different subtrees
    (`JPath::ParsePath`, `JsonTextReader::ParseValue` behind its lowered
    `switch` instructions) — remain flat: they need a switch raise from the
