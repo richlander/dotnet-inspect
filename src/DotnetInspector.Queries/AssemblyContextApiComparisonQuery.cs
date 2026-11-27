@@ -113,9 +113,9 @@ public static class AssemblyContextApiComparisonQuery
         return new(scope, before, after, comparison);
     }
 
-    // An exact-name selection pairs with only the Types that declare an
-    // extension for a selected Type; any other selection pairs with every
-    // extension-declaring Type.
+    // A selection by full name pairs with only the Types that declare an
+    // extension for a selected Type; a selection of one Type definition pairs
+    // with every extension-declaring Type.
     static IReadOnlySet<string>? ExtensionDeclaringTypeNames(
         AssemblyContextGroup group,
         AssemblyContextParticipant participant,
@@ -123,9 +123,7 @@ public static class AssemblyContextApiComparisonQuery
         => AssemblyContextQueryExecutor.ExecuteParticipant(
                 group,
                 participant,
-                session => selection.FullNames is { } names
-                    ? session.ExtensionDeclaringTypeNamesFor(names)
-                    : session.ExtensionDeclaringTypeNames())
+                session => session.ExtensionDeclaringTypeNamesFor(selection))
             is AssemblyContextEntry<IReadOnlySet<string>?>.Available { Value: { } names }
                 ? names
                 : null;

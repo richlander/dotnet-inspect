@@ -814,6 +814,102 @@ internal static partial class MetadataRelationInspection
             cancellationToken);
     }
 
+    /// <summary>
+    /// Returns the declaring-Type evidence of every extension in this image
+    /// whose receiver is one of <paramref name="receivers"/>, Types of this
+    /// assembly, hidden, obsolete, and non-public extensions included, in one
+    /// walk of the image's extension candidates; or null when the image has
+    /// no usable assembly identity, or any candidate cannot be decoded or
+    /// declared.
+    /// </summary>
+    /// <remarks>
+    /// The result is the union of the occurrences of the complete
+    /// <see cref="ExecuteExtensionPopulation"/> rows for each receiver with
+    /// <c>includeNonPublic</c>, and is null exactly when one of those
+    /// populations would not be complete; the walk decodes each candidate
+    /// once instead of once per receiver.
+    /// </remarks>
+    internal static IReadOnlyList<MetadataExtensionRelationEvidence>?
+        ExtensionOccurrencesForReceivers(
+            MetadataReader reader,
+            IReadOnlySet<MetadataTypeDefinitionName> receivers,
+            CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(reader);
+        ArgumentNullException.ThrowIfNull(receivers);
+        MetadataRelationReceiptIdentity receiptIdentity =
+            ReadReceiptIdentity(reader, out _);
+        if (receiptIdentity.ModuleVersionId is null
+            || !reader.IsAssembly
+            || receiptIdentity.Assembly is not { } source)
+        {
+            return null;
+        }
+
+        using var operation = new MetadataOperationContext(
+            new MetadataOperationPolicy(int.MaxValue));
+        if (operation.AdmitImage(reader)
+            is MetadataImageAdmissionResult.Rejected)
+        {
+            return null;
+        }
+
+        var occurrences = new List<MetadataExtensionRelationEvidence>();
+        // The canonical population rejects a repeated extension property
+        // signature among one receiver's matches.
+        var propertySignatures =
+            new HashSet<(MetadataTypeDefinitionName, string)>();
+        try
+        {
+            ExtensionCandidatePopulation population = ExtensionCandidates(
+                reader,
+                includeNonPublic: true,
+                cancellationToken);
+            foreach (ExtensionDeclarationCandidate candidate
+                in population.Candidates)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                operation.Charge(
+                    MetadataOperationDimension.DeclarationCandidates);
+                if (!TryDecodeExtensionPopulationCandidate(
+                        reader,
+                        candidate,
+                        operation,
+                        out DecodedExtensionPopulationCandidate? decoded,
+                        out _))
+                {
+                    return null;
+                }
+                if (ReceiverTypeName(source, decoded!.Receiver, source)
+                        is not { } receiver
+                    || !receivers.Contains(receiver))
+                {
+                    continue;
+                }
+                if (!TryCreateExtensionPopulationDeclaration(
+                        reader,
+                        decoded,
+                        out DecodedExtensionDeclaration? declaration,
+                        out _))
+                {
+                    return null;
+                }
+                if (candidate.IsProperty
+                    && !propertySignatures.Add(
+                        (receiver, declaration!.Member.CanonicalSignature)))
+                {
+                    return null;
+                }
+                occurrences.Add(declaration!.ToEvidence());
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            return null;
+        }
+        return occurrences;
+    }
+
     private static MetadataExtensionRelationPopulationOutcome
         ScanExtensionPopulation(
             MetadataReader reader,
@@ -1264,11 +1360,21 @@ internal static partial class MetadataRelationInspection
         AssemblyReferenceIdentity sourceAssembly,
         MetadataTypeIdentity receiver,
         MetadataExtensionReceiverSelection selection)
+        => ReceiverTypeName(sourceAssembly, receiver, selection.Assembly)
+            is { } name
+            && name == selection.Type;
+
+    // The definition name of an extension's receiver when it is a Type of
+    // receiverAssembly, or null.
+    private static MetadataTypeDefinitionName? ReceiverTypeName(
+        AssemblyReferenceIdentity sourceAssembly,
+        MetadataTypeIdentity receiver,
+        AssemblyReferenceIdentity receiverAssembly)
     {
         if (ReceiverPrimitive(receiver)
                 is MetadataTypeIdentity.Primitive primitive)
         {
-            return MatchesPrimitiveReceiver(primitive, selection);
+            return PrimitiveReceiverTypeName(primitive, receiverAssembly);
         }
 
         MetadataNamedTypeIdentity? named =
@@ -1278,20 +1384,19 @@ internal static partial class MetadataRelationInspection
                     named.Namespace.ToString(),
                     [.. named.Segments.Select(static segment =>
                         segment.ToString())])
-                is not MetadataTypeDefinitionNameResult.Valid valid
-            || valid.Name != selection.Type)
+                is not MetadataTypeDefinitionNameResult.Valid valid)
         {
-            return false;
+            return null;
         }
 
-        return named.Scope.Kind switch
+        bool inReceiverAssembly = named.Scope.Kind switch
         {
             MetadataTypeScopeKind.CurrentModule
                 or MetadataTypeScopeKind.ModuleReference =>
-                sourceAssembly.IsEquivalentTo(selection.Assembly),
+                sourceAssembly.IsEquivalentTo(receiverAssembly),
             MetadataTypeScopeKind.AssemblyReference
                 when named.Scope.Assembly is { } assembly =>
-                selection.Assembly.IsEquivalentTo(
+                receiverAssembly.IsEquivalentTo(
                     new AssemblyReferenceIdentity(
                         assembly.Name.ToString(),
                         assembly.Version,
@@ -1299,11 +1404,12 @@ internal static partial class MetadataRelationInspection
                         EmptyToNull(assembly.PublicKeyToken))),
             _ => false,
         };
+        return inReceiverAssembly ? valid.Name : null;
     }
 
-    private static bool MatchesPrimitiveReceiver(
+    private static MetadataTypeDefinitionName? PrimitiveReceiverTypeName(
         MetadataTypeIdentity.Primitive primitive,
-        MetadataExtensionReceiverSelection selection)
+        AssemblyReferenceIdentity receiverAssembly)
     {
         string primitiveName = primitive.Name.ToString();
         string fullName;
@@ -1318,12 +1424,12 @@ internal static partial class MetadataRelationInspection
                 primitiveName,
                 out fullName))
         {
-            return false;
+            return null;
         }
 
         const string systemPrefix = "System.";
         return ApiSurfaceExtractor.ResolvesThroughCoreLibrary(
-                selection.Assembly)
+                receiverAssembly)
             && fullName.StartsWith(
                 systemPrefix,
                 StringComparison.Ordinal)
@@ -1331,7 +1437,8 @@ internal static partial class MetadataRelationInspection
                     "System",
                     [fullName[systemPrefix.Length..]])
                 is MetadataTypeDefinitionNameResult.Valid valid
-            && valid.Name == selection.Type;
+                ? valid.Name
+                : null;
     }
 
     private static MetadataTypeIdentity.Primitive? ReceiverPrimitive(

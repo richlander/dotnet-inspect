@@ -610,8 +610,10 @@ Types it reads in full:
 - every targeted Type, for a Type or Member target;
 - every Type, when a requested outcome counts unchanged subjects across the
   Library, such as the `api` analysis's Summary;
-- both sides' extension-declaring Types, as Type selection already requires;
-  and
+- on both sides, the Types that declare an extension for a targeted Type, or
+  every extension-declaring Type when a targeted Type itself declares one, as
+  [Type-scoped comparison](library-api-diff-presentation.md#type-scoped-comparison)
+  requires; and
 - every Type, at a view the [Unchanged
   prefilter](finding-producers.md#unchanged-prefilter)
   does not define.
